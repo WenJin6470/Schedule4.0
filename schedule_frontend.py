@@ -10,7 +10,7 @@
   ✅ 从 Config/schedule_config.ini 读取课时数量配置
   ✅ 画出时间窗口和科目显示窗口
   ✅ 根据配置动态创建对应数量的课时标签控件
-  ✅ 创建关闭按钮（位于所有标签下方）并捕获用户点击
+  ✅ 创建底部按钮栏（全屏时间/快捷编辑/设置/关闭）并捕获用户点击
   ✅ 提供公开方法供后端调用来更新时间显示和修改特定标签内容
 
 本文件不包含任何业务逻辑（不管理定时器、不判断何时关闭），
@@ -32,8 +32,8 @@ from configparser import ConfigParser
 from typing import List, Optional, Tuple
 
 from PySide6.QtWidgets import QApplication, QWidget, QLabel, QPushButton
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPaintEvent
+from PySide6.QtCore import Qt, QSize, Signal
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPaintEvent
 
 # 获取本模块的 logger，日志将传播到 main.py 配置的根 logger
 logger: logging.Logger = logging.getLogger(__name__)
@@ -165,9 +165,24 @@ class ScheduleClassroomFrontend(QWidget):
     #  "客人点了关闭！"——喊完就完了，怎么关窗是后面的事。
     # ================================================================
 
-    # 信号：关闭请求 —— 用户点击了关闭（×）按钮
+    # 信号：关闭请求 —— 用户点击了关闭按钮
     # 参数：无
     close_requested = Signal()
+
+    # 信号：全屏时间请求 —— 用户点击了全屏时间按钮
+    # 参数：无
+    # 状态：接口已预留，功能待后续实现
+    fullscreen_time_requested = Signal()
+
+    # 信号：快捷课表编辑请求 —— 用户点击了快捷课表编辑按钮
+    # 参数：无
+    # 状态：接口已预留，功能待后续实现
+    quick_edit_requested = Signal()
+
+    # 信号：设置请求 —— 用户点击了设置按钮
+    # 参数：无
+    # 状态：接口已预留，功能待后续实现
+    settings_requested = Signal()
 
     # ================================================================
     #  构造函数（初始化窗口）
@@ -240,6 +255,9 @@ class ScheduleClassroomFrontend(QWidget):
         # 控件引用（初始为 None，在 _setup_ui 中创建）
         self.root: Optional[QWidget] = None
         self.close_btn: Optional[QPushButton] = None
+        self.fullscreen_btn: Optional[QPushButton] = None
+        self.edit_btn: Optional[QPushButton] = None
+        self.settings_btn: Optional[QPushButton] = None
         self.time_label: Optional[QLabel] = None
 
         # ===== 课时标签列表 =====
@@ -452,6 +470,34 @@ class ScheduleClassroomFrontend(QWidget):
                     f"font_color={self.font_color}, opacity={self.window_opacity}")
 
     # ================================================================
+    #  私有方法：根据当前主题确定按钮图标后缀
+    # ================================================================
+    def _get_icon_suffix(self) -> str:
+        """
+        根据当前主题返回按钮图标文件名的后缀。
+        ------------------------------------
+        -w 后缀代表白色（white）图标，适合深色背景上显示。
+        无后缀的是深色图标，适合浅色背景上显示。
+
+        返回值：
+            str：'-w'  — 白色图标（如 FullScreenTime-w.svg），用于深色背景
+                 ''    — 深色图标（如 FullScreenTime.svg），用于浅色背景
+
+        调用时机：_setup_ui() 创建按钮时自动调用。
+        """
+        if self.theme == 'lightcolor':
+            return ''       # 浅色背景 → 深色图标
+        elif self.theme == 'darkcolor':
+            return '-w'     # 深色背景 → 白色图标
+        elif self.theme == 'multicolor':
+            # multicolor 模式：根据实际背景色判断深浅
+            if is_color_dark(self.back_color):
+                return '-w'     # 深色背景 → 白色图标
+            else:
+                return ''       # 浅色背景 → 深色图标
+        return ''
+
+    # ================================================================
     #  重写 paintEvent：直接绘制背景色（绕过样式表/QPalette 的不确定性）
     # ================================================================
     def paintEvent(self, event: QPaintEvent) -> None:
@@ -485,7 +531,7 @@ class ScheduleClassroomFrontend(QWidget):
           │   ...        │     （period_label_0 ~ period_label_N）
           │   第7节       │
           │              │
-          │     [×]      │  ← 关闭按钮（所有标签下方居中）
+          │ ⏰ 📝 ⚙ ✕  │  ← 底部按钮栏（左→右：全屏时间/快捷编辑/设置/关闭）
           └──────────────┘
         """
 
@@ -549,7 +595,7 @@ class ScheduleClassroomFrontend(QWidget):
         # 每个标签命名规则：period_label_{index}（index 从 0 开始）
         # 通过 get_period_label(index) 可获取特定标签供后端修改
 
-        close_btn_height: int = 36           # 关闭按钮区域高度（含上下间距）
+        close_btn_height: int = 36           # 底部按钮栏区域高度（含上下间距）
         available_height: int = int(self.height_root) - close_btn_height
         label_height: int = available_height // self.period_count if self.period_count > 0 else available_height
 
@@ -571,39 +617,64 @@ class ScheduleClassroomFrontend(QWidget):
             label.setText(f"  第{i + 1}节")
             self.period_labels.append(label)
 
-        # ========== 关闭按钮（置于所有标签下方）==========
+        # ========== 底部按钮栏（4 个图标按钮，置于所有标签下方）==========
+        # 从左到右：全屏时间 → 快捷课表编辑 → 设置 → 关闭
+        # 根据主题自动选择深色/浅色图标（通过 _get_icon_suffix() 判断）
 
-        self.close_btn = QPushButton("×", self.root)
-        self.close_btn.setFont(QFont("Arial", 14, QFont.Bold))  # type: ignore
+        images_dir: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'images')
+        icon_suffix: str = self._get_icon_suffix()
 
-        # 按钮样式：平时完全透明，悬停时显示红色文字和半透明背景
-        self.close_btn.setStyleSheet(f"""
-            QPushButton {{
-                color: {self.font_color};
-                background: transparent;
-                border: none;
-                padding: 0px;
-            }}
-            QPushButton:hover {{
-                color: #ff4444;
-                background: rgba(128, 128, 128, 0.25);
-                border-radius: 4px;
-            }}
-        """)
-        self.close_btn.setFixedSize(28, 28)
-        # 放在标签区域下方居中
-        btn_x: int = (int(self.win_width) - 28) // 2
-        btn_y: int = self.period_count * label_height + (close_btn_height - 28) // 2
-        self.close_btn.move(btn_x, btn_y)
+        logger.info(f"图标后缀：'{icon_suffix}'（主题={self.theme}，背景色={self.back_color}）")
 
-        # 连接关闭按钮点击 → 发射信号（不再直接关闭窗口）
-        self.close_btn.clicked.connect(self._on_close_clicked)
+        # 按钮配置列表：(属性名, 图片基础名, 点击处理函数, 按钮提示文字)
+        button_configs = [
+            ('fullscreen_btn', 'FullScreenTime', self._on_fullscreen_time_clicked),
+            ('edit_btn',        'EDIT_S',        self._on_quick_edit_clicked),
+            ('settings_btn',    'setting',       self._on_settings_clicked),
+            ('close_btn',       'EXIT',          self._on_close_clicked),
+        ]
+
+        btn_size: int = 20                               # 每个按钮的宽高（正方形）
+        total_btn_width: int = 4 * btn_size              # 所有按钮占用的总宽度
+        spacing: int = (int(self.win_width) - total_btn_width) // 5  # 等分间距（5个间隔）
+        btn_y: int = self.period_count * label_height + (close_btn_height - btn_size) // 2
+
+        for i, (attr_name, image_base, handler) in enumerate(button_configs):
+            icon_path: str = os.path.join(images_dir, f"{image_base}{icon_suffix}.svg")
+
+            btn: QPushButton = QPushButton(self.root)
+            btn.setIcon(QIcon(icon_path))
+            btn.setIconSize(QSize(btn_size, btn_size))
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: transparent;
+                    border: none;
+                    padding: 0px;
+                }}
+                QPushButton:hover {{
+                    background: rgba(128, 128, 128, 0.25);
+                    border-radius: 4px;
+                }}
+            """)
+            btn.setFixedSize(btn_size, btn_size)
+
+            # 等间距水平排列：spacing + i × (btn_size + spacing)
+            btn_x: int = spacing + i * (btn_size + spacing)
+            btn.move(btn_x, btn_y)
+
+            # 连接点击信号 → 发射对应的自定义信号
+            btn.clicked.connect(handler)
+
+            # 保存按钮引用到实例属性
+            setattr(self, attr_name, btn)
+
+        logger.info(f"底部按钮栏创建完成：4 个图标按钮，图标后缀='{icon_suffix}'，间距={spacing}px")
 
         # 显示科目窗口
         self.root.show()
         logger.info(f"科目窗口创建完成：位置({self.left_root}, {self.top_root})，"
                     f"大小 {int(self.win_width)}×{int(self.height_root)}，"
-                    f"课时标签 {self.period_count} 个，关闭按钮已连接")
+                    f"课时标签 {self.period_count} 个，底部按钮栏 4 个已连接")
 
     # ================================================================
     #  ★★★  前端 → 后端：按钮点击槽函数（私有方法）  ★★★
@@ -624,6 +695,36 @@ class ScheduleClassroomFrontend(QWidget):
         """
         logger.info("用户点击了关闭按钮，发射 close_requested 信号")
         self.close_requested.emit()
+
+    def _on_fullscreen_time_clicked(self) -> None:
+        """
+        全屏时间按钮点击处理。
+        ------------------
+        发射 fullscreen_time_requested 信号。
+        ⚠️ 功能待实现：该信号目前仅预留接口，main.py 中暂未连接任何处理逻辑。
+        """
+        logger.info("用户点击了全屏时间按钮，发射 fullscreen_time_requested 信号")
+        self.fullscreen_time_requested.emit()
+
+    def _on_quick_edit_clicked(self) -> None:
+        """
+        快捷课表编辑按钮点击处理。
+        ----------------------
+        发射 quick_edit_requested 信号。
+        ⚠️ 功能待实现：该信号目前仅预留接口，main.py 中暂未连接任何处理逻辑。
+        """
+        logger.info("用户点击了快捷课表编辑按钮，发射 quick_edit_requested 信号")
+        self.quick_edit_requested.emit()
+
+    def _on_settings_clicked(self) -> None:
+        """
+        设置按钮点击处理。
+        ----------------
+        发射 settings_requested 信号。
+        ⚠️ 功能待实现：该信号目前仅预留接口，main.py 中暂未连接任何处理逻辑。
+        """
+        logger.info("用户点击了设置按钮，发射 settings_requested 信号")
+        self.settings_requested.emit()
 
     # ================================================================
     #  ★★★  后端 → 前端：公开方法（Public API）  ★★★

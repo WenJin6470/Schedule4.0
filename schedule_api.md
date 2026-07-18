@@ -61,7 +61,10 @@
 
 | 信号名称 | 参数 | 触发时机 | 说明 |
 |----------|------|----------|------|
-| `close_requested` | 无 | 点击关闭（×）按钮 | 用户点击科目显示窗口右上角的关闭按钮 |
+| `close_requested` | 无 | 点击关闭按钮 | 用户点击科目显示窗口底部关闭按钮 |
+| `fullscreen_time_requested` | 无 | 点击全屏时间按钮 | 用户点击底部全屏时间按钮（⚠️ 功能待实现） |
+| `quick_edit_requested` | 无 | 点击快捷课表编辑按钮 | 用户点击底部快捷课表编辑按钮（⚠️ 功能待实现） |
+| `settings_requested` | 无 | 点击设置按钮 | 用户点击底部设置按钮（⚠️ 功能待实现） |
 
 ---
 
@@ -89,6 +92,87 @@ window.close_requested.connect(
         app
     )
 )
+```
+
+---
+
+#### `fullscreen_time_requested()`
+
+用户点击底部全屏时间按钮时发射。无参数。
+
+⚠️ **状态：接口已预留，功能待后续实现。** 该信号目前仅在前端定义并发射，main.py 中暂未连接任何处理逻辑。
+
+```
+┌─────────────────────────────────────────┐
+│  触发流程：                              │
+│  1. 用户点击底部全屏时间按钮              │
+│  2. QPushButton.clicked 信号触发         │
+│  3. 前端 _on_fullscreen_time_clicked()   │
+│  4. 发射 fullscreen_time_requested 信号   │
+│  5. （待实现）main.py 连接器处理          │
+└─────────────────────────────────────────┘
+```
+
+**连接示例**（预留，在 main.py 中）：
+```python
+# TODO: 待后续实现全屏时间功能时取消注释
+# window.fullscreen_time_requested.connect(
+#     lambda: fullscreen_helper.show_fullscreen_time()
+# )
+```
+
+---
+
+#### `quick_edit_requested()`
+
+用户点击底部快捷课表编辑按钮时发射。无参数。
+
+⚠️ **状态：接口已预留，功能待后续实现。** 该信号目前仅在前端定义并发射，main.py 中暂未连接任何处理逻辑。
+
+```
+┌─────────────────────────────────────────┐
+│  触发流程：                              │
+│  1. 用户点击底部快捷课表编辑按钮          │
+│  2. QPushButton.clicked 信号触发         │
+│  3. 前端 _on_quick_edit_clicked()        │
+│  4. 发射 quick_edit_requested 信号        │
+│  5. （待实现）main.py 连接器处理          │
+└─────────────────────────────────────────┘
+```
+
+**连接示例**（预留，在 main.py 中）：
+```python
+# TODO: 待后续实现快捷课表编辑功能时取消注释
+# window.quick_edit_requested.connect(
+#     lambda: schedule_editor.open_quick_edit()
+# )
+```
+
+---
+
+#### `settings_requested()`
+
+用户点击底部设置按钮时发射。无参数。
+
+⚠️ **状态：接口已预留，功能待后续实现。** 该信号目前仅在前端定义并发射，main.py 中暂未连接任何处理逻辑。
+
+```
+┌─────────────────────────────────────────┐
+│  触发流程：                              │
+│  1. 用户点击底部设置按钮                  │
+│  2. QPushButton.clicked 信号触发         │
+│  3. 前端 _on_settings_clicked()          │
+│  4. 发射 settings_requested 信号          │
+│  5. （待实现）main.py 连接器处理          │
+└─────────────────────────────────────────┘
+```
+
+**连接示例**（预留，在 main.py 中）：
+```python
+# TODO: 待后续实现设置功能时取消注释
+# window.settings_requested.connect(
+#     lambda: settings_dialog.open_settings()
+# )
 ```
 
 ---
@@ -344,6 +428,13 @@ helper.close_all([window, root_window], app)
 │  │ Frontend             │                │ .close_all() │      │
 │  │ .close_requested     │                │              │      │
 │  └──────────────────────┘                └──────────────┘      │
+│                                                                  │
+│  连接3~5: 预留信号（功能待实现）                                    │
+│  ┌──────────────────────┐                                        │
+│  │ ScheduleClassroom    │  fullscreen_time_requested  → (待实现) │
+│  │ Frontend             │  quick_edit_requested       → (待实现) │
+│  │                      │  settings_requested         → (待实现) │
+│  └──────────────────────┘                                        │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -445,6 +536,17 @@ def main():
         )
     )
 
+    # 连接3~5：预留信号连接（功能待实现）
+    # window.fullscreen_time_requested.connect(
+    #     lambda: fullscreen_helper.show_fullscreen_time()
+    # )
+    # window.quick_edit_requested.connect(
+    #     lambda: schedule_editor.open_quick_edit()
+    # )
+    # window.settings_requested.connect(
+    #     lambda: settings_dialog.open_settings()
+    # )
+
     # 第5步：显示窗口
     window.show()
 
@@ -469,11 +571,12 @@ if __name__ == "__main__":
 │   红色大字        │     尺寸: 屏幕宽度×(150/1920) × 屏幕高度/26
 │   半透明背景      │     位置: 屏幕右上角 (left=1765/1920×W, top=45/1080×H)
 ├──────────────────┤
-│              [×] │  ← 科目显示窗口 (self.root)
+│                  │  ← 科目显示窗口 (self.root)
 │                  │     尺寸: 屏幕宽度×(150/1920) × 屏幕高度/13×11
 │   科目内容区域    │     位置: 时间窗口正下方 (top=屏幕高度/12)
-│                  │     右上角有关闭按钮(×)
 │                  │
+│                  │
+│ ⏰  📝  ⚙  ✕   │  ← 底部按钮栏（左→右：全屏时间/快捷编辑/设置/关闭）
 └──────────────────┘
 ```
 
@@ -483,7 +586,26 @@ if __name__ == "__main__":
 |----------|------|----------|------|
 | `time_label` | `QLabel` | 时间窗口（self） | 实时时间显示，红色 Arial 18号字体 |
 | `root` | `QWidget` | —（独立窗口） | 科目显示窗口 |
-| `close_btn` | `QPushButton` | root 窗口 | 关闭按钮（×），悬停变红 |
+| `fullscreen_btn` | `QPushButton` | root 窗口 | 全屏时间按钮（图标按钮，功能待实现） |
+| `edit_btn` | `QPushButton` | root 窗口 | 快捷课表编辑按钮（图标按钮，功能待实现） |
+| `settings_btn` | `QPushButton` | root 窗口 | 设置按钮（图标按钮，功能待实现） |
+| `close_btn` | `QPushButton` | root 窗口 | 关闭按钮（图标按钮，点击关闭程序） |
+
+### 按钮图标说明
+
+底部 4 个按钮使用 SVG 图标作为按钮前景（无文字），根据当前主题自动切换深色/浅色图标：
+
+| 按钮 | 浅色模式图标 | 深色模式图标 | 对应信号 |
+|------|-------------|-------------|----------|
+| 全屏时间 | `FullScreenTime.svg` | `FullScreenTime-w.svg` | `fullscreen_time_requested` |
+| 快捷课表编辑 | `EDIT_S.svg` | `EDIT_S-w.svg` | `quick_edit_requested` |
+| 设置 | `setting.svg` | `setting-w.svg` | `settings_requested` |
+| 关闭 | `EXIT.svg` | `EXIT-w.svg` | `close_requested` |
+
+- **浅色模式**（`lightcolor` 主题 / `multicolor` 浅色背景）：使用不带 `-w` 后缀的图标（深色图标，适合浅色背景）
+- **深色模式**（`darkcolor` 主题 / `multicolor` 深色背景）：使用带 `-w` 后缀的图标（白色图标，适合深色背景）
+
+图标文件位于 `images/` 目录，由 `_get_icon_suffix()` 方法根据 `self.theme` 和背景色自动判断后缀。
 
 ### 主题配色说明
 
