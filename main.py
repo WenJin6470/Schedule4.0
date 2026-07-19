@@ -48,7 +48,43 @@ from PySide6.QtWidgets import QApplication
 from schedule_frontend import ScheduleClassroomFrontend
 
 # 后端逻辑（负责时间管理和窗口辅助操作）
-from schedule_backend import TimeManager, WindowHelper
+from schedule_backend import TimeManager, ScheduleBackend
+
+
+# ================================================================
+#  彩色日志格式化器 —— 终端输出按级别着色
+# ================================================================
+class ColoredFormatter(logging.Formatter):
+    """
+    带 ANSI 颜色的日志格式化器，仅用于终端 StreamHandler。
+
+    颜色映射：
+      DEBUG    → 亮黄色     （调试细节）
+      INFO     → 青色   （正常流程信息）
+      WARNING  → 橙色     （警告：配置缺失、参数越界等）
+      ERROR    → 亮红色   （错误：文件读取失败、异常捕获等）
+      CRITICAL → 白字红底  （严重错误）
+
+    日志文件中不使用此格式化器，保持纯文本。
+    """
+
+    # ANSI 颜色码
+    COLORS: dict = {
+        'DEBUG':    '\033[93m',            # 亮黄色
+        'INFO':     '\033[36m',            # 青色
+        'WARNING':  '\033[38;5;214m',      # 橙色（256 色调色板）
+        'ERROR':    '\033[91m',            # 亮红色
+        'CRITICAL': '\033[41m\033[97m',    # 红色背景 + 亮白字
+    }
+    RESET: str = '\033[0m'
+
+    def format(self, record: logging.LogRecord) -> str:
+        """为整行日志消息包裹对应级别的 ANSI 颜色码。"""
+        color: str = self.COLORS.get(record.levelname, '')
+        formatted: str = super().format(record)
+        if color:
+            formatted = f"{color}{formatted}{self.RESET}"
+        return formatted
 
 
 # ================================================================
@@ -60,7 +96,7 @@ def main() -> None:
     ------------
     执行顺序：
       1. 创建 QApplication（PySide6 应用程序对象，必须有）
-      2. 配置日志系统（log 目录 + 当天日志文件 + 终端输出）
+      2. 配置日志系统（log 目录 + 当天日志文件 + 终端彩色输出）
       3. 创建前端窗口实例
       4. 创建后端实例
       5. 把前端的信号和后端的方法连接起来（核心步骤！）
@@ -71,7 +107,7 @@ def main() -> None:
     #  第1步：配置日志系统
     #  - 创建 log/ 目录（如果不存在）
     #  - 日志文件按天命名：schedule_2026-07-18.log
-    #  - 同时输出到终端（StreamHandler）和文件（FileHandler）
+    #  - 终端输出使用 ColoredFormatter（彩色），文件输出保持纯文本
     # ================================================================
     script_dir: str = os.path.dirname(os.path.abspath(__file__))
     log_dir: str = os.path.join(script_dir, 'log')
@@ -80,16 +116,27 @@ def main() -> None:
     log_filename: str = f"schedule_{datetime.now().strftime('%Y-%m-%d')}.log"
     log_filepath: str = os.path.join(log_dir, log_filename)
 
-    # 配置根日志记录器 —— 所有子 logger 都会继承此配置
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s [%(levelname)-7s] %(name)s: %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S',
-        handlers=[
-            logging.FileHandler(log_filepath, encoding='utf-8'),   # 写入当天日志文件
-            logging.StreamHandler(sys.stdout),                      # 同时输出到终端
-        ]
+    # 统一的日志格式（终端和文件保持一致，仅颜色不同）
+    log_format: str = '%(asctime)s [%(levelname)-7s] %(name)s: %(message)s'
+    date_format: str = '%Y-%m-%d %H:%M:%S'
+
+    # --- 终端输出：带颜色 ---
+    stream_handler: logging.StreamHandler = logging.StreamHandler(sys.stdout)
+    stream_handler.setLevel(logging.INFO)   # 终端显示 INFO 及以上（避免每秒 DEBUG 刷屏）
+    stream_handler.setFormatter(ColoredFormatter(log_format, datefmt=date_format))
+
+    # --- 文件输出：纯文本（无 ANSI 码） ---
+    file_handler: logging.FileHandler = logging.FileHandler(
+        log_filepath, encoding='utf-8'
     )
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(logging.Formatter(log_format, datefmt=date_format))
+
+    # 配置根日志记录器 —— 所有子 logger 都会继承此配置
+    root_logger: logging.Logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.addHandler(stream_handler)
+    root_logger.addHandler(file_handler)
 
     logger: logging.Logger = logging.getLogger('main')
     logger.info(f"日志系统已就绪，日志文件：{log_filepath}")
@@ -106,9 +153,9 @@ def main() -> None:
     logger.info("前端窗口创建完成")
 
     # 第4步：创建后端实例
-    logger.info("正在创建后端实例（TimeManager + WindowHelper）...")
-    time_manager: TimeManager = TimeManager()      # 时间管理器：负责获取实时时间
-    window_helper: WindowHelper = WindowHelper()    # 窗口辅助器：负责关闭窗口等操作
+    logger.info("正在创建后端实例（TimeManager + ScheduleBackend）...")
+    time_manager: TimeManager = TimeManager()              # 时间管理器：负责获取实时时间
+    backend_handler: ScheduleBackend = ScheduleBackend()    # 后端信号处理器：分发统一信号（含关闭逻辑）
     logger.info("后端实例创建完成")
 
     # ================================================================
@@ -117,8 +164,8 @@ def main() -> None:
     # 连接1：定时器时间更新 → 前端时间标签
     #   TimeManager 每秒触发回调 → 调用前端的 update_time_display() 更新时间显示
     #
-    # 连接2：关闭按钮点击 → 关闭所有窗口并退出
-    #   前端发射 close_requested 信号 → 调用 WindowHelper.close_all() 关闭窗口
+    # 连接2：统一后端信号 → ScheduleBackend 处理
+    #   前端所有按钮点击通过 backend_signal 信号 → ScheduleBackend.handle_action() 分发
     # ================================================================
 
     # ----- 连接1：定时器 → 更新时间显示 -----
@@ -127,16 +174,14 @@ def main() -> None:
     time_manager.start(lambda time_str: window.update_time_display(time_str))
     logger.info("定时器已启动，时间显示信号已连接")
 
-    # ----- 连接2：关闭按钮 → 关闭所有窗口 -----
-    # 用户点击 × 按钮 → 前端发射 close_requested 信号 → 关闭所有窗口并退出
-    logger.info("正在连接信号：关闭按钮 → 退出程序")
-    window.close_requested.connect(
-        lambda: window_helper.close_all(
-            [window.get_time_window(), window.get_root_window()],
-            app
-        )
+    # ----- 连接2：统一后端信号 → ScheduleBackend -----
+    # 所有前端按钮点击（关闭、快捷编辑、科目选择等）都通过唯一的 backend_signal
+    # 发送给 ScheduleBackend.handle_action() 统一分发处理
+    logger.info("正在连接信号：统一后端信号 → ScheduleBackend")
+    window.backend_signal.connect(
+        lambda action: backend_handler.handle_action(action, window, app)
     )
-    logger.info("关闭按钮信号已连接")
+    logger.info("统一后端信号已连接")
 
     # 第6步：显示时间窗口
     logger.info("正在显示时间窗口...")

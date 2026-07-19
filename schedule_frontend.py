@@ -26,13 +26,16 @@
   【公开方法】  ≈ 厨师喊"时间到了，把钟调一下！"
 """
 
+import json
 import logging
 import os
 from configparser import ConfigParser
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
-from PySide6.QtWidgets import QApplication, QWidget, QLabel, QPushButton
-from PySide6.QtCore import Qt, QSize, Signal
+from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel,
+                                   QPushButton, QScrollArea, QSizePolicy,
+                                   QVBoxLayout, QWidget)
+from PySide6.QtCore import Qt, QSize, Signal, SignalInstance
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPaintEvent
 
 # 获取本模块的 logger，日志将传播到 main.py 配置的根 logger
@@ -128,6 +131,409 @@ class _RootWindow(QWidget):
         painter.fillRect(self.rect(), self._bg_color)
 
 
+# ==================== 科目选择子窗口类 ====================
+
+class SubjectSelectWindow(QWidget):
+    """
+    # SubjectSelectWindow — 快捷课表编辑科目选择窗口
+
+    在用户点击快捷编辑按钮后弹出，提供科目选择和移动控制功能。
+    ---
+
+    窗口布局（左:右 = 8:2）：
+      ┌──────────────────────────┬──────────┐
+      │  Category_1 标题         │ 倍速向上  │
+      │  [语文] [数学] [英语]... │          │
+      │  ─── 分割线 ───         │  向上    │
+      │  Category_2 标题         │          │
+      │  [活动] [体育] [信息]... │  向下    │
+      │  ─── 分割线 ───         │          │
+      │  Category_3 标题         │ 倍速向下  │
+      │  [None]                  │          │
+      │                          │  确定    │
+      └──────────────────────────┴──────────┘
+
+    所有按钮点击均通过 parent_signal 发射统一的 backend_signal，
+    动作标识符由后端解析处理。
+    """
+
+    def __init__(self, parent_signal: SignalInstance, subject_config: Dict,
+                 back_color: str, font_color: str, border_color: str,
+                 root_back_color: str, theme: str) -> None:
+        """
+        初始化科目选择窗口。
+        -----------------
+        参数：
+            parent_signal  （Signal）：父窗口的 backend_signal，用于发射动作信号
+            subject_config （Dict）：  科目配置数据（从 subject_config.json 加载）
+            back_color     （str）：   时间窗口背景色
+            font_color     （str）：   字体颜色
+            border_color   （str）：   分割线颜色
+            root_back_color（str）：   科目窗口背景色（本窗口使用此颜色）
+            theme          （str）：   当前主题名称
+        """
+        super().__init__()
+        self._parent_signal: SignalInstance = parent_signal
+        self._subject_config: Dict = subject_config
+        self._back_color: str = root_back_color       # 使用科目窗口背景色
+        self._font_color: str = font_color
+        self._border_color: str = border_color
+        self._theme: str = theme
+        self._bg_color: QColor = QColor(self._back_color)
+
+        # 获取屏幕尺寸用于窗口定位
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            self._screen_w: int = 1920
+            self._screen_h: int = 1080
+        else:
+            self._screen_w = screen.size().width()
+            self._screen_h = screen.size().height()
+
+        logger.info("SubjectSelectWindow 初始化开始")
+        self._setup_ui()
+        logger.info("SubjectSelectWindow 初始化完成")
+
+    # ================================================================
+    #  paintEvent：直接绘制背景色
+    # ================================================================
+    def paintEvent(self, event: QPaintEvent) -> None:
+        """直接填充背景色。"""
+        painter: QPainter = QPainter(self)
+        painter.fillRect(self.rect(), self._bg_color)
+
+    # ================================================================
+    #  私有方法：创建 UI 元素
+    # ================================================================
+    def _setup_ui(self) -> None:
+        """创建科目选择窗口的所有 UI 元素。"""
+
+        # ----- 窗口属性 -----
+        self.setWindowFlags(
+            Qt.FramelessWindowHint           # type: ignore
+            | Qt.WindowStaysOnTopHint        # type: ignore
+            | Qt.Tool                        # type: ignore
+        )
+        self.setAutoFillBackground(True)
+        self.setWindowOpacity(0.9)
+
+        # 窗口大小和位置（居中偏左，避免遮挡主窗口）
+        win_w: int = int(self._screen_w * 0.35)
+        win_h: int = int(self._screen_h * 0.65)
+        self.setFixedSize(win_w, win_h)
+        # 放置在屏幕中央偏左
+        pos_x: int = (self._screen_w - win_w) // 2 - int(self._screen_w * 0.08)
+        pos_y: int = (self._screen_h - win_h) // 2
+        self.move(pos_x, pos_y)
+
+        # ----- 主布局：左右 8:2 -----
+        main_layout: QHBoxLayout = QHBoxLayout(self)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setSpacing(6)
+
+        # ===== 左侧面板（80%）：科目按钮区域 =====
+        left_panel: QWidget = self._build_left_panel()
+        main_layout.addWidget(left_panel, stretch=8)
+
+        # ===== 右侧面板（20%）：控制按钮区域 =====
+        right_panel: QWidget = self._build_right_panel()
+        main_layout.addWidget(right_panel, stretch=2)
+
+        logger.info(f"SubjectSelectWindow UI 创建完成：{win_w}×{win_h}")
+
+    # ================================================================
+    #  构建左侧面板：科目按钮（分组 + 分割线）
+    # ================================================================
+    def _build_left_panel(self) -> QWidget:
+        """
+        构建左侧科目按钮面板。
+        -------------------
+        包含一个可滚动的区域，内部按 subject_config.json 的分类
+        将科目按钮分为三组，每组之间用分割线隔开。
+        """
+
+        # 滚动区域
+        scroll_area: QScrollArea = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setStyleSheet(f"""
+            QScrollArea {{
+                background: transparent;
+                border: none;
+            }}
+            QScrollBar:vertical {{
+                width: 6px;
+                background: transparent;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {self._border_color};
+                border-radius: 3px;
+                min-height: 20px;
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+        """)
+
+        # 滚动区域内部容器
+        inner_widget: QWidget = QWidget()
+        inner_widget.setStyleSheet("background: transparent;")
+        inner_layout: QVBoxLayout = QVBoxLayout(inner_widget)
+        inner_layout.setContentsMargins(4, 4, 4, 4)
+        inner_layout.setSpacing(4)
+
+        # 按钮样式
+        btn_style: str = f"""
+            QPushButton {{
+                color: {self._font_color};
+                background: rgba(128, 128, 128, 0.08);
+                border: 1px solid {self._border_color};
+                border-radius: 4px;
+                padding: 6px 10px;
+                font-size: 13px;
+            }}
+            QPushButton:hover {{
+                background: rgba(128, 128, 128, 0.25);
+                border: 1px solid rgba(128, 128, 128, 0.4);
+            }}
+            QPushButton:pressed {{
+                background: rgba(128, 128, 128, 0.35);
+            }}
+        """
+
+        # 分割线样式
+        separator_style: str = f"""
+            QFrame {{
+                border: none;
+                border-top: 1px solid {self._border_color};
+                margin: 6px 0px;
+                max-height: 1px;
+            }}
+        """
+
+        # 分类标题样式
+        category_label_style: str = f"""
+            QLabel {{
+                color: {self._font_color};
+                font-size: 11px;
+                font-weight: bold;
+                padding: 4px 0px 2px 2px;
+                background: transparent;
+            }}
+        """
+
+        # 分类名称映射（中文显示）
+        category_names: Dict[str, str] = {
+            "Category_1": "文化课",
+            "Category_2": "活动课",
+            "Category_3": "其他",
+        }
+
+        subject_types: Dict = self._subject_config.get("Subject_Types", {})
+        category_keys: List[str] = list(subject_types.keys())
+
+        for idx, category_key in enumerate(category_keys):
+            # 添加分割线（第一个分类之前不加）
+            if idx > 0:
+                sep: QFrame = QFrame()
+                sep.setStyleSheet(separator_style)
+                sep.setFrameShape(QFrame.HLine)  # type: ignore
+                inner_layout.addWidget(sep)
+
+            # 分类标题
+            cat_display_name: str = category_names.get(category_key, category_key)
+            cat_label: QLabel = QLabel(cat_display_name)
+            cat_label.setStyleSheet(category_label_style)
+            inner_layout.addWidget(cat_label)
+
+            # 科目按钮流式布局（使用 WrapLayout 效果：多行排列）
+            subjects = subject_types[category_key]
+
+            if isinstance(subjects, str):
+                # Category_3 可能是字符串 "None"
+                if subjects.lower() != "none":
+                    btn: QPushButton = self._create_subject_button(subjects, btn_style)
+                    inner_layout.addWidget(btn)
+                else:
+                    # "None" 显示为灰色不可用按钮
+                    btn = QPushButton("无")
+                    btn.setEnabled(False)
+                    btn.setStyleSheet(f"""
+                        QPushButton {{
+                            color: rgba(128, 128, 128, 0.5);
+                            background: rgba(128, 128, 128, 0.05);
+                            border: 1px solid rgba(128, 128, 128, 0.1);
+                            border-radius: 4px;
+                            padding: 6px 10px;
+                            font-size: 13px;
+                        }}
+                    """)
+                    inner_layout.addWidget(btn)
+            elif isinstance(subjects, list):
+                # 流式按钮布局：用 QVBoxLayout 嵌套 QHBoxLayout 模拟
+                # 每行放尽可能多的按钮
+                buttons_per_row: int = 4  # 每行最多 4 个按钮
+                current_row: Optional[QHBoxLayout] = None
+
+                for i, subject_name in enumerate(subjects):
+                    if i % buttons_per_row == 0:
+                        # 开始新的一行
+                        current_row = QHBoxLayout()
+                        current_row.setSpacing(4)
+                        current_row.setContentsMargins(0, 0, 0, 0)
+                        inner_layout.addLayout(current_row)
+
+                    btn = self._create_subject_button(subject_name, btn_style)
+                    if current_row is not None:
+                        current_row.addWidget(btn, stretch=1)
+
+                # 如果最后一行不满，添加空白占位
+                remaining: int = len(subjects) % buttons_per_row
+                if remaining > 0 and current_row is not None:
+                    for _ in range(buttons_per_row - remaining):
+                        spacer: QWidget = QWidget()
+                        spacer.setStyleSheet("background: transparent;")
+                        current_row.addWidget(spacer, stretch=1)
+
+        # 底部弹簧，将按钮组推到顶部
+        inner_layout.addStretch()
+
+        scroll_area.setWidget(inner_widget)
+        return scroll_area
+
+    # ================================================================
+    #  创建单个科目按钮
+    # ================================================================
+    def _create_subject_button(self, subject_name: str, style: str) -> QPushButton:
+        """
+        创建一个科目按钮并连接点击信号。
+        -------------------------------
+        参数：
+            subject_name（str）：科目名称（按钮文字）
+            style       （str）：按钮的 Qt 样式表
+
+        返回值：
+            QPushButton：已连接信号的按钮控件
+        """
+        btn: QPushButton = QPushButton(subject_name)
+        btn.setStyleSheet(style)
+        btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # type: ignore
+        btn.setMinimumHeight(32)
+        btn.clicked.connect(
+            lambda checked=False, name=subject_name: self._emit_action(f"subject:{name}")
+        )
+        return btn
+
+    # ================================================================
+    #  构建右侧面板：控制按钮
+    # ================================================================
+    def _build_right_panel(self) -> QWidget:
+        """
+        构建右侧控制按钮面板。
+        -------------------
+        包含 5 个垂直排列的按钮：
+          倍速向上  — 相当于点击 2 次"向上"
+          向上      — 光标向上移动
+          向下      — 光标向下移动
+          倍速向下  — 相当于点击 2 次"向下"
+          确定      — 确认并关闭窗口
+        """
+
+        panel: QWidget = QWidget()
+        panel.setStyleSheet("background: transparent;")
+        layout: QVBoxLayout = QVBoxLayout(panel)
+        layout.setContentsMargins(2, 4, 2, 4)
+        layout.setSpacing(6)
+
+        # 控制按钮样式
+        ctrl_btn_style: str = f"""
+            QPushButton {{
+                color: {self._font_color};
+                background: rgba(128, 128, 128, 0.12);
+                border: 1px solid {self._border_color};
+                border-radius: 4px;
+                padding: 8px 4px;
+                font-size: 12px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background: rgba(128, 128, 128, 0.3);
+                border: 1px solid rgba(128, 128, 128, 0.5);
+            }}
+            QPushButton:pressed {{
+                background: rgba(128, 128, 128, 0.4);
+            }}
+        """
+
+        # 确定按钮特殊样式（更醒目）
+        confirm_btn_style: str = f"""
+            QPushButton {{
+                color: {'#FFFFFF' if self._theme == 'darkcolor' else '#FFFFFF'};
+                background: rgba(33, 150, 243, 0.7);
+                border: 1px solid rgba(33, 150, 243, 0.5);
+                border-radius: 4px;
+                padding: 8px 4px;
+                font-size: 12px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background: rgba(33, 150, 243, 0.9);
+            }}
+            QPushButton:pressed {{
+                background: rgba(33, 150, 243, 1.0);
+            }}
+        """
+
+        # 控制按钮配置：(文字, 动作标识符, 样式)
+        control_buttons = [
+            ("倍速向上", "move_double_up", ctrl_btn_style),
+            ("向上",     "move_up",       ctrl_btn_style),
+            ("向下",     "move_down",     ctrl_btn_style),
+            ("倍速向下", "move_double_down", ctrl_btn_style),
+        ]
+
+        # 顶部弹簧 — 让按钮组在垂直方向居中
+        layout.addStretch()
+
+        for text, action, style in control_buttons:
+            btn: QPushButton = QPushButton(text)
+            btn.setStyleSheet(style)
+            btn.setMinimumHeight(36)
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # type: ignore
+            btn.clicked.connect(
+                lambda checked=False, a=action: self._emit_action(a)
+            )
+            layout.addWidget(btn)
+
+        # 按钮组之间的间距
+        layout.addSpacing(10)
+
+        # 确定按钮
+        confirm_btn: QPushButton = QPushButton("确定")
+        confirm_btn.setStyleSheet(confirm_btn_style)
+        confirm_btn.setMinimumHeight(40)
+        confirm_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # type: ignore
+        confirm_btn.clicked.connect(lambda: self._emit_action("confirm"))
+        layout.addWidget(confirm_btn)
+
+        # 底部弹簧
+        layout.addStretch()
+
+        return panel
+
+    # ================================================================
+    #  发射动作信号
+    # ================================================================
+    def _emit_action(self, action: str) -> None:
+        """
+        通过父窗口的 backend_signal 发射动作信号。
+        ----------------------------------------
+        参数：
+            action（str）：动作标识符，如 "subject:数学"、"move_up" 等
+        """
+        logger.info(f"[SubjectSelectWindow] 发射动作: {action}")
+        self._parent_signal.emit(action)
+
+
 # ==================== 前端窗口类 ====================
 
 class ScheduleClassroomFrontend(QWidget):
@@ -165,24 +571,9 @@ class ScheduleClassroomFrontend(QWidget):
     #  "客人点了关闭！"——喊完就完了，怎么关窗是后面的事。
     # ================================================================
 
-    # 信号：关闭请求 —— 用户点击了关闭按钮
-    # 参数：无
-    close_requested = Signal()
-
-    # 信号：全屏时间请求 —— 用户点击了全屏时间按钮
-    # 参数：无
-    # 状态：接口已预留，功能待后续实现
-    fullscreen_time_requested = Signal()
-
-    # 信号：快捷课表编辑请求 —— 用户点击了快捷课表编辑按钮
-    # 参数：无
-    # 状态：接口已预留，功能待后续实现
-    quick_edit_requested = Signal()
-
-    # 信号：设置请求 —— 用户点击了设置按钮
-    # 参数：无
-    # 状态：接口已预留，功能待后续实现
-    settings_requested = Signal()
+    # 统一后端信号 —— 所有按钮点击事件通过此信号发送给后端处理
+    # 参数：action（str）—— 动作标识符，后端据此分派业务逻辑
+    backend_signal = Signal(str)
 
     # ================================================================
     #  构造函数（初始化窗口）
@@ -255,10 +646,14 @@ class ScheduleClassroomFrontend(QWidget):
         # 控件引用（初始为 None，在 _setup_ui 中创建）
         self.root: Optional[QWidget] = None
         self.close_btn: Optional[QPushButton] = None
-        self.fullscreen_btn: Optional[QPushButton] = None
         self.edit_btn: Optional[QPushButton] = None
-        self.settings_btn: Optional[QPushButton] = None
         self.time_label: Optional[QLabel] = None
+
+        # 科目选择子窗口引用
+        self._subject_window: Optional[QWidget] = None
+
+        # 科目配置数据（从 subject_config.json 加载）
+        self.subject_config: Dict = {}
 
         # ===== 课时标签列表 =====
         # 每个标签控件按索引存储在列表中，通过 get_period_label(index) 获取
@@ -268,6 +663,10 @@ class ScheduleClassroomFrontend(QWidget):
         # ===== 第3步：读取配置文件 =====
         logger.info("开始读取配置文件...")
         self._load_config()
+
+        # ===== 第3.5步：读取科目配置文件 =====
+        logger.info("开始读取科目配置文件...")
+        self._load_subject_config()
 
         # ===== 第4步：创建所有 UI 元素 =====
         logger.info("开始创建 UI 元素...")
@@ -470,6 +869,55 @@ class ScheduleClassroomFrontend(QWidget):
                     f"font_color={self.font_color}, opacity={self.window_opacity}")
 
     # ================================================================
+    #  私有方法：读取科目配置文件
+    # ================================================================
+    def _load_subject_config(self) -> None:
+        """
+        从 Config/subject_config.json 读取科目分类配置。
+        ------------------------------------------------
+        读取的数据结构：
+          {
+            "Subject_Types": {
+              "Category_1": ["语文", "数学", ...],
+              "Category_2": ["活动", "体育", ...],
+              "Category_3": "None"
+            }
+          }
+
+        读取失败时使用空字典作为兜底。
+        """
+        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        config_path: str = os.path.join(script_dir, 'Config', 'subject_config.json')
+
+        # 默认空配置
+        default_config: Dict = {"Subject_Types": {}}
+
+        try:
+            if not os.path.exists(config_path):
+                logger.warning(f"科目配置文件不存在：{config_path}")
+                self.subject_config = default_config
+                return
+
+            logger.info(f"找到科目配置文件：{config_path}")
+            with open(config_path, 'r', encoding='utf-8') as f:
+                self.subject_config = json.load(f)
+
+            # 统计科目数量
+            subject_types = self.subject_config.get("Subject_Types", {})
+            total_subjects = 0
+            for _category, subjects in subject_types.items():
+                if isinstance(subjects, list):
+                    total_subjects += len(subjects)
+            logger.info(f"科目配置加载完成：{len(subject_types)} 个分类，共 {total_subjects} 个科目")
+
+        except json.JSONDecodeError as e:
+            logger.error(f"科目配置文件 JSON 解析失败：{e}")
+            self.subject_config = default_config
+        except Exception as e:
+            logger.error(f"读取科目配置文件失败：{e}")
+            self.subject_config = default_config
+
+    # ================================================================
     #  私有方法：根据当前主题确定按钮图标后缀
     # ================================================================
     def _get_icon_suffix(self) -> str:
@@ -617,8 +1065,8 @@ class ScheduleClassroomFrontend(QWidget):
             label.setText(f"  第{i + 1}节")
             self.period_labels.append(label)
 
-        # ========== 底部按钮栏（4 个图标按钮，置于所有标签下方）==========
-        # 从左到右：全屏时间 → 快捷课表编辑 → 设置 → 关闭
+        # ========== 底部按钮栏（2 个图标按钮，置于所有标签下方）==========
+        # 从左到右：快捷课表编辑 → 关闭
         # 根据主题自动选择深色/浅色图标（通过 _get_icon_suffix() 判断）
 
         images_dir: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'images')
@@ -626,17 +1074,15 @@ class ScheduleClassroomFrontend(QWidget):
 
         logger.info(f"图标后缀：'{icon_suffix}'（主题={self.theme}，背景色={self.back_color}）")
 
-        # 按钮配置列表：(属性名, 图片基础名, 点击处理函数, 按钮提示文字)
+        # 按钮配置列表：(属性名, 图片基础名, 点击处理函数)
         button_configs = [
-            ('fullscreen_btn', 'FullScreenTime', self._on_fullscreen_time_clicked),
-            ('edit_btn',        'EDIT_S',        self._on_quick_edit_clicked),
-            ('settings_btn',    'setting',       self._on_settings_clicked),
-            ('close_btn',       'EXIT',          self._on_close_clicked),
+            ('edit_btn',  'EDIT_S', self._on_quick_edit_clicked),
+            ('close_btn', 'EXIT',   self._on_close_clicked),
         ]
 
         btn_size: int = 20                               # 每个按钮的宽高（正方形）
-        total_btn_width: int = 4 * btn_size              # 所有按钮占用的总宽度
-        spacing: int = (int(self.win_width) - total_btn_width) // 5  # 等分间距（5个间隔）
+        total_btn_width: int = 2 * btn_size              # 所有按钮占用的总宽度
+        spacing: int = (int(self.win_width) - total_btn_width) // 3  # 等分间距（3个间隔）
         btn_y: int = self.period_count * label_height + (close_btn_height - btn_size) // 2
 
         for i, (attr_name, image_base, handler) in enumerate(button_configs):
@@ -668,19 +1114,19 @@ class ScheduleClassroomFrontend(QWidget):
             # 保存按钮引用到实例属性
             setattr(self, attr_name, btn)
 
-        logger.info(f"底部按钮栏创建完成：4 个图标按钮，图标后缀='{icon_suffix}'，间距={spacing}px")
+        logger.info(f"底部按钮栏创建完成：2 个图标按钮，图标后缀='{icon_suffix}'，间距={spacing}px")
 
         # 显示科目窗口
         self.root.show()
         logger.info(f"科目窗口创建完成：位置({self.left_root}, {self.top_root})，"
                     f"大小 {int(self.win_width)}×{int(self.height_root)}，"
-                    f"课时标签 {self.period_count} 个，底部按钮栏 4 个已连接")
+                    f"课时标签 {self.period_count} 个，底部按钮栏 2 个已连接")
 
     # ================================================================
     #  ★★★  前端 → 后端：按钮点击槽函数（私有方法）  ★★★
     #  --------------------------------------------
     #  这些方法在用户点击按钮时被调用。
-    #  它们只做一件事：发射（emit）信号，把事件通知给后端。
+    #  它们只做一件事：发射（emit）统一后端信号，把事件通知给后端。
     #
     #  打个比方：服务员听到客人喊"买单！"，然后对着后厨喊一嗓子。
     #  具体怎么买单，是老板（main.py）和收银员（后端）的事。
@@ -690,41 +1136,53 @@ class ScheduleClassroomFrontend(QWidget):
         """
         关闭按钮点击处理。
         ----------------
-        发射 close_requested 信号，由 main.py 中的连接器
-        转发给 WindowHelper.close_all() 处理。
+        发射统一 backend_signal 信号，由 main.py 中的连接器
+        转发给 ScheduleBackend.handle_action() 处理。
         """
-        logger.info("用户点击了关闭按钮，发射 close_requested 信号")
-        self.close_requested.emit()
-
-    def _on_fullscreen_time_clicked(self) -> None:
-        """
-        全屏时间按钮点击处理。
-        ------------------
-        发射 fullscreen_time_requested 信号。
-        ⚠️ 功能待实现：该信号目前仅预留接口，main.py 中暂未连接任何处理逻辑。
-        """
-        logger.info("用户点击了全屏时间按钮，发射 fullscreen_time_requested 信号")
-        self.fullscreen_time_requested.emit()
+        logger.info("用户点击了关闭按钮，发射 backend_signal('close')")
+        # 如果快捷编辑面板已打开，先关闭它
+        if self._subject_window is not None:
+            logger.info("先关闭快捷编辑面板")
+            self._subject_window.close()
+            self._subject_window = None
+        self.backend_signal.emit("close")
 
     def _on_quick_edit_clicked(self) -> None:
         """
         快捷课表编辑按钮点击处理。
         ----------------------
-        发射 quick_edit_requested 信号。
-        ⚠️ 功能待实现：该信号目前仅预留接口，main.py 中暂未连接任何处理逻辑。
+        发射统一 backend_signal 信号，然后创建并显示科目选择子窗口。
         """
-        logger.info("用户点击了快捷课表编辑按钮，发射 quick_edit_requested 信号")
-        self.quick_edit_requested.emit()
+        logger.info("用户点击了快捷课表编辑按钮")
+        self.backend_signal.emit("quick_edit_opened")
+        self._show_subject_window()
 
-    def _on_settings_clicked(self) -> None:
+    # ================================================================
+    #  私有方法：显示科目选择子窗口
+    # ================================================================
+    def _show_subject_window(self) -> None:
         """
-        设置按钮点击处理。
-        ----------------
-        发射 settings_requested 信号。
-        ⚠️ 功能待实现：该信号目前仅预留接口，main.py 中暂未连接任何处理逻辑。
+        创建并显示快捷课表编辑科目选择子窗口。
+        -----------------------------------
+        如果已有子窗口打开，先关闭旧的再创建新的。
         """
-        logger.info("用户点击了设置按钮，发射 settings_requested 信号")
-        self.settings_requested.emit()
+        if self._subject_window is not None:
+            logger.info("检测到已有科目选择窗口打开，先关闭")
+            self._subject_window.close()
+            self._subject_window = None
+
+        logger.info("创建科目选择子窗口...")
+        self._subject_window = SubjectSelectWindow(
+            parent_signal=self.backend_signal,
+            subject_config=self.subject_config,
+            back_color=self.back_color,
+            font_color=self.font_color,
+            border_color=self.border_color,
+            root_back_color=self.root_back_color,
+            theme=self.theme,
+        )
+        self._subject_window.show()
+        logger.info("科目选择子窗口已显示")
 
     # ================================================================
     #  ★★★  后端 → 前端：公开方法（Public API）  ★★★

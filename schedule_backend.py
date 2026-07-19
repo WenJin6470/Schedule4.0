@@ -231,3 +231,72 @@ class WindowHelper:
         logger.info("所有窗口已关闭，正在退出 QApplication 事件循环...")
         app.quit()
         logger.info("已调用 app.quit()，程序即将退出")
+
+
+# ==================== 后端信号处理类 ====================
+
+class ScheduleBackend:
+    """
+    # ScheduleBackend — 后端信号处理器
+
+    接收前端统一的后端信号（backend_signal），根据动作标识符
+    分派给对应的业务逻辑处理。
+    ---
+
+    对外接口：
+      - handle_action(action, frontend, app)：处理来自前端的动作信号
+
+    动作标识符说明：
+      - "close"              → 关闭所有窗口并退出程序
+      - "quick_edit_opened"  → 快捷编辑窗口已打开
+      - "subject:<科目名>"   → 用户选择了一个科目
+      - "move_up"            → 向上移动选择
+      - "move_down"          → 向下移动选择
+      - "move_double_up"     → 倍速向上移动（2×向上）
+      - "move_double_down"   → 倍速向下移动（2×向下）
+      - "confirm"            → 确认操作
+    """
+
+    def __init__(self) -> None:
+        """初始化后端信号处理器。"""
+        self._logger: logging.Logger = logging.getLogger(__name__)
+        self._logger.info("ScheduleBackend 初始化完成")
+
+    def handle_action(self, action: str, frontend, app: QApplication) -> None:
+        """
+        处理来自前端的统一信号。
+        ----------------------
+        参数：
+            action   （str）：           动作标识符
+            frontend （ScheduleClassroomFrontend）：前端窗口引用
+            app      （QApplication）：  QApplication 实例
+
+        说明：
+          当前版本将具体业务逻辑记录到日志中，
+          后续各功能的实际实现在此方法中扩展。
+        """
+        self._logger.info(f"[后端] 收到动作: {action}")
+
+        if action == "close":
+            # 关闭所有窗口并退出程序
+            WindowHelper.close_all(
+                [frontend.get_time_window(), frontend.get_root_window()], app
+            )
+        elif action.startswith("subject:"):
+            # 用户选择了科目
+            subject_name: str = action.split(":", 1)[1]
+            self._logger.info(f"[后端] 科目选择: {subject_name}")
+            # TODO: 后端实现科目选择逻辑
+        elif action in ("move_up", "move_down", "move_double_up", "move_double_down"):
+            # 移动选择光标
+            self._logger.info(f"[后端] 移动操作: {action}")
+            # TODO: 后端实现移动逻辑
+        elif action == "confirm":
+            # 确认操作
+            self._logger.info(f"[后端] 确认操作")
+            # TODO: 后端实现确认逻辑
+        elif action == "quick_edit_opened":
+            # 快捷编辑窗口已打开
+            self._logger.info(f"[后端] 快捷编辑窗口已打开")
+        else:
+            self._logger.warning(f"[后端] 未知动作: {action}")
