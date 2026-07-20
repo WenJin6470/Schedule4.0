@@ -7,7 +7,7 @@
 📌 本文件的角色
 ═══════════════════════════════════════════════════════════════════════════
 本文件负责快捷课表编辑功能：
-  ✅ SubjectSelectWindow — 科目选择子窗口（左8右2布局）
+  ✅ SubjectSelectWindow — 科目选择子窗口（标题栏 + 左8右2布局）
 
 用户点击主窗口的快捷编辑按钮后弹出此窗口，左侧显示按分类分组的
 科目按钮，右侧提供移动光标和确认操作的控制按钮。
@@ -19,7 +19,7 @@ from typing import Dict, List, Optional
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton,
                                 QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 from PySide6.QtCore import Qt, SignalInstance
-from PySide6.QtGui import QPainter
+from PySide6.QtGui import QFont, QCloseEvent
 
 from schedule_theme import ThemeManager, ThemedWidget
 
@@ -33,21 +33,19 @@ class SubjectSelectWindow(ThemedWidget):
     在用户点击快捷编辑按钮后弹出，提供科目选择和移动控制功能。
     ---
 
-    窗口布局（左:右 = 8:2）：
-      ┌──────────────────────────┬──────────┐
-      │  Category_1 标题         │ 倍速向上  │
-      │  [语文] [数学] [英语]... │          │
-      │  ─── 分割线 ───         │  向上    │
-      │  Category_2 标题         │          │
-      │  [活动] [体育] [信息]... │  向下    │
-      │  ─── 分割线 ───         │          │
-      │  Category_3 标题         │ 倍速向下  │
-      │  [None]                  │          │
-      │                          │  确定    │
-      └──────────────────────────┴──────────┘
-
-    所有按钮点击均通过 parent_signal 发射统一的 backend_signal，
-    动作标识符由后端解析处理。
+    窗口布局（使用系统默认标题栏）：
+      ┌ 快捷课表编辑 ─────── □ ─ ✕ ┐  ← 系统标题栏（可拖拽移动）
+      ├──────────────────────┬──────────┤
+      │ ── Category_1 ────── │ 倍速向上 │
+      │ [语文][数学][英语]...│          │
+      │ ── Category_2 ────── │  向上    │
+      │ [活动][体育][信息]...│          │
+      │ ── Category_3 ────── │  向下    │  ← 右侧面板（轻微分色）
+      │ [None]               │          │
+      │                      │ 倍速向下 │
+      │                      │          │
+      │                      │  确定    │
+      └──────────────────────┴──────────┘
     """
 
     def __init__(self, parent_signal: SignalInstance,
@@ -59,7 +57,6 @@ class SubjectSelectWindow(ThemedWidget):
             parent_signal（SignalInstance）：父窗口的 backend_signal
             theme_manager（ThemeManager）：  全局主题管理器
         """
-        # 使用 root_back_color 作为窗口背景
         super().__init__(theme_manager, bg_color_attr='root_back_color')
 
         self._parent_signal: SignalInstance = parent_signal
@@ -75,32 +72,44 @@ class SubjectSelectWindow(ThemedWidget):
         """创建科目选择窗口的所有 UI 元素。"""
 
         # ----- 窗口属性 -----
+        # 使用系统默认标题栏：可最小化 / 最大化 / 关闭，可拖拽移动
         self.setWindowFlags(
-            Qt.FramelessWindowHint           # type: ignore
-            | Qt.WindowStaysOnTopHint        # type: ignore
-            | Qt.Tool                        # type: ignore
+            Qt.Window                         # type: ignore
+            | Qt.WindowStaysOnTopHint         # type: ignore
+            | Qt.WindowCloseButtonHint        # type: ignore
+            | Qt.WindowMinimizeButtonHint     # type: ignore
+            | Qt.WindowMaximizeButtonHint     # type: ignore
         )
+        self.setWindowTitle("快捷课表编辑")
         self.setAutoFillBackground(True)
         self.setWindowOpacity(0.9)
 
-        # 窗口大小和位置（居中偏左，避免遮挡主窗口）
+        # 窗口大小和位置
         win_w: int = int(self._theme.screen_width * 0.35)
         win_h: int = int(self._theme.screen_height * 0.65)
-        self.setFixedSize(win_w, win_h)
+        self.setMinimumSize(int(self._theme.screen_width * 0.22), 400)
+        self.resize(win_w, win_h)
         pos_x: int = (self._theme.screen_width - win_w) // 2 - int(self._theme.screen_width * 0.08)
         pos_y: int = (self._theme.screen_height - win_h) // 2
         self.move(pos_x, pos_y)
 
-        # ----- 主布局：左右 8:2 -----
-        main_layout: QHBoxLayout = QHBoxLayout(self)
-        main_layout.setContentsMargins(8, 8, 8, 8)
-        main_layout.setSpacing(6)
+        # ----- 主布局：内容区（左右 8:2）-----
+        outer_layout: QVBoxLayout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(8, 8, 8, 8)
+        outer_layout.setSpacing(0)
+
+        # 内容区：左右 8:2
+        content_layout: QHBoxLayout = QHBoxLayout()
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
 
         left_panel: QWidget = self._build_left_panel()
-        main_layout.addWidget(left_panel, stretch=8)
+        content_layout.addWidget(left_panel, stretch=8)
 
         right_panel: QWidget = self._build_right_panel()
-        main_layout.addWidget(right_panel, stretch=2)
+        content_layout.addWidget(right_panel, stretch=2)
+
+        outer_layout.addLayout(content_layout, stretch=1)
 
         logger.info(f"SubjectSelectWindow UI 创建完成：{win_w}×{win_h}")
 
@@ -108,7 +117,7 @@ class SubjectSelectWindow(ThemedWidget):
     #  构建左侧面板：科目按钮（分组 + 分割线）
     # ================================================================
     def _build_left_panel(self) -> QWidget:
-        """构建左侧科目按钮面板（可滚动，按分类分组）。"""
+        """构建左侧科目按钮面板（可滚动，按分类分组，分割线骑缝显示 Category 名）。"""
 
         # 滚动区域
         scroll_area: QScrollArea = QScrollArea()
@@ -135,7 +144,7 @@ class SubjectSelectWindow(ThemedWidget):
         inner_widget: QWidget = QWidget()
         inner_widget.setStyleSheet("background: transparent;")
         inner_layout: QVBoxLayout = QVBoxLayout(inner_widget)
-        inner_layout.setContentsMargins(4, 4, 4, 4)
+        inner_layout.setContentsMargins(4, 4, 8, 4)
         inner_layout.setSpacing(4)
 
         # 按钮样式
@@ -157,46 +166,18 @@ class SubjectSelectWindow(ThemedWidget):
             }}
         """
 
-        separator_style: str = f"""
-            QFrame {{
-                border: none;
-                border-top: 1px solid {self._theme.border_color};
-                margin: 6px 0px;
-                max-height: 1px;
-            }}
-        """
-
-        category_label_style: str = f"""
-            QLabel {{
-                color: {self._theme.font_color};
-                font-size: 11px;
-                font-weight: bold;
-                padding: 4px 0px 2px 2px;
-                background: transparent;
-            }}
-        """
-
-        category_names: Dict[str, str] = {
-            "Category_1": "文化课",
-            "Category_2": "活动课",
-            "Category_3": "其他",
-        }
-
         subject_types: Dict = self._theme.subject_config.get("Subject_Types", {})
         category_keys: List[str] = list(subject_types.keys())
 
         for idx, category_key in enumerate(category_keys):
+            # ---- 骑缝分割线：Category 名嵌入在分割线左侧 ----
             if idx > 0:
-                sep: QFrame = QFrame()
-                sep.setStyleSheet(separator_style)
-                sep.setFrameShape(QFrame.HLine)  # type: ignore
-                inner_layout.addWidget(sep)
+                inner_layout.addSpacing(4)
 
-            cat_display_name: str = category_names.get(category_key, category_key)
-            cat_label: QLabel = QLabel(cat_display_name)
-            cat_label.setStyleSheet(category_label_style)
-            inner_layout.addWidget(cat_label)
+            sep_widget: QWidget = self._build_category_separator(category_key)
+            inner_layout.addWidget(sep_widget)
 
+            # ---- 科目按钮 ----
             subjects = subject_types[category_key]
 
             if isinstance(subjects, str):
@@ -244,6 +225,49 @@ class SubjectSelectWindow(ThemedWidget):
         return scroll_area
 
     # ================================================================
+    #  构建骑缝分割线（Category 名称嵌入在分割线左侧）
+    # ================================================================
+    def _build_category_separator(self, category_key: str) -> QWidget:
+        """
+        构建一条水平分割线，Category 名称"骑缝"显示在分割线左侧。
+
+        效果：
+          Category_1 ──────────────────────
+        （文字坐落在线上，后面跟着横线）
+        """
+        widget: QWidget = QWidget()
+        widget.setFixedHeight(20)
+
+        layout: QHBoxLayout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # Category 名称标签 — 左侧
+        cat_label: QLabel = QLabel(category_key)
+        cat_label.setFont(QFont("Arial", 9))
+        cat_label.setStyleSheet(f"""
+            color: {self._theme.font_color};
+            background: transparent;
+            padding-right: 6px;
+            font-weight: bold;
+        """)
+        cat_label.setFixedHeight(20)
+        layout.addWidget(cat_label)
+
+        # 分割线 — 填充剩余空间
+        line: QFrame = QFrame()
+        line.setFrameShape(QFrame.HLine)  # type: ignore
+        line.setStyleSheet(f"""
+            border: none;
+            border-top: 1px solid {self._theme.border_color};
+            background: transparent;
+        """)
+        line.setFixedHeight(20)
+        layout.addWidget(line, stretch=1)
+
+        return widget
+
+    # ================================================================
     #  创建单个科目按钮
     # ================================================================
     def _create_subject_button(self, subject_name: str, style: str) -> QPushButton:
@@ -258,15 +282,31 @@ class SubjectSelectWindow(ThemedWidget):
         return btn
 
     # ================================================================
-    #  构建右侧面板：控制按钮
+    #  构建右侧面板：控制按钮（轻微分色背景）
     # ================================================================
     def _build_right_panel(self) -> QWidget:
-        """构建右侧控制按钮面板（5 个按钮竖向排列）。"""
+        """
+        构建右侧控制按钮面板（5 个按钮竖向排列）。
+        右侧面板使用轻微分色背景，与左侧形成层次感。
+        """
+
+        # 计算分色背景：在 root_back_color 基础上叠加半透明层
+        # lightcolor 主题：叠加更深的灰色 → 右侧稍暗
+        # darkcolor 主题：叠加更浅的白色 → 右侧稍亮
+        if self._theme.theme == 'darkcolor':
+            panel_bg: str = "rgba(255, 255, 255, 0.04)"
+        else:
+            panel_bg = "rgba(0, 0, 0, 0.03)"
 
         panel: QWidget = QWidget()
-        panel.setStyleSheet("background: transparent;")
+        panel.setStyleSheet(f"""
+            background: {panel_bg};
+            border-left: 1px solid {self._theme.border_color};
+            border-radius: 4px;
+        """)
+
         layout: QVBoxLayout = QVBoxLayout(panel)
-        layout.setContentsMargins(2, 4, 2, 4)
+        layout.setContentsMargins(6, 8, 6, 8)
         layout.setSpacing(6)
 
         ctrl_btn_style: str = f"""
@@ -337,6 +377,18 @@ class SubjectSelectWindow(ThemedWidget):
         layout.addStretch()
 
         return panel
+
+    # ================================================================
+    #  关闭事件：仅隐藏窗口，不关闭整个应用
+    # ================================================================
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """
+        重写关闭事件：点击标题栏 ✕ 或按 Alt+F4 时仅隐藏窗口，
+        不触发 QApplication 退出。
+        """
+        logger.info("[SubjectSelectWindow] 关闭事件 → 隐藏窗口")
+        event.ignore()
+        self.hide()
 
     # ================================================================
     #  发射动作信号
