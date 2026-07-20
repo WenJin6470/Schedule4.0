@@ -82,7 +82,7 @@ class SubjectSelectWindow(ThemedWidget):
         )
         self.setWindowTitle("快捷课表编辑")
         self.setAutoFillBackground(True)
-        self.setWindowOpacity(0.95)
+        self.setWindowOpacity(1.0)
 
         # 窗口大小和位置
         win_w: int = int(self._theme.screen_width * 0.35)
@@ -111,9 +111,13 @@ class SubjectSelectWindow(ThemedWidget):
 
         outer_layout.addLayout(content_layout, stretch=1)
 
-        # 状态栏：显示当前光标位置和科目
-        self._status_label: QLabel = QLabel("光标：第1节  |  当前：--")
-        self._status_label.setFont(QFont("Microsoft YaHei", 9))
+        # 状态栏：使用提示
+        self._status_label: QLabel = QLabel(
+            "上下移动光标，点击左侧科目即可完成修改，最后点击 确认 保存修改"
+        )
+        hint_font = QFont("Microsoft YaHei", 8)
+        hint_font.setItalic(True)
+        self._status_label.setFont(hint_font)
         self._status_label.setFixedHeight(24)
         self._status_label.setStyleSheet(f"""
             color: {self._theme.font_color};
@@ -130,16 +134,9 @@ class SubjectSelectWindow(ThemedWidget):
     # ================================================================
     def update_cursor_info(self, index: int, subject_text: str) -> None:
         """
-        更新状态栏中的光标位置和当前科目信息。
-        -----------------------------------
-        参数：
-            index        （int）：光标所在的标签索引（0 起始）
-            subject_text （str）：该标签当前的科目文字
+        保留方法签名以兼容后端调用，状态栏已改为静态使用提示。
         """
-        self._status_label.setText(
-            f"光标：第{index + 1}节  |  当前：{subject_text}"
-        )
-        logger.debug(f"[SubjectSelectWindow] 状态栏更新：第{index + 1}节 '{subject_text}'")
+        pass
 
     # ================================================================
     #  构建左侧面板：科目按钮（分组 + 分割线）
@@ -411,10 +408,11 @@ class SubjectSelectWindow(ThemedWidget):
     # ================================================================
     def closeEvent(self, event: QCloseEvent) -> None:
         """
-        重写关闭事件：点击标题栏 ✕ 或按 Alt+F4 时仅隐藏窗口，
-        不触发 QApplication 退出。
+        重写关闭事件：点击标题栏 ✕ 或按 Alt+F4 时通知后端停止光标闪烁，
+        然后隐藏窗口，不触发 QApplication 退出。
         """
-        logger.info("[SubjectSelectWindow] 关闭事件 → 隐藏窗口")
+        logger.info("[SubjectSelectWindow] 关闭事件 → 通知后端、隐藏窗口")
+        self._parent_signal.emit("quick_edit_closed")
         event.ignore()
         self.hide()
 

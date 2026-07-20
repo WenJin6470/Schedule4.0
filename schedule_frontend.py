@@ -89,7 +89,7 @@ class ScheduleMainWindow(ThemedWidget):
         # ---- 光标闪烁状态 ----
         self._cursor_index: int = 0
         self._blink_timer: QTimer = QTimer()
-        self._blink_timer.setInterval(400)  # 400ms 闪烁间隔
+        self._blink_timer.setInterval(500)  # 500ms 闪烁间隔
         self._blink_timer.timeout.connect(self._toggle_blink)
         self._blink_on: bool = False
 

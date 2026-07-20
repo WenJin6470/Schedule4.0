@@ -290,7 +290,10 @@ class QuickEditHandler:
             self._on_move(main_window, 2, subject_window)
 
         elif action == "confirm":
-            self._on_confirm(main_window)
+            self._on_confirm(main_window, subject_window)
+
+        elif action == "quick_edit_closed":
+            self._on_quick_edit_closed(main_window)
 
         elif action.startswith("cursor_info:"):
             # 主窗口发来的光标信息 → 转发给快捷编辑窗口显示
@@ -344,9 +347,19 @@ class QuickEditHandler:
     # ================================================================
     #  确认操作
     # ================================================================
-    def _on_confirm(self, main_window) -> None:
-        """确认编辑 → 停止光标闪烁。"""
-        self._logger.info("[QuickEdit] 确认编辑，停止光标闪烁")
+    def _on_confirm(self, main_window, subject_window=None) -> None:
+        """确认编辑 → 停止光标闪烁并退出快捷编辑界面。"""
+        self._logger.info("[QuickEdit] 确认编辑，停止光标闪烁并关闭快捷编辑窗口")
+        main_window.stop_cursor_blink()
+        if subject_window is not None:
+            subject_window.hide()
+
+    # ================================================================
+    #  快捷编辑窗口关闭（点击 ✕）
+    # ================================================================
+    def _on_quick_edit_closed(self, main_window) -> None:
+        """快捷编辑窗口关闭 → 停止光标闪烁，退出快捷编辑界面。"""
+        self._logger.info("[QuickEdit] 快捷编辑窗口关闭，停止光标闪烁")
         main_window.stop_cursor_blink()
 
     # ================================================================
@@ -391,6 +404,7 @@ class ScheduleBackend:
       - "move_double_up"     → 倍速向上移动（2×向上）
       - "move_double_down"   → 倍速向下移动（2×向下）
       - "confirm"            → 确认操作
+      - "quick_edit_closed"  → 快捷编辑窗口关闭（点击 ✕）
     """
 
     def __init__(self) -> None:
@@ -422,7 +436,7 @@ class ScheduleBackend:
         self._logger.info(f"[后端] 收到动作: {action}")
 
         # ---- 快捷编辑相关 → 委托 QuickEditHandler ----
-        if action in ("quick_edit_opened", "confirm") or \
+        if action in ("quick_edit_opened", "confirm", "quick_edit_closed") or \
            action.startswith("subject:") or \
            action.startswith("cursor_info:") or \
            action in ("move_up", "move_down", "move_double_up", "move_double_down"):
