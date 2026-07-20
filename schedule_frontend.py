@@ -220,10 +220,12 @@ class ScheduleMainWindow(ThemedWidget):
     #  私有方法：显示子窗口
     # ================================================================
     def _show_subject_window(self) -> None:
-        """创建并显示科目选择子窗口。"""
+        """显示科目选择子窗口（复用已有实例或新建）。"""
         if self._subject_window is not None:
-            self._subject_window.close()
-            self._subject_window = None
+            # 窗口已存在（可能被隐藏），直接显示
+            logger.info("复用已有的科目选择子窗口")
+            self._subject_window.show()
+            return
 
         logger.info("创建科目选择子窗口...")
         self._subject_window = SubjectSelectWindow(
