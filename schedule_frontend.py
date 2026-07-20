@@ -25,8 +25,8 @@ import os
 from typing import List, Optional
 
 from PySide6.QtWidgets import QLabel, QPushButton
-from PySide6.QtCore import Qt, QSize, Signal
-from PySide6.QtGui import QFont, QIcon
+from PySide6.QtCore import Qt, QSize, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QIcon
 
 from schedule_theme import ThemeManager, ThemedWidget
 from schedule_quick_edit import SubjectSelectWindow
@@ -86,6 +86,13 @@ class ScheduleMainWindow(ThemedWidget):
         self._subject_window: Optional[SubjectSelectWindow] = None
         self._settings_window: Optional[SettingsWindow] = None
 
+        # ---- 光标闪烁状态 ----
+        self._cursor_index: int = 0
+        self._blink_timer: QTimer = QTimer()
+        self._blink_timer.setInterval(400)  # 400ms 闪烁间隔
+        self._blink_timer.timeout.connect(self._toggle_blink)
+        self._blink_on: bool = False
+
         # ---- 课时标签列表 ----
         self.period_labels: List[QLabel] = []
 
@@ -127,8 +134,15 @@ class ScheduleMainWindow(ThemedWidget):
         period_count: int = self._theme.period_count
         label_height: int = available_height // period_count if period_count > 0 else available_height
 
+        #开发前期用来占位的科目
+        example_subject_list = ['语文','数学','英语','物理','化学','生物']
+        import random
+        
         logger.info(f"创建 {period_count} 个课时标签（每个高度 {label_height}px）...")
         for i in range(period_count):
+
+            example_subject = example_subject_list[random.randint(0,5)]
+
             label: QLabel = QLabel(self)
             label.setObjectName(f"period_label_{i}")
             label.setFont(QFont("Arial", 12))
@@ -139,7 +153,7 @@ class ScheduleMainWindow(ThemedWidget):
             """)
             label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
             label.setGeometry(0, i * label_height, self._win_width, label_height)
-            label.setText(f"  第{i + 1}节")
+            label.setText(f"{example_subject}")
             self.period_labels.append(label)
 
         # ===== 底部按钮栏（4 个图标按钮）=====
@@ -274,3 +288,142 @@ class ScheduleMainWindow(ThemedWidget):
     def get_all_period_labels(self) -> List[QLabel]:
         """获取所有课时标签控件的列表。"""
         return self.period_labels
+
+    # ================================================================
+    #  公开 API：光标闪烁（快捷编辑用）
+    # ================================================================
+
+    def start_cursor_blink(self, index: int = 0) -> str:
+        """
+        在指定索引的课时标签上启动光标闪烁效果。
+        --------------------------------------
+        通过 QTimer 间歇切换标签背景色，模拟文本编辑器中的光标。
+
+        参数：
+            index（int）：要闪烁的标签索引，默认 0（第1节）
+
+        返回值：
+            str：该标签当前的文字内容（发送给快捷编辑窗口）
+        """
+        if index < 0 or index >= len(self.period_labels):
+            logger.warning(f"start_cursor_blink: 索引 {index} 越界")
+            return ""
+
+        # 先停止之前的闪烁
+        self.stop_cursor_blink()
+
+        self._cursor_index = index
+        self._blink_on = False
+        self._blink_timer.start()
+        logger.info(f"光标闪烁已启动：第 {index + 1} 节")
+
+        # 返回当前标签的文字内容
+        current_text: str = self.period_labels[index].text().strip()
+        # 发射信号通知后端 / 快捷编辑窗口
+        self.backend_signal.emit(f"cursor_info:{index}:{current_text}")
+        return current_text
+
+    def stop_cursor_blink(self) -> None:
+        """停止光标闪烁并恢复标签原始样式。"""
+        if self._blink_timer.isActive():
+            self._blink_timer.stop()
+        # 恢复当前标签样式
+        if 0 <= self._cursor_index < len(self.period_labels):
+            label = self.period_labels[self._cursor_index]
+            label.setStyleSheet(f"""
+                color: {self._theme.font_color};
+                background: transparent;
+                border-bottom: 1px solid {self._theme.border_color};
+            """)
+        self._blink_on = False
+        logger.info("光标闪烁已停止")
+
+    def _toggle_blink(self) -> None:
+        """切换光标标签的闪烁状态（由 QTimer 触发）。"""
+        if self._cursor_index < 0 or self._cursor_index >= len(self.period_labels):
+            return
+
+        label = self.period_labels[self._cursor_index]
+        font_color = self._theme.font_color
+        border = self._theme.border_color
+
+        if self._blink_on:
+            # 恢复常态
+            label.setStyleSheet(f"""
+                color: {font_color};
+                background: transparent;
+                border-bottom: 1px solid {border};
+            """)
+        else:
+            # 高亮闪烁（淡蓝色光标杆）
+            label.setStyleSheet(f"""
+                color: {font_color};
+                background: rgba(33, 150, 243, 0.18);
+                border-bottom: 1px solid {border};
+                border-left: 3px solid rgba(33, 150, 243, 0.6);
+            """)
+
+        self._blink_on = not self._blink_on
+
+    def move_cursor(self, steps: int) -> str:
+        """
+        移动光标到相邻的课时标签（首尾循环）。
+        ------------------------------------
+        参数：
+            steps（int）：移动步数，正数向下，负数向上
+
+        返回值：
+            str：移动后新标签的文字内容
+
+        说明：
+          光标到达顶部继续向上则跳到底部，到达底部继续向下则跳到顶部。
+        """
+        total: int = len(self.period_labels)
+        if total == 0:
+            return ""
+
+        # 首尾循环：使用取模运算实现 wrap-around
+        new_index: int = (self._cursor_index + steps) % total
+
+        # 停止旧光标 → 在新位置启动
+        self._cursor_index = new_index
+        # 重置闪烁状态，确保新标签从正常态开始
+        self._blink_on = False
+        # 先恢复所有标签样式
+        for label in self.period_labels:
+            label.setStyleSheet(f"""
+                color: {self._theme.font_color};
+                background: transparent;
+                border-bottom: 1px solid {self._theme.border_color};
+            """)
+        # 立即显示一次高亮
+        self._toggle_blink()
+
+        logger.info(f"光标移动到：第 {new_index + 1} 节")
+        current_text: str = self.period_labels[new_index].text().strip()
+        self.backend_signal.emit(f"cursor_info:{new_index}:{current_text}")
+        return current_text
+
+    def set_cursor_subject(self, subject_name: str) -> None:
+        """
+        将光标当前所在标签的内容设置为指定科目名称。
+        ------------------------------------------
+        参数：
+            subject_name（str）：科目名称
+        """
+        if 0 <= self._cursor_index < len(self.period_labels):
+            label = self.period_labels[self._cursor_index]
+            old_text: str = label.text().strip()
+            label.setText(f"  {subject_name}")
+            logger.info(f"标签更新：第 {self._cursor_index + 1} 节 "
+                        f"'{old_text}' → '{subject_name}'")
+
+    def get_cursor_index(self) -> int:
+        """获取当前光标所在的标签索引。"""
+        return self._cursor_index
+
+    def get_cursor_subject(self) -> str:
+        """获取当前光标所在标签的文字内容。"""
+        if 0 <= self._cursor_index < len(self.period_labels):
+            return self.period_labels[self._cursor_index].text().strip()
+        return ""

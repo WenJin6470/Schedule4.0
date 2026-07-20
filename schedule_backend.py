@@ -233,6 +233,142 @@ class WindowHelper:
         logger.info("已调用 app.quit()，程序即将退出")
 
 
+# ==================== 课表快捷编辑专属处理类 ====================
+
+class QuickEditHandler:
+    """
+    # QuickEditHandler — 课表快捷编辑专属后端处理器
+
+    负责处理快捷编辑相关的所有业务逻辑：
+      - 光标管理与闪烁
+      - 科目标签更新
+      - 光标移动（上下 / 倍速）
+      - 确认并退出编辑
+
+    此类持有对主窗口（ScheduleMainWindow）的引用，
+    通过调用主窗口的公开 API 来操作课时标签。
+    ---
+
+    对外接口：
+      - handle(action, main_window, subject_window) — 分发快捷编辑动作
+    """
+
+    def __init__(self) -> None:
+        """初始化快捷编辑处理器。"""
+        self._logger: logging.Logger = logging.getLogger(__name__)
+        self._logger.info("QuickEditHandler 初始化完成")
+
+    def handle(self, action: str, main_window,
+               subject_window=None) -> None:
+        """
+        处理快捷编辑相关的动作。
+        ----------------------
+        参数：
+            action         （str）：                  动作标识符
+            main_window    （ScheduleMainWindow）：   课表主窗口引用
+            subject_window （SubjectSelectWindow）：  快捷编辑子窗口引用（可选）
+        """
+        self._logger.info(f"[QuickEdit] 收到动作: {action}")
+
+        if action == "quick_edit_opened":
+            self._on_quick_edit_opened(main_window, subject_window)
+
+        elif action.startswith("subject:"):
+            subject_name: str = action.split(":", 1)[1]
+            self._on_subject_selected(main_window, subject_name)
+
+        elif action == "move_up":
+            self._on_move(main_window, -1, subject_window)
+
+        elif action == "move_down":
+            self._on_move(main_window, 1, subject_window)
+
+        elif action == "move_double_up":
+            self._on_move(main_window, -2, subject_window)
+
+        elif action == "move_double_down":
+            self._on_move(main_window, 2, subject_window)
+
+        elif action == "confirm":
+            self._on_confirm(main_window)
+
+        elif action.startswith("cursor_info:"):
+            # 主窗口发来的光标信息 → 转发给快捷编辑窗口显示
+            self._on_cursor_info(action, subject_window)
+
+        else:
+            self._logger.debug(f"[QuickEdit] 不处理的动作: {action}")
+
+    # ================================================================
+    #  快捷编辑窗口打开
+    # ================================================================
+    def _on_quick_edit_opened(self, main_window,
+                               subject_window=None) -> None:
+        """快捷编辑窗口打开 → 启动第一个标签的光标闪烁。"""
+        self._logger.info("[QuickEdit] 快捷编辑窗口已打开，启动光标闪烁")
+        current_text: str = main_window.start_cursor_blink(0)
+        self._logger.info(f"[QuickEdit] 光标位置：第1节，当前内容：'{current_text}'")
+
+    # ================================================================
+    #  科目按钮点击
+    # ================================================================
+    def _on_subject_selected(self, main_window,
+                               subject_name: str) -> None:
+        """
+        用户选择了科目 → 更新光标标签并自动下移光标。
+        """
+        old_subject: str = main_window.get_cursor_subject()
+        cursor_idx: int = main_window.get_cursor_index()
+
+        self._logger.info(f"[QuickEdit] 科目选择：第{cursor_idx + 1}节 "
+                          f"'{old_subject}' → '{subject_name}'")
+
+        # 更新光标标签内容
+        main_window.set_cursor_subject(subject_name)
+
+        # 自动下移光标
+        total: int = main_window.get_period_count()
+        if cursor_idx + 1 < total:
+            main_window.move_cursor(1)
+        else:
+            self._logger.info("[QuickEdit] 已到最后一节，光标不移动")
+
+    # ================================================================
+    #  光标移动
+    # ================================================================
+    def _on_move(self, main_window, steps: int,
+                  subject_window=None) -> None:
+        """移动光标（steps 正数向下，负数向上）。"""
+        main_window.move_cursor(steps)
+
+    # ================================================================
+    #  确认操作
+    # ================================================================
+    def _on_confirm(self, main_window) -> None:
+        """确认编辑 → 停止光标闪烁。"""
+        self._logger.info("[QuickEdit] 确认编辑，停止光标闪烁")
+        main_window.stop_cursor_blink()
+
+    # ================================================================
+    #  光标信息回传
+    # ================================================================
+    def _on_cursor_info(self, action: str, subject_window=None) -> None:
+        """
+        收到主窗口发来的光标信息 → 更新快捷编辑窗口的状态栏。
+        格式：cursor_info:<index>:<subject_text>
+        """
+        parts = action.split(":", 2)
+        if len(parts) >= 3:
+            try:
+                index: int = int(parts[1])
+            except ValueError:
+                return
+            subject_text: str = parts[2]
+            self._logger.debug(f"[QuickEdit] 光标信息：第{index + 1}节 '{subject_text}'")
+            if subject_window is not None:
+                subject_window.update_cursor_info(index, subject_text)
+
+
 # ==================== 后端信号处理类 ====================
 
 class ScheduleBackend:
@@ -260,11 +396,14 @@ class ScheduleBackend:
     def __init__(self) -> None:
         """初始化后端信号处理器。"""
         self._logger: logging.Logger = logging.getLogger(__name__)
+        # 快捷编辑专属处理器
+        self.quick_edit: QuickEditHandler = QuickEditHandler()
         self._logger.info("ScheduleBackend 初始化完成")
 
     def handle_action(self, action: str, main_window,
                        time_window, fullscreen_window,
-                       app: QApplication) -> None:
+                       app: QApplication,
+                       subject_window=None) -> None:
         """
         处理来自前端的统一信号。
         ----------------------
@@ -274,35 +413,33 @@ class ScheduleBackend:
             time_window        （TimeWindow）：         时间窗口引用
             fullscreen_window  （FullscreenTimeWindow）：全屏时间窗口引用
             app                （QApplication）：       QApplication 实例
+            subject_window     （SubjectSelectWindow）：快捷编辑窗口引用（可选）
 
         说明：
-          当前版本将具体业务逻辑记录到日志中，
-          后续各功能的实际实现在此方法中扩展。
+          快捷编辑类动作委托给 QuickEditHandler 处理，
+          系统类动作（关闭/全屏/设置）在本类中直接处理。
         """
         self._logger.info(f"[后端] 收到动作: {action}")
 
+        # ---- 快捷编辑相关 → 委托 QuickEditHandler ----
+        if action in ("quick_edit_opened", "confirm") or \
+           action.startswith("subject:") or \
+           action.startswith("cursor_info:") or \
+           action in ("move_up", "move_down", "move_double_up", "move_double_down"):
+            self.quick_edit.handle(action, main_window, subject_window)
+            return
+
+        # ---- 系统操作 → 本类处理 ----
         if action == "close":
-            # 关闭所有窗口并退出程序
+            # 先停止光标闪烁
+            main_window.stop_cursor_blink()
             WindowHelper.close_all(
                 [time_window, main_window, fullscreen_window], app
             )
-        elif action.startswith("subject:"):
-            subject_name: str = action.split(":", 1)[1]
-            self._logger.info(f"[后端] 科目选择: {subject_name}")
-            # TODO: 后端实现科目选择逻辑
-        elif action in ("move_up", "move_down", "move_double_up", "move_double_down"):
-            self._logger.info(f"[后端] 移动操作: {action}")
-            # TODO: 后端实现移动逻辑
-        elif action == "confirm":
-            self._logger.info(f"[后端] 确认操作")
-            # TODO: 后端实现确认逻辑
-        elif action == "quick_edit_opened":
-            self._logger.info(f"[后端] 快捷编辑窗口已打开")
         elif action == "fullscreen_time":
             self._logger.info(f"[后端] 全屏时间 — 显示全屏时间窗口")
             fullscreen_window.show_fullscreen()
         elif action == "settings":
             self._logger.info(f"[后端] 设置")
-            # 设置窗口由 ScheduleMainWindow._on_settings_clicked 直接创建
         else:
             self._logger.warning(f"[后端] 未知动作: {action}")

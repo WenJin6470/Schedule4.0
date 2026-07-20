@@ -173,7 +173,8 @@ def main() -> None:
     logger.info("连接信号：ScheduleMainWindow.backend_signal → ScheduleBackend")
     main_window.backend_signal.connect(
         lambda action: backend_handler.handle_action(
-            action, main_window, time_window, fullscreen_window, app
+            action, main_window, time_window, fullscreen_window, app,
+            subject_window=main_window._subject_window
         )
     )
     logger.info("统一后端信号已连接")

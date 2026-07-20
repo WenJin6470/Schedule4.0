@@ -82,7 +82,7 @@ class SubjectSelectWindow(ThemedWidget):
         )
         self.setWindowTitle("快捷课表编辑")
         self.setAutoFillBackground(True)
-        self.setWindowOpacity(0.9)
+        self.setWindowOpacity(0.95)
 
         # 窗口大小和位置
         win_w: int = int(self._theme.screen_width * 0.35)
@@ -93,9 +93,9 @@ class SubjectSelectWindow(ThemedWidget):
         pos_y: int = (self._theme.screen_height - win_h) // 2
         self.move(pos_x, pos_y)
 
-        # ----- 主布局：内容区（左右 8:2）-----
+        # ----- 主布局：内容区（左右 8:2）+ 状态栏 ----
         outer_layout: QVBoxLayout = QVBoxLayout(self)
-        outer_layout.setContentsMargins(8, 8, 8, 8)
+        outer_layout.setContentsMargins(8, 8, 8, 4)
         outer_layout.setSpacing(0)
 
         # 内容区：左右 8:2
@@ -111,7 +111,35 @@ class SubjectSelectWindow(ThemedWidget):
 
         outer_layout.addLayout(content_layout, stretch=1)
 
+        # 状态栏：显示当前光标位置和科目
+        self._status_label: QLabel = QLabel("光标：第1节  |  当前：--")
+        self._status_label.setFont(QFont("Microsoft YaHei", 9))
+        self._status_label.setFixedHeight(24)
+        self._status_label.setStyleSheet(f"""
+            color: {self._theme.font_color};
+            background: transparent;
+            border-top: 1px solid {self._theme.border_color};
+            padding: 2px 6px;
+        """)
+        outer_layout.addWidget(self._status_label)
+
         logger.info(f"SubjectSelectWindow UI 创建完成：{win_w}×{win_h}")
+
+    # ================================================================
+    #  公开方法：更新光标信息显示
+    # ================================================================
+    def update_cursor_info(self, index: int, subject_text: str) -> None:
+        """
+        更新状态栏中的光标位置和当前科目信息。
+        -----------------------------------
+        参数：
+            index        （int）：光标所在的标签索引（0 起始）
+            subject_text （str）：该标签当前的科目文字
+        """
+        self._status_label.setText(
+            f"光标：第{index + 1}节  |  当前：{subject_text}"
+        )
+        logger.debug(f"[SubjectSelectWindow] 状态栏更新：第{index + 1}节 '{subject_text}'")
 
     # ================================================================
     #  构建左侧面板：科目按钮（分组 + 分割线）
