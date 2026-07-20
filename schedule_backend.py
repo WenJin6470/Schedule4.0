@@ -262,14 +262,18 @@ class ScheduleBackend:
         self._logger: logging.Logger = logging.getLogger(__name__)
         self._logger.info("ScheduleBackend 初始化完成")
 
-    def handle_action(self, action: str, frontend, app: QApplication) -> None:
+    def handle_action(self, action: str, main_window,
+                       time_window, fullscreen_window,
+                       app: QApplication) -> None:
         """
         处理来自前端的统一信号。
         ----------------------
         参数：
-            action   （str）：           动作标识符
-            frontend （ScheduleClassroomFrontend）：前端窗口引用
-            app      （QApplication）：  QApplication 实例
+            action             （str）：                动作标识符
+            main_window        （ScheduleMainWindow）： 课表主窗口引用
+            time_window        （TimeWindow）：         时间窗口引用
+            fullscreen_window  （FullscreenTimeWindow）：全屏时间窗口引用
+            app                （QApplication）：       QApplication 实例
 
         说明：
           当前版本将具体业务逻辑记录到日志中，
@@ -280,23 +284,25 @@ class ScheduleBackend:
         if action == "close":
             # 关闭所有窗口并退出程序
             WindowHelper.close_all(
-                [frontend.get_time_window(), frontend.get_root_window()], app
+                [time_window, main_window, fullscreen_window], app
             )
         elif action.startswith("subject:"):
-            # 用户选择了科目
             subject_name: str = action.split(":", 1)[1]
             self._logger.info(f"[后端] 科目选择: {subject_name}")
             # TODO: 后端实现科目选择逻辑
         elif action in ("move_up", "move_down", "move_double_up", "move_double_down"):
-            # 移动选择光标
             self._logger.info(f"[后端] 移动操作: {action}")
             # TODO: 后端实现移动逻辑
         elif action == "confirm":
-            # 确认操作
             self._logger.info(f"[后端] 确认操作")
             # TODO: 后端实现确认逻辑
         elif action == "quick_edit_opened":
-            # 快捷编辑窗口已打开
             self._logger.info(f"[后端] 快捷编辑窗口已打开")
+        elif action == "fullscreen_time":
+            self._logger.info(f"[后端] 全屏时间 — 显示全屏时间窗口")
+            fullscreen_window.show_fullscreen()
+        elif action == "settings":
+            self._logger.info(f"[后端] 设置")
+            # 设置窗口由 ScheduleMainWindow._on_settings_clicked 直接创建
         else:
             self._logger.warning(f"[后端] 未知动作: {action}")
