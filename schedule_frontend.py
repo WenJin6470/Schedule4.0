@@ -3,30 +3,15 @@
 ║         📅 电子课表系统 —— schedule_frontend.py（主窗口模块）              ║
 ║                    （课表显示主窗口 · 四大按钮入口）                         ║
 ╚══════════════════════════════════════════════════════════════════════════╝
-
-📌 本文件的角色
-═══════════════════════════════════════════════════════════════════════════
-本文件是前后端分离架构中的【主窗口前端】，负责：
-  ✅ 显示课表课时标签（根据 period_count 动态创建）
-  ✅ 底部四按钮栏（全屏时间 / 快捷编辑 / 设置 / 关闭）
-  ✅ 提供公开方法供后端修改课时标签内容
-
-📌 架构关系
-═══════════════════════════════════════════════════════════════════════════
-本窗口是四个主要窗口类之一，通过统一的 ThemeManager 获取主题颜色：
-  - schedule_theme.py   — ThemeManager + ThemedWidget（共享基础）
-  - schedule_time.py    — TimeWindow + FullscreenTimeWindow（时间模块）
-  - schedule_quick_edit.py — SubjectSelectWindow（快捷编辑模块）
-  - schedule_settings.py   — SettingsWindow（设置模块）
 """
 
 import logging
 import os
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from PySide6.QtWidgets import QLabel, QPushButton, QWidget
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QIcon
+from PySide6.QtGui import QFont, QIcon
 
 from schedule_theme import ThemeManager, ThemedWidget
 from schedule_quick_edit import SubjectSelectWindow
@@ -34,94 +19,62 @@ from schedule_settings import SettingsWindow
 
 logger: logging.Logger = logging.getLogger(__name__)
 
+EVENT_ROW_H = 16   # 事件行高度
+BTN_BAR_H = 40     # 按钮栏高度
+SEP_H = 1          # 分隔线
+
 
 class ScheduleMainWindow(ThemedWidget):
-    """
-    # ScheduleMainWindow — 课表主窗口
+    """课表主窗口：统一行列表渲染（课时 + 事件）。"""
 
-    继承 ThemedWidget，负责显示课表科目和四个功能入口按钮。
-    ---
-
-    窗口结构：
-      ┌──────────────┐
-      │   第1节       │
-      │   第2节       │
-      │   第3节       │
-      │   ...        │
-      │   第7节       │
-      │              │
-      │ ⏰ 📝 ⚙ ✕  │  ← 底部按钮栏
-      └──────────────┘
-
-    信号：
-      backend_signal(str) — 统一后端信号，所有按钮点击均通过此信号发送
-
-    公开 API：
-      get_period_label(index)        — 获取指定课时标签
-      get_period_count()             — 获取课时总数
-      get_all_period_labels()        — 获取所有课时标签列表
-    """
-
-    # ================================================================
-    #  信号定义
-    # ================================================================
     backend_signal = Signal(str)
 
-    # ================================================================
-    #  构造函数
-    # ================================================================
     def __init__(self, theme_manager: ThemeManager) -> None:
-        """
-        初始化课表主窗口。
-        -----------------
-        参数：
-            theme_manager（ThemeManager）：全局主题管理器（含配置和颜色）
-        """
         super().__init__(theme_manager, bg_color_attr='root_back_color')
 
         logger.info("=" * 50)
         logger.info("ScheduleMainWindow 初始化开始")
 
-        # ---- 控件引用 ----
         self._subject_window: Optional[SubjectSelectWindow] = None
         self._settings_window: Optional[SettingsWindow] = None
 
-        # ---- 光标闪烁状态 ----
+        # 光标闪烁
         self._cursor_index: int = 0
-        self._blink_timer: QTimer = QTimer()
-        self._blink_timer.setInterval(500)  # 500ms 闪烁间隔
+        self._blink_timer = QTimer()
+        self._blink_timer.setInterval(500)
         self._blink_timer.timeout.connect(self._toggle_blink)
         self._blink_on: bool = False
 
-        # ---- 课时标签列表 ----
-        self.period_labels: List[QLabel] = []
-        self.period_bars: List[QWidget] = []
-
-        # ---- 当前显示星期 ----
+        # 当前星期
         self._current_day_index: int = self._theme.current_day_index
 
-        # ---- 计算窗口尺寸和位置 ----
-        self._win_width: int = int(self._theme.screen_width * (150 / 1920))
-        self._win_height: int = int(self._theme.screen_height / 13 * 11)
-        self._pos_x: int = int(self._theme.screen_width * (1765 / 1920))
-        self._pos_y: int = int(self._theme.screen_height / 12)
+        # ---- 窗口尺寸 ----
+        sw, sh = self._theme.screen_width, self._theme.screen_height
+        self._win_width: int = int(sw * (150 / 1920))
+        self._win_height: int = int(sh / 13 * 11)
+        self._pos_x: int = int(sw * (1765 / 1920))
+        self._pos_y: int = int(sh / 12)
 
-        logger.info(f"窗口尺寸：{self._win_width}×{self._win_height}，"
-                    f"位置({self._pos_x}, {self._pos_y})")
+        logger.info(
+            f"窗口尺寸：{self._win_width}×{self._win_height}，"
+            f"位置({self._pos_x}, {self._pos_y})"
+        )
 
-        # ---- 创建 UI ----
-        logger.info("开始创建 UI 元素...")
+        # ---- 内容行（统一管理）----
+        self._period_labels: List[QLabel] = []   # 按 period_index 存储
+        self._period_bars: List[QWidget] = []    # 按 period_index 存储
+        self._all_content_widgets: List[QWidget] = []  # 所有内容行
+
         self._setup_ui()
+        self._rebuild_content()
+
         logger.info("ScheduleMainWindow 初始化完成")
         logger.info("=" * 50)
 
     # ================================================================
-    #  私有方法：创建所有 UI 元素
+    #  窗口框架
     # ================================================================
     def _setup_ui(self) -> None:
-        """创建课表主窗口及其内部控件。"""
-
-        # ---- 窗口属性 ----
         self.setWindowFlags(
             Qt.FramelessWindowHint           # type: ignore
             | Qt.WindowStaysOnTopHint        # type: ignore
@@ -132,472 +85,368 @@ class ScheduleMainWindow(ThemedWidget):
         self.setFixedSize(self._win_width, self._win_height)
         self.move(self._pos_x, self._pos_y)
 
-        # ===== 课时标签区域 =====
-        close_btn_height: int = 36
-        available_height: int = self._win_height - close_btn_height
-        period_count: int = self._theme.period_count
-        label_height: int = available_height // period_count if period_count > 0 else available_height
-
-        subjects: List[str] = self._theme.get_current_day_subjects()
-
-        logger.info(f"创建 {period_count} 个课时标签（每个高度 {label_height}px）...")
-        self.period_bars: List[QWidget] = []
-        for i in range(period_count):
-            subject_text: str = subjects[i] if i < len(subjects) else ""
-
-            label: QLabel = QLabel(self)
-            label.setObjectName(f"period_label_{i}")
-            label.setFont(QFont("Arial", 12))
-            label.setStyleSheet(f"""
-                color: {self._theme.font_color};
-                background: transparent;
-                border-bottom: 1px solid {self._theme.border_color};
-            """)
-            label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
-            label.setGeometry(0, i * label_height, self._win_width, label_height)
-            label.setText(f"  {subject_text}" if subject_text else "")
-            self.period_labels.append(label)
-
-            # 进度条：3px 高，位于标签底部
-            bar: QWidget = QWidget(self)
-            bar.setFixedHeight(3)
-            bar.setStyleSheet(
-                "background: rgba(33, 150, 243, 0.85); border: none;"
-                "border-radius: 1px;"
-            )
-            bar.setVisible(False)
-            bar.setGeometry(0, (i + 1) * label_height - 4, 0, 3)
-            self.period_bars.append(bar)
-
-        # ===== 事件标记（课时之间的小标签）=====
-        self._event_labels: List[QLabel] = []
-        self._refresh_event_markers(label_height)
-
-        # ===== 底部按钮栏（4 个图标按钮）=====
-        images_dir: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'images')
-        icon_suffix: str = self._theme.get_icon_suffix()
-
-        logger.info(f"图标后缀：'{icon_suffix}'（主题={self._theme.theme}）")
+        # ---- 底部按钮栏 ----
+        images_dir = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), 'images'
+        )
+        icon_suffix = self._theme.get_icon_suffix()
 
         button_configs = [
-            ('_fullscreen_btn', 'FullScreenTime', self._on_fullscreen_time_clicked),
-            ('_edit_btn',       'EDIT_S',        self._on_quick_edit_clicked),
-            ('_settings_btn',   'setting',       self._on_settings_clicked),
-            ('_close_btn',      'EXIT',          self._on_close_clicked),
+            ('_fs_btn', 'FullScreenTime', self._on_fullscreen_time_clicked),
+            ('_ed_btn', 'EDIT_S',        self._on_quick_edit_clicked),
+            ('_st_btn', 'setting',       self._on_settings_clicked),
+            ('_cl_btn', 'EXIT',          self._on_close_clicked),
         ]
+        bs = 22
+        bc = len(button_configs)
+        sp = (self._win_width - bc * (bs + 4)) // (bc + 1)
+        by = self._win_height - BTN_BAR_H + (BTN_BAR_H - bs) // 2
 
-        btn_size: int = 20
-        btn_count: int = len(button_configs)
-        total_btn_width: int = btn_count * btn_size
-        spacing: int = (self._win_width - total_btn_width) // (btn_count + 1)
-        btn_y: int = period_count * label_height + (close_btn_height - btn_size) // 2
-
-        for i, (attr_name, image_base, handler) in enumerate(button_configs):
-            icon_path: str = os.path.join(images_dir, f"{image_base}{icon_suffix}.svg")
-            btn: QPushButton = QPushButton(self)
-            btn.setIcon(QIcon(icon_path))
-            btn.setIconSize(QSize(btn_size, btn_size))
+        for i, (attr, base, handler) in enumerate(button_configs):
+            path = os.path.join(images_dir, f"{base}{icon_suffix}.svg")
+            btn = QPushButton(self)
+            btn.setIcon(QIcon(path))
+            btn.setIconSize(QSize(bs, bs))
             btn.setStyleSheet("""
-                QPushButton {
-                    background: transparent;
-                    border: none;
-                    padding: 0px;
-                }
+                QPushButton { background: transparent; border: none; padding: 2px; }
                 QPushButton:hover {
-                    background: rgba(128, 128, 128, 0.25);
-                    border-radius: 4px;
+                    background: rgba(128,128,128,0.2); border-radius: 5px;
                 }
             """)
-            btn.setFixedSize(btn_size, btn_size)
-            btn_x: int = spacing + i * (btn_size + spacing)
-            btn.move(btn_x, btn_y)
+            btn.setFixedSize(bs + 4, bs + 4)
+            btn.move(sp + i * (bs + 4 + sp), by)
             btn.clicked.connect(handler)
-            setattr(self, attr_name, btn)
+            setattr(self, attr, btn)
 
-        logger.info(f"底部按钮栏创建完成：{btn_count} 个图标按钮，间距={spacing}px")
+        logger.info(f"按钮栏创建完成：{bc} 个按钮")
 
     # ================================================================
-    #  按钮点击槽函数
+    #  统一行列表：构建 / 销毁 / 刷新
+    # ================================================================
+    def _get_merged_rows(self) -> List[Dict[str, Any]]:
+        """将课时和事件按时序合并为统一列表。"""
+        pc = self._theme.period_count
+        times = self._theme.get_period_times()
+        events = self._theme.get_active_events()
+
+        rows: List[Dict[str, Any]] = []
+        for i in range(pc):
+            t = times[i] if i < len(times) else {}
+            rows.append({
+                "type": "period", "period_index": i,
+                "sort_time": t.get("start", "99:99"),
+                "start": t.get("start", ""), "end": t.get("end", ""),
+            })
+        for j, e in enumerate(events):
+            rows.append({
+                "type": "event", "event_index": j,
+                "sort_time": e.get("time", "99:99"),
+                "time": e.get("time", ""), "name": e.get("name", ""),
+            })
+        rows.sort(key=lambda r: (r["sort_time"], 0 if r["type"] == "event" else 1))
+        return rows
+
+    def _rebuild_content(self) -> None:
+        """销毁并重建所有内容行（课时 + 事件）。"""
+        # 清理旧控件
+        for w in self._all_content_widgets:
+            w.deleteLater()
+        self._all_content_widgets.clear()
+        self._period_labels.clear()
+        self._period_bars.clear()
+
+        # 扩展 period_labels / period_bars 到 period_count 大小
+        pc = self._theme.period_count
+        self._period_labels = [None] * pc  # type: ignore
+        self._period_bars = [None] * pc    # type: ignore
+
+        rows = self._get_merged_rows()
+        subjects = self._theme.get_current_day_subjects()
+
+        # 计算高度分配
+        period_count = sum(1 for r in rows if r["type"] == "period")
+        event_count = sum(1 for r in rows if r["type"] == "event")
+        available = self._win_height - BTN_BAR_H
+        period_h = (available - event_count * EVENT_ROW_H) // max(period_count, 1)
+        if period_h < 32:
+            period_h = 32  # 最小高度
+
+        current_y = 0
+        for row_data in rows:
+            if row_data["type"] == "period":
+                current_y = self._build_period_row(row_data, subjects,
+                                                   period_h, current_y)
+            else:
+                current_y = self._build_event_row(row_data, current_y)
+
+        logger.info(
+            f"内容重建：{period_count} 课时行 + {event_count} 事件行，"
+            f"课时高度 {period_h}px"
+        )
+
+    def _build_period_row(self, data: Dict, subjects: List[str],
+                          h: int, y: int) -> int:
+        """创建一个课时行，返回下一行的 y。"""
+        pi = data["period_index"]
+        subj = subjects[pi] if pi < len(subjects) else ""
+
+        # 分隔线（非首行）
+        if y > 0:
+            sep = QLabel(self)
+            sep.setStyleSheet(f"background: {self._theme.border_color};")
+            sep.setGeometry(4, y, self._win_width - 8, SEP_H)
+            self._all_content_widgets.append(sep)
+            y += SEP_H
+
+        # 标签
+        label = QLabel(subj if subj else "—", self)
+        label.setObjectName(f"period_label_{pi}")
+        label.setFont(QFont("Microsoft YaHei", 13))
+        label.setStyleSheet(f"""
+            color: {self._theme.font_color};
+            background: transparent;
+            border-bottom: 1px solid {self._theme.border_color};
+            padding-left: 10px;
+        """)
+        label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
+        label.setGeometry(0, y, self._win_width, h)
+        self._all_content_widgets.append(label)
+        self._period_labels[pi] = label
+
+        # 进度条
+        bar = QWidget(self)
+        bar.setFixedHeight(3)
+        bar.setStyleSheet("background: #64B5F6; border: none; border-radius: 2px;")
+        bar.setVisible(False)
+        bar.setGeometry(4, y + h - 5, 0, 3)
+        self._all_content_widgets.append(bar)
+        self._period_bars[pi] = bar
+
+        return y + h
+
+    def _build_event_row(self, data: Dict, y: int) -> int:
+        """创建一个事件行，返回下一行的 y。"""
+        # 分隔线
+        sep = QLabel(self)
+        sep.setStyleSheet(f"background: {self._theme.border_color};")
+        sep.setGeometry(4, y, self._win_width - 8, SEP_H)
+        self._all_content_widgets.append(sep)
+        y += SEP_H
+
+        # 事件标记
+        text = f" ▪ {data['name']}  {data['time']}"
+        label = QLabel(text, self)
+        label.setFont(QFont("Microsoft YaHei", 8))
+        label.setStyleSheet(f"""
+            color: {self._theme.font_color};
+            background: transparent;
+            padding-left: 10px;
+        """)
+        label.setGeometry(0, y, self._win_width, EVENT_ROW_H)
+        self._all_content_widgets.append(label)
+
+        return y + EVENT_ROW_H
+
+    # ================================================================
+    #  按钮事件
     # ================================================================
     def _on_fullscreen_time_clicked(self) -> None:
-        """全屏时间按钮 — 发射 backend_signal('fullscreen_time')。"""
-        logger.info("用户点击了全屏时间按钮")
+        logger.info("全屏时间")
         self.backend_signal.emit("fullscreen_time")
 
     def _on_quick_edit_clicked(self) -> None:
-        """快捷编辑按钮 — 发射信号并显示科目选择子窗口。"""
-        logger.info("用户点击了快捷课表编辑按钮")
+        logger.info("快捷编辑")
         self.backend_signal.emit("quick_edit_opened")
         self._show_subject_window()
 
     def _on_settings_clicked(self) -> None:
-        """设置按钮 — 发射信号并显示设置窗口。"""
-        logger.info("用户点击了设置按钮")
+        logger.info("设置")
         self.backend_signal.emit("settings")
         self._show_settings_window()
 
     def _on_close_clicked(self) -> None:
-        """关闭按钮 — 发射 backend_signal('close')。"""
-        logger.info("用户点击了关闭按钮")
-        if self._subject_window is not None:
+        logger.info("关闭")
+        if self._subject_window:
             self._subject_window.close()
             self._subject_window = None
-        if self._settings_window is not None:
+        if self._settings_window:
             self._settings_window.close()
             self._settings_window = None
         self.backend_signal.emit("close")
 
-    # ================================================================
-    #  私有方法：显示子窗口
-    # ================================================================
     def _show_subject_window(self) -> None:
-        """显示科目选择子窗口（复用已有实例或新建）。"""
-        if self._subject_window is not None:
-            # 窗口已存在（可能被隐藏），直接显示
-            logger.info("复用已有的科目选择子窗口")
+        if self._subject_window:
             self._subject_window.show()
             return
-
-        logger.info("创建科目选择子窗口...")
         self._subject_window = SubjectSelectWindow(
-            parent_signal=self.backend_signal,
-            theme_manager=self._theme,
+            parent_signal=self.backend_signal, theme_manager=self._theme
         )
         self._subject_window.show()
-        logger.info("科目选择子窗口已显示")
 
     def _show_settings_window(self) -> None:
-        """创建并显示设置窗口。"""
-        if self._settings_window is not None:
+        if self._settings_window:
             self._settings_window.close()
             self._settings_window = None
-
-        logger.info("创建设置窗口...")
         self._settings_window = SettingsWindow(
-            parent_signal=self.backend_signal,
-            theme_manager=self._theme,
+            parent_signal=self.backend_signal, theme_manager=self._theme
         )
         self._settings_window.show()
-        logger.info("设置窗口已显示")
 
     # ================================================================
-    #  公开 API：课时标签操作
+    #  公开 API
     # ================================================================
-    def get_period_label(self, index: int) -> Optional[QLabel]:
-        """根据索引获取指定的课时标签控件。"""
-        if 0 <= index < len(self.period_labels):
-            return self.period_labels[index]
-        logger.warning(f"get_period_label: 索引 {index} 越界 (共 {len(self.period_labels)} 个)")
-        return None
-
-    def get_period_label_by_name(self, name: str) -> Optional[QLabel]:
-        """根据 objectName 获取指定的课时标签控件。"""
-        for label in self.period_labels:
-            if label.objectName() == name:
-                return label
-        logger.warning(f"get_period_label_by_name: 未找到名称为 '{name}' 的标签")
-        return None
-
-    def get_period_count(self) -> int:
-        """获取当前课时数量。"""
-        return self._theme.period_count
-
-    def get_all_period_labels(self) -> List[QLabel]:
-        """获取所有课时标签控件的列表。"""
-        return self.period_labels
-
-    # ================================================================
-    #  公开 API：光标闪烁（快捷编辑用）
-    # ================================================================
-
-    def start_cursor_blink(self, index: int = 0) -> str:
-        """
-        在指定索引的课时标签上启动光标闪烁效果。
-        --------------------------------------
-        通过 QTimer 间歇切换标签背景色，模拟文本编辑器中的光标。
-
-        参数：
-            index（int）：要闪烁的标签索引，默认 0（第1节）
-
-        返回值：
-            str：该标签当前的文字内容（发送给快捷编辑窗口）
-        """
-        if index < 0 or index >= len(self.period_labels):
-            logger.warning(f"start_cursor_blink: 索引 {index} 越界")
-            return ""
-
-        # 先停止之前的闪烁
-        self.stop_cursor_blink()
-
-        self._cursor_index = index
-        self._blink_on = False
-        self._blink_timer.start()
-        logger.info(f"光标闪烁已启动：第 {index + 1} 节")
-
-        # 返回当前标签的文字内容
-        current_text: str = self.period_labels[index].text().strip()
-        # 发射信号通知后端 / 快捷编辑窗口
-        self.backend_signal.emit(f"cursor_info:{index}:{current_text}")
-        return current_text
-
-    def stop_cursor_blink(self) -> None:
-        """停止光标闪烁并恢复标签原始样式。"""
-        if self._blink_timer.isActive():
-            self._blink_timer.stop()
-        # 恢复当前标签样式
-        if 0 <= self._cursor_index < len(self.period_labels):
-            label = self.period_labels[self._cursor_index]
-            label.setStyleSheet(f"""
-                color: {self._theme.font_color};
-                background: transparent;
-                border-bottom: 1px solid {self._theme.border_color};
-            """)
-        self._blink_on = False
-        logger.info("光标闪烁已停止")
-
-    def _toggle_blink(self) -> None:
-        """切换光标标签的闪烁状态（由 QTimer 触发）。"""
-        if self._cursor_index < 0 or self._cursor_index >= len(self.period_labels):
-            return
-
-        label = self.period_labels[self._cursor_index]
-        font_color = self._theme.font_color
-        border = self._theme.border_color
-
-        if self._blink_on:
-            # 恢复常态
-            label.setStyleSheet(f"""
-                color: {font_color};
-                background: transparent;
-                border-bottom: 1px solid {border};
-            """)
-        else:
-            # 高亮闪烁（淡蓝色光标杆）
-            label.setStyleSheet(f"""
-                color: {font_color};
-                background: rgba(33, 150, 243, 0.18);
-                border-bottom: 1px solid {border};
-                border-left: 3px solid rgba(33, 150, 243, 0.6);
-            """)
-
-        self._blink_on = not self._blink_on
-
-    def move_cursor(self, steps: int) -> str:
-        """
-        移动光标到相邻的课时标签（首尾循环）。
-        ------------------------------------
-        参数：
-            steps（int）：移动步数，正数向下，负数向上
-
-        返回值：
-            str：移动后新标签的文字内容
-
-        说明：
-          光标到达顶部继续向上则跳到底部，到达底部继续向下则跳到顶部。
-        """
-        total: int = len(self.period_labels)
-        if total == 0:
-            return ""
-
-        # 首尾循环：使用取模运算实现 wrap-around
-        new_index: int = (self._cursor_index + steps) % total
-
-        # 停止旧光标 → 在新位置启动
-        self._cursor_index = new_index
-        # 重置闪烁状态，确保新标签从正常态开始
-        self._blink_on = False
-        # 先恢复所有标签样式
-        for label in self.period_labels:
-            label.setStyleSheet(f"""
-                color: {self._theme.font_color};
-                background: transparent;
-                border-bottom: 1px solid {self._theme.border_color};
-            """)
-        # 立即显示一次高亮
-        self._toggle_blink()
-
-        logger.info(f"光标移动到：第 {new_index + 1} 节")
-        current_text: str = self.period_labels[new_index].text().strip()
-        self.backend_signal.emit(f"cursor_info:{new_index}:{current_text}")
-        return current_text
-
-    def set_cursor_subject(self, subject_name: str) -> None:
-        """
-        将光标当前所在标签的内容设置为指定科目名称。
-        ------------------------------------------
-        参数：
-            subject_name（str）：科目名称
-        """
-        if 0 <= self._cursor_index < len(self.period_labels):
-            label = self.period_labels[self._cursor_index]
-            old_text: str = label.text().strip()
-            label.setText(f"  {subject_name}")
-            # 持久化
-            self._theme.set_subject(
-                self._current_day_index, self._cursor_index, subject_name
-            )
-            logger.info(f"标签更新：第 {self._cursor_index + 1} 节 "
-                        f"'{old_text}' → '{subject_name}'（已保存）")
-
-    def get_cursor_index(self) -> int:
-        """获取当前光标所在的标签索引。"""
-        return self._cursor_index
-
-    def get_cursor_subject(self) -> str:
-        """获取当前光标所在标签的文字内容。"""
-        if 0 <= self._cursor_index < len(self.period_labels):
-            return self.period_labels[self._cursor_index].text().strip()
-        return ""
-
-    # ================================================================
-    #  公开 API：数据刷新 / 进度条 / 星期切换
-    # ================================================================
-
     def get_theme(self) -> 'ThemeManager':
-        """返回 ThemeManager 引用（供后端和设置窗口使用）。"""
         return self._theme
 
     def get_current_day_index(self) -> int:
-        """返回当前显示星期的索引。"""
         return self._current_day_index
 
+    def get_period_label(self, index: int) -> Optional[QLabel]:
+        if 0 <= index < len(self._period_labels):
+            return self._period_labels[index]
+        return None
+
+    def get_period_count(self) -> int:
+        return self._theme.period_count
+
     def refresh_labels(self) -> None:
-        """从 theme 重新加载当前天科目到所有标签。"""
-        subjects = self._theme.get_current_day_subjects()
-        for i, label in enumerate(self.period_labels):
-            subject_text = subjects[i] if i < len(subjects) else ""
-            label.setText(f"  {subject_text}" if subject_text else "")
-        self._refresh_event_markers()
-        logger.info(
-            f"标签已刷新：{self._theme.DAY_NAMES[self._theme.get_current_day_name()]}"
-        )
-
-    def _refresh_event_markers(self, label_height: Optional[int] = None) -> None:
-        """创建/刷新课时间的事件标记标签。"""
-        # 清理旧标记
-        for lbl in self._event_labels:
-            lbl.deleteLater()
-        self._event_labels.clear()
-
-        events = self._theme.get_active_events()
-        times = self._theme.get_period_times()
-        if not events or not times:
-            return
-
-        # 计算 label_height（如果未传入）
-        if label_height is None:
-            close_btn_height = 36
-            available = self._win_height - close_btn_height
-            label_height = available // max(len(self.period_labels), 1)
-
-        # 收集每个事件的插入 Y 位置，处理重叠
-        positioned: List[tuple] = []  # (event_time, event_name, base_y)
-
-        for event in events:
-            event_time = event.get("time", "")
-            event_name = event.get("name", "")
-            if not event_time or not event_name:
-                continue
-
-            insert_y = None
-            # 优先匹配课时边界
-            for i, t in enumerate(times):
-                if event_time == t.get("start", ""):
-                    insert_y = i * label_height
-                    break
-                if event_time == t.get("end", ""):
-                    insert_y = (i + 1) * label_height
-                    break
-            # 严格在课时之间
-            if insert_y is None:
-                for i in range(len(times) - 1):
-                    end_t = times[i].get("end", "")
-                    start_t = times[i + 1].get("start", "")
-                    if end_t < event_time < start_t:
-                        insert_y = (i + 1) * label_height
-                        break
-            # 在所有课时之前/之后
-            if insert_y is None and times:
-                if event_time < times[0].get("start", "99:99"):
-                    insert_y = 0
-                elif event_time >= times[-1].get("end", "00:00"):
-                    insert_y = len(times) * label_height
-
-            if insert_y is not None:
-                positioned.append((event_time, event_name, insert_y))
-
-        # 按 base_y 排序
-        positioned.sort(key=lambda x: x[2])
-
-        # 处理重叠：同一 base_y 的事件垂直分散
-        marker_h = 13
-        seen_y: Dict[int, int] = {}  # base_y → 已用行数
-        for event_time, event_name, base_y in positioned:
-            offset = seen_y.get(base_y, 0)
-            seen_y[base_y] = offset + 1
-            actual_y = base_y + offset * marker_h
-
-            marker = QLabel(f"· {event_name}  {event_time}", self)
-            marker.setFont(QFont("Arial", 7))
-            marker.setStyleSheet(f"""
-                color: {self._theme.font_color};
-                background: transparent;
-            """)
-            marker.setGeometry(4, actual_y, self._win_width - 8, marker_h)
-            self._event_labels.append(marker)
+        """完全重建内容行。"""
+        self._rebuild_content()
 
     def set_display_day(self, day_index: int) -> None:
-        """切换显示星期（供设置窗口调用）。"""
         self._current_day_index = day_index
         self._theme.set_display_day(day_index)
-        self.refresh_labels()
-        # 如果有活跃的光标闪烁，先停止
         if self._blink_timer.isActive():
             self.stop_cursor_blink()
+        self._rebuild_content()
 
+    # ================================================================
+    #  光标闪烁
+    # ================================================================
+    def start_cursor_blink(self, index: int = 0) -> str:
+        if index < 0 or index >= len(self._period_labels):
+            return ""
+        self.stop_cursor_blink()
+        self._cursor_index = index
+        self._blink_on = False
+        self._blink_timer.start()
+        text = (self._period_labels[index].text().strip()
+                if self._period_labels[index] else "")
+        self.backend_signal.emit(f"cursor_info:{index}:{text}")
+        return text
+
+    def stop_cursor_blink(self) -> None:
+        if self._blink_timer.isActive():
+            self._blink_timer.stop()
+        label = (self._period_labels[self._cursor_index]
+                 if self._cursor_index < len(self._period_labels) else None)
+        if label:
+            label.setStyleSheet(f"""
+                color: {self._theme.font_color};
+                background: transparent;
+                border-bottom: 1px solid {self._theme.border_color};
+                padding-left: 10px;
+            """)
+        self._blink_on = False
+
+    def _toggle_blink(self) -> None:
+        if not (0 <= self._cursor_index < len(self._period_labels)):
+            return
+        label = self._period_labels[self._cursor_index]
+        if label is None:
+            return
+        fc, bd = self._theme.font_color, self._theme.border_color
+        if self._blink_on:
+            label.setStyleSheet(f"""
+                color: {fc}; background: transparent;
+                border-bottom: 1px solid {bd}; padding-left: 10px;
+            """)
+        else:
+            label.setStyleSheet(f"""
+                color: {fc};
+                background: rgba(33,150,243,0.18);
+                border-bottom: 1px solid {bd};
+                border-left: 3px solid rgba(33,150,243,0.6);
+                padding-left: 7px;
+            """)
+        self._blink_on = not self._blink_on
+
+    def move_cursor(self, steps: int) -> str:
+        total = len(self._period_labels)
+        if total == 0:
+            return ""
+        new_idx = (self._cursor_index + steps) % total
+        self._cursor_index = new_idx
+        self._blink_on = False
+        # 恢复所有标签
+        for lbl in self._period_labels:
+            if lbl:
+                lbl.setStyleSheet(f"""
+                    color: {self._theme.font_color};
+                    background: transparent;
+                    border-bottom: 1px solid {self._theme.border_color};
+                    padding-left: 10px;
+                """)
+        self._toggle_blink()
+        text = (self._period_labels[new_idx].text().strip()
+                if self._period_labels[new_idx] else "")
+        self.backend_signal.emit(f"cursor_info:{new_idx}:{text}")
+        return text
+
+    def set_cursor_subject(self, subject_name: str) -> None:
+        if 0 <= self._cursor_index < len(self._period_labels):
+            label = self._period_labels[self._cursor_index]
+            if label:
+                label.setText(subject_name)
+                self._theme.set_subject(
+                    self._current_day_index, self._cursor_index, subject_name
+                )
+
+    def get_cursor_index(self) -> int:
+        return self._cursor_index
+
+    def get_cursor_subject(self) -> str:
+        if 0 <= self._cursor_index < len(self._period_labels):
+            label = self._period_labels[self._cursor_index]
+            return label.text().strip() if label else ""
+        return ""
+
+    # ================================================================
+    #  进度条
+    # ================================================================
     def update_progress(self, time_str: str) -> None:
-        """根据当前时间更新活跃课时的进度条（每秒调用）。"""
-        now = time_str[:5]  # "HH:MM"
+        now = time_str[:5]
         times = self._theme.get_period_times()
         if not times:
             return
 
         active_found = False
         for i, t in enumerate(times):
-            bar = self.period_bars[i] if i < len(self.period_bars) else None
+            bar = self._period_bars[i] if i < len(self._period_bars) else None
             if bar is None:
                 continue
-
             if not active_found and t.get('start', '') <= now < t.get('end', ''):
-                # 当前课时 → 蓝色进度条
-                elapsed = self._time_to_minutes(now) - self._time_to_minutes(
-                    t['start']
-                )
-                total = self._time_to_minutes(t['end']) - self._time_to_minutes(
-                    t['start']
-                )
+                elapsed = self._tm(now) - self._tm(t['start'])
+                total = self._tm(t['end']) - self._tm(t['start'])
                 pct = max(0.0, min(1.0, elapsed / total)) if total > 0 else 0.0
-                bar.setFixedWidth(max(1, int(self._win_width * pct)))
+                bar.setFixedWidth(max(2, int((self._win_width - 8) * pct)))
                 bar.setStyleSheet(
-                    "background: rgba(33, 150, 243, 0.85); border: none;"
-                    "border-radius: 1px;"
+                    "background: #64B5F6; border: none; border-radius: 2px;"
                 )
                 bar.setVisible(True)
                 active_found = True
             elif not active_found and t.get('start', '') > now:
-                # 下一节即将上课 → 灰色短线提示
-                bar.setFixedWidth(3)
+                bar.setFixedWidth(4)
                 bar.setStyleSheet(
-                    "background: rgba(128, 128, 128, 0.35); border: none;"
-                    "border-radius: 1px;"
+                    "background: rgba(128,128,128,0.25); border: none;"
+                    "border-radius: 2px;"
                 )
                 bar.setVisible(True)
-                active_found = True  # 只标记第一个"下一节"
+                active_found = True
             else:
                 bar.setVisible(False)
 
     @staticmethod
-    def _time_to_minutes(time_str: str) -> int:
-        """将 HH:MM 字符串转换为分钟数。"""
-        parts = time_str.split(":")
+    def _tm(t: str) -> int:
+        parts = t.split(":")
         return int(parts[0]) * 60 + int(parts[1])

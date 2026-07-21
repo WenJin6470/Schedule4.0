@@ -222,31 +222,38 @@ class SettingsWindow(ThemedWidget):
         hdr.setSectionResizeMode(8, QHeaderView.Fixed)
         table.setColumnWidth(8, 32)
 
-        table.verticalHeader().setDefaultSectionSize(34)
+        table.verticalHeader().setDefaultSectionSize(36)
         table.verticalHeader().setVisible(False)
+        table.setAlternatingRowColors(True)
+        table.setShowGrid(False)
 
         table.setStyleSheet(f"""
             QTableWidget {{
                 color: {self._theme.font_color};
                 background: transparent;
                 border: 1px solid {self._theme.border_color};
-                border-radius: 4px;
-                gridline-color: {self._theme.border_color};
+                border-radius: 6px;
                 font-size: 13px;
             }}
-            QTableWidget::item {{ padding: 2px 4px; }}
+            QTableWidget::item {{
+                padding: 4px 8px;
+                border-bottom: 1px solid {self._theme.border_color};
+            }}
             QTableWidget::item:selected {{
-                background: rgba(33, 150, 243, 0.25);
+                background: rgba(33, 150, 243, 0.2);
                 color: {self._theme.font_color};
+            }}
+            QTableWidget {{
+                alternate-background-color: rgba(128, 128, 128, 0.04);
             }}
             QHeaderView::section {{
                 color: {self._theme.font_color};
-                background: rgba(128, 128, 128, 0.1);
+                background: rgba(128, 128, 128, 0.08);
                 border: none;
                 border-bottom: 2px solid {self._theme.border_color};
-                padding: 4px 6px;
+                padding: 6px 8px;
                 font-weight: bold;
-                font-size: 11px;
+                font-size: 12px;
             }}
         """)
 
@@ -373,14 +380,14 @@ class SettingsWindow(ThemedWidget):
         item.setFlags(item.flags() & ~Qt.ItemIsEditable)  # type: ignore
         item.setData(self.ROW_TYPE_ROLE, "event")
         item.setData(self.ROW_DATA_ROLE, ei)
-        item.setBackground(QColor(33, 150, 243, 40))
+        item.setBackground(QColor(33, 150, 243, 35))
         self._table.setItem(row, self.COL_IDX, item)
 
         # 开始 → 事件时间
         time_item = QTableWidgetItem(event_time)
         time_item.setData(self.ROW_TYPE_ROLE, "event")
         time_item.setData(self.ROW_DATA_ROLE, ei)
-        time_item.setBackground(QColor(33, 150, 243, 40))
+        time_item.setBackground(QColor(33, 150, 243, 35))
         time_item.setTextAlignment(Qt.AlignCenter)  # type: ignore
         self._table.setItem(row, self.COL_START, time_item)
 
@@ -389,7 +396,7 @@ class SettingsWindow(ThemedWidget):
         name_item = QTableWidgetItem(f"  {event_name}")
         name_item.setData(self.ROW_TYPE_ROLE, "event")
         name_item.setData(self.ROW_DATA_ROLE, ei)
-        name_item.setBackground(QColor(33, 150, 243, 40))
+        name_item.setBackground(QColor(33, 150, 243, 35))
         name_item.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))
         self._table.setItem(row, self.COL_END, name_item)
 
@@ -398,7 +405,7 @@ class SettingsWindow(ThemedWidget):
         for c in range(self.COL_END + 1, 8):
             empty = QTableWidgetItem("")
             empty.setFlags(empty.flags() & ~Qt.ItemIsEditable)  # type: ignore
-            empty.setBackground(QColor(33, 150, 243, 40))
+            empty.setBackground(QColor(33, 150, 243, 35))
             self._table.setItem(row, c, empty)
 
         # 删除按钮（第 8 列）
