@@ -1,0 +1,461 @@
+新增课表持久化、课表编辑、多时间表功能，并增加进度条
+
+课表数据持久化 + 多时间表 + 星期导航 — 实施计划
+
+ Context
+
+ 当前项目完全没有课表/时间表数据持久化。目标是补齐三个核心能力：
+
+ ┌────────────────────────────┬────────────────────────────────────────────────────────────┐
+ │            数据            │                            说明                            │
+ ├────────────────────────────┼────────────────────────────────────────────────────────────┤
+ │ 课表（weekly_schedule）    │ 周一~周五，每天第几节上什么科目                            │
+ ├────────────────────────────┼────────────────────────────────────────────────────────────┤
+ │ 多时间表（time_schedules） │ 多套时间段方案（默认/夏令时/冬令时），可切换，验证节数一致 │
+ ├────────────────────────────┼────────────────────────────────────────────────────────────┤
+ │ 星期导航                   │ 主窗口支持 ◀▶切换查看不同天                              │
+ └────────────────────────────┴────────────────────────────────────────────────────────────┘
+
+ 数据格式
+
+ 新建 Config/schedule_data.json：
+
+ {
+   "version": 1,
+   "period_count": 7,
+   "active_time_schedule": "默认",
+   "time_schedules": {
+     "默认": [
+       {"start": "08:00", "end": "08:45"},
+       {"start": "08:55", "end": "09:40"},
+       {"start": "09:50", "end": "10:35"},
+       {"start": "10:45", "end": "11:30"},
+       {"start": "14:00", "end": "14:45"},
+       {"start": "14:55", "end": "15:40"},
+       {"start": "15:50", "end": "16:35"}
+     ],
+     "夏令时": [
+       {"start": "08:00", "end": "08:40"},
+       {"start": "08:50", "end": "09:30"},
+       {"start": "09:40", "end": "10:20"},
+       {"start": "10:30", "end": "11:10"},
+       {"start": "14:30", "end": "15:10"},
+       {"start": "15:20", "end": "16:00"},
+       {"start": "16:10", "end": "16:50"}
+     ],
+     "冬令时": [
+       {"start": "08:30", "end": "09:10"},
+       {"start": "09:20", "end": "10:00"},
+       {"start": "10:10", "end": "10:50"},
+       {"start": "11:00", "end": "11:40"},
+       {"start": "14:00", "end": "14:40"},
+       {"start": "14:50", "end": "15:30"},
+       {"start": "15:40", "end": "16:20"}
+     ]
+   },
+   "weekly_schedule": {
+     "Monday":    ["语文", "数学", "英语", "物理", "化学", "生物", "自习"],
+     "Tuesday":   ["数学", "英语", "语文", "化学", "物理", "历史", "政治"],
+     "Wednesday": ["英语", "语文", "数学", "生物", "化学", "地理", "自习"],
+     "Thursday":  ["物理", "化学", "英语", "数学", "语文", "政治", "历史"],
+     "Friday":    ["语文", "数学", "英语", "体育", "信息", "美术", "班会"]
+   }
+ }
+
+ 核心设计：
+ - time_schedules：命名的时间表字典，每个时间表是一个 [{start, end}, ...] 数组
+ - active_time_schedule：当前生效的时间表名称，指向 time_schedules 中的某个 key
+ - weekly_schedule：课表，与时间表独立，只依赖 period_count
+ - 文件不存在时，自动生成 "默认" + "夏令时" + "冬令时" 三套模板
+
+ 切换时间表 & 冲突验证
+
+ 切换流程
+
+ switch_time_schedule("夏令时")
+   →验证1：time_schedules["夏令时"] 是否存在？ →不存在则报错
+   →验证2：len(time_schedules["夏令时"]) == period_count？ →不相等则报错
+   →通过：更新 active_time_schedule = "夏令时"
+   →写入 JSON
+   →刷新主窗口标签（时间段立即更新）
+
+ 冲突检查规则
+
+ ┌────────────┬─────────────────────────────┬──────────────────────────────────────────────────────────────────────┐
+ │   检查项   │            条件             │                               失败行为                               │
+ ├────────────┼─────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+ │ 目标存在性 │ name in time_schedules      │ 记录 ERROR 日志，返回 False                                          │
+ ├────────────┼─────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+ │ 节数一致性 │ len(schedule) ==            │ 记录 ERROR 日志（"夏令时 为 15 节，当前配置为 14                     │
+ │            │ period_count                │ 节，无法切换"），返回 False                                          │
+ ├────────────┼─────────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+ │ 数据完整性 │ 每条含 start 和 end 字段    │ 记录 WARNING，跳过损坏条目                                           │
+ └────────────┴─────────────────────────────┴──────────────────────────────────────────────────────────────────────┘
+
+ 冲突示例
+
+ 当前 period_count = 7
+ 夏令时: 7 条 ✓ →可切换
+ 冬令时: 7 条 ✓ →可切换
+ 某自定义表: 15 条 ✗ →拒绝切换，"period_count 不匹配（15 ≠7）"
+
+ 关键原则：切换时间表不改变 period_count，只改变时间段显示。如果用户需要不同节数，应该去改 schedule_config.ini 的
+ period_count。
+
+ 主窗口 UI 调整
+
+ ┌──────────────┐
+ │   语文       │  ←科目名（纯文字）
+ │   ████████░░ │  ←上课进度条（2px，仅当前课时显示）
+ ├──────────────┤
+ │   数学       │
+ │              │  ←非当前课时无进度条
+ │   ...        │
+ │   自习       │
+ │              │
+ ├──────────────┤
+ │ ⏰ 📝 ⚙✕  │  ←按钮栏（不变）
+ └──────────────┘
+
+ - 不加星期导航（星期选择在设置窗口）
+ - 不加时间文字，标签只显示科目名称
+ - 默认显示今天的课表（自动检测，周末→周一）
+ - 底部加极细进度条（2px），只在正在上课的课时显示
+ - 进度条每秒刷新
+
+ 进度条逻辑
+
+ 每秒触发（TimeManager 信号）:
+   1. 获取当前时间 HH:MM
+   2. 遍历当前时间表 period_times
+   3. 找到 start ≤now < end 的课时 →这是活跃课时
+   4. 计算进度 = (now - start) / (end - start) ×100%
+   5. 更新该课时的进度条宽度
+   6. 其余课时的进度条隐藏
+   7. 如果当前不在任何课时内（课前/午休/放学后）→全部隐藏
+
+ 下课后：
+   - 进度条自动消失（now ≥end）
+   - 如果连续两节之间无间隔（end == next.start），第一节结束后立即切换到第二节
+
+ 进度条实现方式
+
+ 每个课时标签底部附带一个 2px 高的 QWidget 进度条：
+
+ # 创建标签时同时创建进度条
+ for i in range(period_count):
+     label = QLabel(...)
+     label.setText(f"  {subject}")
+
+     # 进度条：2px 高，与标签等宽，默认隐藏
+     bar = QWidget(self)
+     bar.setFixedHeight(2)
+     bar.setStyleSheet("background: rgba(33, 150, 243, 0.7); border: none;")
+     bar.hide()
+
+     self.period_bars.append(bar)  # 与 period_labels 一一对应
+
+ 每秒更新时调整进度条位置和宽度：
+
+ def update_progress(self, current_time: str):
+     """根据当前时间更新进度条。"""
+     # 解析 current_time (HH:MM:SS)
+     # 遍历 period_times 找活跃课时
+     # 计算百分比 →设置 bar.setFixedWidth(int(label_width * percent))
+     # 其余 bar.hide()
+
+ 修改文件清单
+
+ 1. schedule_theme.py —核心数据层
+
+ 新增属性（__init__ 末尾）：
+ self.schedule_data: Dict = {}
+ self.time_schedules: Dict[str, List[dict]] = {}  # 多时间表
+ self.active_time_schedule: str = ""              # 当前生效的时间表名
+ self.period_times: List[dict] = []               # 当前生效的时间段列表（指向活跃表）
+ self.weekly_schedule: Dict[str, List[str]] = {}  # 课表
+ self.current_day_index: int = 0
+ self.DAY_ORDER = ["Monday","Tuesday","Wednesday","Thursday","Friday"]
+ self._load_schedule_data()
+
+ 新增方法：
+
+ ┌──────────────────────────────────────┬──────────────────────────────────────────────────────────────────────────┐
+ │                 方法                 │                                   说明                                   │
+ ├──────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────┤
+ │ _load_schedule_data()                │ 读取 JSON，不存在则生成默认三套时间表+空课表；period_count               │
+ │                                      │ 变化时对所有时间表+课表做迁移                                            │
+ ├──────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────┤
+ │ _generate_default_schedule_data()    │ 生成含"默认"/"夏令时"/"冬令时"三套时间表 + 空白课表的模板                │
+ ├──────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────┤
+ │ save_schedule_data()                 │ 完整写入 JSON                                                            │
+ ├──────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────┤
+ │ switch_time_schedule(name) →bool    │ 核心方法：验证 name 存在且节数匹配 →更新 active_time_schedule +         │
+ │                                      │ period_times →保存 →返回 True/False                                    │
+ ├──────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────┤
+ │ get_active_time_schedule_name() →   │ 返回当前活跃时间表名                                                     │
+ │ str                                  │                                                                          │
+ ├──────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────┤
+ │ get_time_schedule_names() →         │ 返回所有可用时间表名称列表                                               │
+ │ List[str]                            │                                                                          │
+ ├──────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────┤
+ │ get_current_day_name() →str         │                                                                          │
+ ├──────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────┤
+ │ get_current_day_subjects() →        │                                                                          │
+ │ List[str]                            │                                                                          │
+ ├──────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────┤
+ │ get_period_times() →List[dict]      │ 返回当前活跃时间表                                                       │
+ ├──────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────┤
+ │ set_subject(day_index, period_index, │ 设置科目 →自动保存                                                      │
+ │  name)                               │                                                                          │
+ ├──────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────┤
+ │ navigate_day(delta) →str            │ 切换星期                                                                 │
+ └──────────────────────────────────────┴──────────────────────────────────────────────────────────────────────────┘
+
+ switch_time_schedule 实现伪代码：
+ def switch_time_schedule(self, name: str) -> bool:
+     # 1. 存在性检查
+     if name not in self.time_schedules:
+         logger.error(f"时间表 '{name}' 不存在，可用：{list(self.time_schedules.keys())}")
+         return False
+
+     # 2. 节数一致性检查（核心冲突验证）
+     target = self.time_schedules[name]
+     if len(target) != self.period_count:
+         logger.error(
+             f"无法切换时间表：'{name}' 为 {len(target)} 节，"
+             f"当前 period_count={self.period_count}，节数不匹配"
+         )
+         return False
+
+     # 3. 切换
+     self.active_time_schedule = name
+     self.period_times = target
+     self._save_schedule_data_to_file()
+     logger.info(f"时间表已切换为 '{name}'（{len(target)} 节）")
+     return True
+
+ 默认时间表生成逻辑：
+ - "默认"：8:00 起，上午 4 节 (45min + 10min 课间)，午休，下午 3 节
+ - "夏令时"：8:00 起，上午下午各推迟半小时（模拟夏季作息）
+ - "冬令时"：8:30 起，整体后移（模拟冬季作息）
+
+ period_count 迁移逻辑（升级）：
+ - 遍历 time_schedules 中所有时间表，每个都做截断/补齐
+ - 对 weekly_schedule 中每天做截断/补齐
+ - 迁移后写入 period_count 字段
+
+ 2. schedule_frontend.py —数据驱动标签 + 进度条
+
+ 设计原则：主窗口保持简洁，不加星期导航，不加时间文字。星期切换在设置窗口。
+
+ 新增/修改：
+
+ # 构造函数新增
+ self.period_bars: List[QWidget] = []  # 进度条列表（与 period_labels 一一对应）
+ self._current_day_index: int = self._theme.current_day_index
+
+ # 新增方法
+ def get_current_day_index(self) -> int: ...
+ def get_theme(self) -> ThemeManager: ...
+ def refresh_labels(self) -> None:
+     """从 theme 重新加载当前天科目到所有标签。"""
+ def update_progress(self, time_str: str) -> None:
+     """根据当前时间更新活跃课时的进度条。"""
+ def set_display_day(self, day_index: int) -> None:
+     """切换显示星期（供设置窗口调用）。"""
+
+ _setup_ui 改动：
+
+ 1. 去掉星期导航栏：不新增 day_header，保持原有结构
+ 2. 去掉随机占位：删除 example_subject_list + random，改为从 theme.get_current_day_subjects() 读取
+ 3. 每个课时创建进度条：
+ for i in range(period_count):
+     label = QLabel(...)
+     label.setText(f"  {subjects[i]}" if subjects[i] else "")
+
+     bar = QWidget(self)           # 进度条
+     bar.setFixedHeight(2)
+     bar.setStyleSheet("background: rgba(33, 150, 243, 0.7); border: none;")
+     bar.setVisible(False)
+     bar.setGeometry(0, (i+1)*label_height - 2, 0, 2)
+     self.period_bars.append(bar)
+
+ update_progress 逻辑（核心功能）：
+ def update_progress(self, time_str: str):
+     """每秒由 TimeManager 回调触发。"""
+     now = time_str[:5]  # "HH:MM"
+     times = self._theme.get_period_times()
+
+     active_found = False
+     for i, t in enumerate(times):
+         bar = self.period_bars[i]
+         if not active_found and t['start'] <= now < t['end']:
+             # 当前课时 →计算进度
+             elapsed = (now_minutes(now) - now_minutes(t['start']))
+             total = (now_minutes(t['end']) - now_minutes(t['start']))
+             pct = elapsed / total if total > 0 else 0
+             bar.setFixedWidth(int(self._win_width * pct))
+             bar.setVisible(True)
+             active_found = True
+         else:
+             bar.setVisible(False)
+
+ 3. schedule_backend.py —小改
+
+ - _on_subject_selected() 末尾调用 main_window.get_theme().set_subject(...) 持久化
+ - 新增 set_display_day 和 switch_time_schedule 动作处理
+
+ 4. schedule_settings.py —核心交互窗口
+
+ 设置窗口从占位变成完整的管理中心，包含三个功能区：
+
+ ┌──────────────────────────────────────┐
+ │              设置                     │
+ │                                      │
+ │ 时间表：[默认 ▾]                      │
+ │                                      │
+ │ ┌──────────────────────────────────┐ │
+ │ │      │ 周一 │ 周二 │ 周三 │周四│周五│ │
+ │ │ 08:00│      │      │      │    │    │ │
+ │ │  ↓  │ 语文 │ 数学 │ 英语 │物理│化学│ │
+ │ │08:45 │      │      │      │    │    │ │
+ │ │──────│──────│──────│──────│────│────│ │
+ │ │ 08:55│ 数学 │ 英语 │ 语文 │化学│生物│ │
+ │ │  ... │ ...  │ ...  │ ...  │... │... │ │
+ │ └──────────────────────────────────┘ │
+ │                                      │
+ │           [关闭]                     │
+ └──────────────────────────────────────┘
+
+ 时间表下拉
+
+ - QComboBox，列出 time_schedules 所有 key，当前活跃项默认选中
+ - 切换 →theme.switch_time_schedule(name) →失败弹 QMessageBox 警告
+
+ 全面课表编辑表格（QTableWidget）
+
+ 列： 时间 | 周一 | 周二 | 周三 | 周四 | 周五（6 列）
+ 行： N 行（= period_count），每行一个课时
+
+ 单元格内容：
+ - 第 1 列（时间）：08:00\n  ↓ \n08:45 格式，显示该节课的起止时间，只读
+ - 第 2~6 列（星期）：科目名称，空白=未设置
+
+ 编辑方式 —单击单元格弹出科目选择：
+ - 单击某个科目单元格 →在该单元格位置弹出一个小型科目选择面板
+ - 面板列出所有科目分类（来自 subject_config），点击即可选中
+ - 选中后 →更新 theme.weekly_schedule →自动保存 JSON →单元格刷新
+ - 面板外点击或按 Esc →关闭面板，不修改
+
+ 或者更简单的方式 —双击进入编辑 + 下拉：
+ - 双击单元格 →QComboBox 内嵌编辑（列出所有可用科目 + 空选项）
+ - 选中后立即保存
+ - 这个方式更接近 Excel 编辑体验，实现也更简单
+
+ 表格样式：
+ - 每行高度适中（~32px），显示科目名
+ - 当前活跃的课时行（如果现在是上课时间）用浅色背景高亮
+ - 第 1 列（时间）背景轻微分色，字体稍小
+
+ 数据同步：
+ - 表格修改 →直接写 theme.weekly_schedule + theme.save_schedule_data()
+ - 关闭设置窗口重新打开 →表格重新从 theme 加载（确保数据最新）
+ - 快捷编辑和表格编辑共享同一份数据，互相同步
+
+ 实现要点：
+ class ScheduleTableWidget(QTableWidget):
+     """课表编辑表格。"""
+
+     def _load_data(self):
+         """从 theme.weekly_schedule 填充所有单元格。"""
+         for day_idx, day in enumerate(DAY_ORDER):
+             subjects = self._theme.weekly_schedule.get(day, [])
+             for period_idx in range(self._theme.period_count):
+                 subject = subjects[period_idx] if period_idx < len(subjects) else ""
+                 self.setItem(period_idx, day_idx + 1, QTableWidgetItem(subject))
+
+     def _on_cell_clicked(self, row, col):
+         """单元格被点击 →在单元格位置弹出科目选择下拉。"""
+         if col == 0: return  # 时间列不可编辑
+         # 创建 QComboBox 覆盖在单元格上
+         # 列出所有科目 →选中后更新数据 + 保存
+
+ 5. main.py —小改
+
+ 进度条需要每秒更新时间。在现有回调中加一行：
+
+ # 原：
+ time_manager.start(lambda t: time_window.update_time_display(t))
+
+ # 改为：
+ time_manager.start(lambda t: (
+     time_window.update_time_display(t),
+     main_window.update_progress(t)
+ ))
+
+ 6. schedule_quick_edit.py —不改
+
+ 数据流总览
+
+ 启动 →ThemeManager._load_schedule_data()
+           →JSON 加载 time_schedules + weekly_schedule
+           →period_times = time_schedules[active_time_schedule]
+           →current_day_index = 今天（周末→周一）
+       →主窗口显示今天科目（纯文字）
+       →每秒：TimeManager →更新时间窗口 + 更新进度条
+
+ 用户修改科目 →快捷编辑 →set_cursor_subject()
+           →theme.set_subject(day, index, name) →JSON 写入
+
+ 用户切换星期 →设置窗口点击"周三"
+           →main_window.set_display_day(2) →标签刷新为周三课表
+
+ 用户切换时间表 →设置窗口下拉"夏令时"
+           →theme.switch_time_schedule("夏令时")
+           →验证节数冲突 ✗→弹提示 / ✓→切换 + 标签刷新
+
+ 进度条每秒更新 →update_progress(time_str)
+           →判断当前在哪个课时 →显示/隐藏对应进度条
+
+ 涉及文件
+
+ ┌────────────────────────┬─────────────┬────────────────────────────────────────────────────┐
+ │          文件          │    改动     │                        说明                        │
+ ├────────────────────────┼─────────────┼────────────────────────────────────────────────────┤
+ │ schedule_theme.py      │ ⭐⭐⭐ 大改 │ 多时间表数据模型 + switch_time_schedule + 冲突验证 │
+ ├────────────────────────┼─────────────┼────────────────────────────────────────────────────┤
+ │ schedule_frontend.py   │ ⭐⭐⭐ 大改 │ 数据驱动标签 + 进度条                              │
+ ├────────────────────────┼─────────────┼────────────────────────────────────────────────────┤
+ │ schedule_settings.py   │ ⭐⭐⭐ 大改 │ 从占位→管理中心：全面课表表格+ 时间表下拉         │
+ ├────────────────────────┼─────────────┼────────────────────────────────────────────────────┤
+ │ main.py                │ ⭐ 小改     │ 回调中加 update_progress                           │
+ ├────────────────────────┼─────────────┼────────────────────────────────────────────────────┤
+ │ schedule_backend.py    │ ⭐ 小改     │ 持久化调用                                         │
+ ├────────────────────────┼─────────────┼────────────────────────────────────────────────────┤
+ │ schedule_quick_edit.py │ —不改      │                                                    │
+ └────────────────────────┴─────────────┴────────────────────────────────────────────────────┘
+
+ 两套编辑方式对比
+
+ ┌──────────┬─────────────────────────────┬─────────────────────┐
+ │          │      快捷编辑（现有）       │  全面编辑（新增）   │
+ ├──────────┼─────────────────────────────┼─────────────────────┤
+ │ 入口     │ 主窗口 📝 按钮              │ 设置窗口 ⚙按钮     │
+ ├──────────┼─────────────────────────────┼─────────────────────┤
+ │ 编辑范围 │ 今天，逐个课时              │ 一周 5 天，全部课时 │
+ ├──────────┼─────────────────────────────┼─────────────────────┤
+ │ 交互     │ 左右科目面板 + 上下移动光标 │ 表格单击/双击编辑   │
+ ├──────────┼─────────────────────────────┼─────────────────────┤
+ │ 适用场景 │ 快速改今天一节课            │ 排整周课表          │
+ └──────────┴─────────────────────────────┴─────────────────────┘
+
+ 验证步骤
+
+ 1. 删 schedule_data.json，启动 →自动生成三套时间表 + 空白课表
+ 2. 主窗口显示今天科目（空白）+ 进度条（上课时间可见）
+ 3. 快捷编辑修改第一节 →JSON 确认写入
+ 4. 打开设置 →表格显示全周课表，所有单元格可编辑
+ 5. 表格中双击单元格 →下拉选科目 →保存 →JSON 确认
+ 6. 设置中切换时间表 →节数不匹配弹窗提示
+ 7. 重启 →所有数据保持

@@ -455,5 +455,52 @@ class ScheduleBackend:
             fullscreen_window.show_fullscreen()
         elif action == "settings":
             self._logger.info(f"[后端] 设置")
+        elif action.startswith("set_display_day:"):
+            # 设置窗口切换显示星期
+            try:
+                day_index: int = int(action.split(":", 1)[1])
+                self._logger.info(f"[后端] 切换显示星期：{day_index}")
+                main_window.set_display_day(day_index)
+            except (ValueError, IndexError):
+                self._logger.warning(f"[后端] 无效的 set_display_day: {action}")
+        elif action.startswith("switch_time_schedule:"):
+            # 设置窗口切换时间表
+            schedule_name: str = action.split(":", 1)[1]
+            self._logger.info(f"[后端] 切换时间表：'{schedule_name}'")
+            theme = main_window.get_theme()
+            if theme.switch_time_schedule(schedule_name):
+                # 切换成功 → 刷新主窗口标签
+                main_window.refresh_labels()
+                self._logger.info(f"[后端] 时间表切换成功，标签已刷新")
+            else:
+                self._logger.warning(f"[后端] 时间表切换失败")
+        elif action.startswith("set_period_time:"):
+            # 设置窗口编辑时间段
+            # 格式: set_period_time:<period_index>:<field>:<value>
+            parts = action.split(":", 3)
+            if len(parts) >= 4:
+                try:
+                    period_idx = int(parts[1])
+                    field = parts[2]
+                    value = parts[3]
+                    theme = main_window.get_theme()
+                    theme.set_period_time(period_idx, field, value)
+                    main_window.refresh_labels()
+                except (ValueError, IndexError):
+                    self._logger.warning(f"[后端] 无效的 set_period_time: {action}")
+        elif action.startswith("set_subject_cell:"):
+            # 设置窗口编辑科目单元格
+            # 格式: set_subject_cell:<day_index>:<period_index>:<subject>
+            parts = action.split(":", 3)
+            if len(parts) >= 4:
+                try:
+                    day_idx = int(parts[1])
+                    period_idx = int(parts[2])
+                    subject = parts[3]
+                    theme = main_window.get_theme()
+                    theme.set_subject(day_idx, period_idx, subject)
+                    main_window.refresh_labels()
+                except (ValueError, IndexError):
+                    self._logger.warning(f"[后端] 无效的 set_subject_cell: {action}")
         else:
             self._logger.warning(f"[后端] 未知动作: {action}")

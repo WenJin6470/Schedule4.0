@@ -24,7 +24,7 @@ import logging
 import os
 from typing import List, Optional
 
-from PySide6.QtWidgets import QLabel, QPushButton
+from PySide6.QtWidgets import QLabel, QPushButton, QWidget
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QIcon
 
@@ -95,6 +95,10 @@ class ScheduleMainWindow(ThemedWidget):
 
         # ---- 课时标签列表 ----
         self.period_labels: List[QLabel] = []
+        self.period_bars: List[QWidget] = []
+
+        # ---- 当前显示星期 ----
+        self._current_day_index: int = self._theme.current_day_index
 
         # ---- 计算窗口尺寸和位置 ----
         self._win_width: int = int(self._theme.screen_width * (150 / 1920))
@@ -134,14 +138,12 @@ class ScheduleMainWindow(ThemedWidget):
         period_count: int = self._theme.period_count
         label_height: int = available_height // period_count if period_count > 0 else available_height
 
-        #开发前期用来占位的科目
-        example_subject_list = ['语文','数学','英语','物理','化学','生物']
-        import random
-        
-        logger.info(f"创建 {period_count} 个课时标签（每个高度 {label_height}px）...")
-        for i in range(period_count):
+        subjects: List[str] = self._theme.get_current_day_subjects()
 
-            example_subject = example_subject_list[random.randint(0,5)]
+        logger.info(f"创建 {period_count} 个课时标签（每个高度 {label_height}px）...")
+        self.period_bars: List[QWidget] = []
+        for i in range(period_count):
+            subject_text: str = subjects[i] if i < len(subjects) else ""
 
             label: QLabel = QLabel(self)
             label.setObjectName(f"period_label_{i}")
@@ -153,8 +155,19 @@ class ScheduleMainWindow(ThemedWidget):
             """)
             label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
             label.setGeometry(0, i * label_height, self._win_width, label_height)
-            label.setText(f"{example_subject}")
+            label.setText(f"  {subject_text}" if subject_text else "")
             self.period_labels.append(label)
+
+            # 进度条：3px 高，位于标签底部
+            bar: QWidget = QWidget(self)
+            bar.setFixedHeight(3)
+            bar.setStyleSheet(
+                "background: rgba(33, 150, 243, 0.85); border: none;"
+                "border-radius: 1px;"
+            )
+            bar.setVisible(False)
+            bar.setGeometry(0, (i + 1) * label_height - 4, 0, 3)
+            self.period_bars.append(bar)
 
         # ===== 底部按钮栏（4 个图标按钮）=====
         images_dir: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'images')
@@ -415,8 +428,12 @@ class ScheduleMainWindow(ThemedWidget):
             label = self.period_labels[self._cursor_index]
             old_text: str = label.text().strip()
             label.setText(f"  {subject_name}")
+            # 持久化
+            self._theme.set_subject(
+                self._current_day_index, self._cursor_index, subject_name
+            )
             logger.info(f"标签更新：第 {self._cursor_index + 1} 节 "
-                        f"'{old_text}' → '{subject_name}'")
+                        f"'{old_text}' → '{subject_name}'（已保存）")
 
     def get_cursor_index(self) -> int:
         """获取当前光标所在的标签索引。"""
@@ -427,3 +444,81 @@ class ScheduleMainWindow(ThemedWidget):
         if 0 <= self._cursor_index < len(self.period_labels):
             return self.period_labels[self._cursor_index].text().strip()
         return ""
+
+    # ================================================================
+    #  公开 API：数据刷新 / 进度条 / 星期切换
+    # ================================================================
+
+    def get_theme(self) -> 'ThemeManager':
+        """返回 ThemeManager 引用（供后端和设置窗口使用）。"""
+        return self._theme
+
+    def get_current_day_index(self) -> int:
+        """返回当前显示星期的索引。"""
+        return self._current_day_index
+
+    def refresh_labels(self) -> None:
+        """从 theme 重新加载当前天科目到所有标签。"""
+        subjects = self._theme.get_current_day_subjects()
+        for i, label in enumerate(self.period_labels):
+            subject_text = subjects[i] if i < len(subjects) else ""
+            label.setText(f"  {subject_text}" if subject_text else "")
+        logger.info(
+            f"标签已刷新：{self._theme.DAY_NAMES[self._theme.get_current_day_name()]}"
+        )
+
+    def set_display_day(self, day_index: int) -> None:
+        """切换显示星期（供设置窗口调用）。"""
+        self._current_day_index = day_index
+        self._theme.set_display_day(day_index)
+        self.refresh_labels()
+        # 如果有活跃的光标闪烁，先停止
+        if self._blink_timer.isActive():
+            self.stop_cursor_blink()
+
+    def update_progress(self, time_str: str) -> None:
+        """根据当前时间更新活跃课时的进度条（每秒调用）。"""
+        now = time_str[:5]  # "HH:MM"
+        times = self._theme.get_period_times()
+        if not times:
+            return
+
+        active_found = False
+        for i, t in enumerate(times):
+            bar = self.period_bars[i] if i < len(self.period_bars) else None
+            if bar is None:
+                continue
+
+            if not active_found and t.get('start', '') <= now < t.get('end', ''):
+                # 当前课时 → 蓝色进度条
+                elapsed = self._time_to_minutes(now) - self._time_to_minutes(
+                    t['start']
+                )
+                total = self._time_to_minutes(t['end']) - self._time_to_minutes(
+                    t['start']
+                )
+                pct = max(0.0, min(1.0, elapsed / total)) if total > 0 else 0.0
+                bar.setFixedWidth(max(1, int(self._win_width * pct)))
+                bar.setStyleSheet(
+                    "background: rgba(33, 150, 243, 0.85); border: none;"
+                    "border-radius: 1px;"
+                )
+                bar.setVisible(True)
+                active_found = True
+            elif not active_found and t.get('start', '') > now:
+                # 下一节即将上课 → 灰色短线提示
+                bar.setFixedWidth(3)
+                bar.setStyleSheet(
+                    "background: rgba(128, 128, 128, 0.35); border: none;"
+                    "border-radius: 1px;"
+                )
+                bar.setVisible(True)
+                active_found = True  # 只标记第一个"下一节"
+            else:
+                bar.setVisible(False)
+
+    @staticmethod
+    def _time_to_minutes(time_str: str) -> int:
+        """将 HH:MM 字符串转换为分钟数。"""
+        parts = time_str.split(":")
+        return int(parts[0]) * 60 + int(parts[1])

@@ -159,9 +159,12 @@ def main() -> None:
     #   连接4：全屏时间关闭信号 → 隐藏窗口
     # ================================================================
 
-    # ----- 连接1：定时器 → 时间窗口 -----
-    logger.info("连接信号：定时器 → TimeWindow.update_time_display()")
-    time_manager.start(lambda t: time_window.update_time_display(t))
+    # ----- 连接1：定时器 → 时间窗口 + 进度条 -----
+    logger.info("连接信号：定时器 → TimeWindow + 进度条")
+    time_manager.start(lambda t: (
+        time_window.update_time_display(t),
+        main_window.update_progress(t),
+    ))
     logger.info("定时器已启动")
 
     # ----- 连接2：全屏时间窗口关闭 → 隐藏 -----
