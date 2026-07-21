@@ -456,7 +456,6 @@ class ScheduleBackend:
         elif action == "settings":
             self._logger.info(f"[后端] 设置")
         elif action.startswith("set_display_day:"):
-            # 设置窗口切换显示星期
             try:
                 day_index: int = int(action.split(":", 1)[1])
                 self._logger.info(f"[后端] 切换显示星期：{day_index}")
@@ -464,79 +463,81 @@ class ScheduleBackend:
             except (ValueError, IndexError):
                 self._logger.warning(f"[后端] 无效的 set_display_day: {action}")
         elif action.startswith("switch_time_schedule:"):
-            # 设置窗口切换时间表
             schedule_name: str = action.split(":", 1)[1]
             self._logger.info(f"[后端] 切换时间表：'{schedule_name}'")
             theme = main_window.get_theme()
             if theme.switch_time_schedule(schedule_name):
-                # 切换成功 → 刷新主窗口标签
                 main_window.refresh_labels()
-                self._logger.info(f"[后端] 时间表切换成功，标签已刷新")
+                self._logger.info(f"[后端] 时间表切换成功")
             else:
                 self._logger.warning(f"[后端] 时间表切换失败")
         elif action.startswith("set_period_time:"):
-            # 设置窗口编辑时间段
-            # 格式: set_period_time:<period_index>:<field>:<value>
-            parts = action.split(":", 3)
-            if len(parts) >= 4:
+            # 格式: set_period_time:<period_index>|<field>|<value>
+            payload = action.split(":", 1)[1] if ":" in action else ""
+            parts = payload.split("|")
+            if len(parts) >= 3:
                 try:
-                    period_idx = int(parts[1])
-                    field = parts[2]
-                    value = parts[3]
+                    period_idx = int(parts[0])
+                    field = parts[1]
+                    value = parts[2]
                     theme = main_window.get_theme()
                     theme.set_period_time(period_idx, field, value)
                     main_window.refresh_labels()
                 except (ValueError, IndexError):
-                    self._logger.warning(f"[后端] 无效的 set_period_time: {action}")
+                    self._logger.warning(f"[后端] 无效 set_period_time: {action}")
         elif action.startswith("set_subject_cell:"):
-            # 设置窗口编辑科目单元格
-            parts = action.split(":", 3)
-            if len(parts) >= 4:
+            # 格式: set_subject_cell:<day_index>|<period_index>|<subject>
+            payload = action.split(":", 1)[1] if ":" in action else ""
+            parts = payload.split("|")
+            if len(parts) >= 3:
                 try:
-                    day_idx = int(parts[1])
-                    period_idx = int(parts[2])
-                    subject = parts[3]
+                    day_idx = int(parts[0])
+                    period_idx = int(parts[1])
+                    subject = parts[2]
                     theme = main_window.get_theme()
                     theme.set_subject(day_idx, period_idx, subject)
                     main_window.refresh_labels()
                 except (ValueError, IndexError):
-                    self._logger.warning(f"[后端] 无效的 set_subject_cell: {action}")
+                    self._logger.warning(f"[后端] 无效 set_subject_cell: {action}")
         elif action.startswith("add_event:"):
-            # 设置窗口添加事件
-            parts = action.split(":", 3)
-            if len(parts) >= 4:
-                schedule_name = parts[1]
-                time_val = parts[2]
-                name_val = parts[3]
+            # 格式: add_event:<schedule_name>|<HH:MM>|<name>
+            payload = action.split(":", 1)[1] if ":" in action else ""
+            parts = payload.split("|")
+            if len(parts) >= 3:
+                schedule_name = parts[0]
+                time_val = parts[1]
+                name_val = parts[2]
                 theme = main_window.get_theme()
                 theme.add_event(schedule_name, time_val, name_val)
                 main_window.refresh_labels()
                 self._logger.info(f"[后端] 事件已添加：'{name_val}' @ {time_val}")
         elif action.startswith("remove_event:"):
-            # 设置窗口删除事件
-            parts = action.split(":", 2)
-            if len(parts) >= 3:
+            # 格式: remove_event:<schedule_name>|<event_index>
+            payload = action.split(":", 1)[1] if ":" in action else ""
+            parts = payload.split("|")
+            if len(parts) >= 2:
                 try:
-                    schedule_name = parts[1]
-                    event_idx = int(parts[2])
+                    schedule_name = parts[0]
+                    event_idx = int(parts[1])
                     theme = main_window.get_theme()
                     theme.remove_event(schedule_name, event_idx)
                     main_window.refresh_labels()
                 except (ValueError, IndexError):
-                    self._logger.warning(f"[后端] 无效的 remove_event: {action}")
+                    self._logger.warning(f"[后端] 无效 remove_event: {action}")
         elif action.startswith("set_event:"):
-            # 设置窗口编辑事件
-            parts = action.split(":", 4)
-            if len(parts) >= 5:
-                schedule_name = parts[1]
+            # 格式: set_event:<schedule_name>|<event_index>|<HH:MM>|<name>
+            payload = action.split(":", 1)[1] if ":" in action else ""
+            parts = payload.split("|")
+            if len(parts) >= 4:
+                schedule_name = parts[0]
                 try:
-                    event_idx = int(parts[2])
-                    time_val = parts[3]
-                    name_val = parts[4]
+                    event_idx = int(parts[1])
+                    time_val = parts[2]
+                    name_val = parts[3]
                     theme = main_window.get_theme()
                     theme.set_event(schedule_name, event_idx, time_val, name_val)
                     main_window.refresh_labels()
                 except (ValueError, IndexError):
-                    self._logger.warning(f"[后端] 无效的 set_event: {action}")
+                    self._logger.warning(f"[后端] 无效 set_event: {action}")
         else:
             self._logger.warning(f"[后端] 未知动作: {action}")

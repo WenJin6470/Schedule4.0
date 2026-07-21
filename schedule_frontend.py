@@ -61,9 +61,9 @@ class ScheduleMainWindow(ThemedWidget):
         )
 
         # ---- 内容行（统一管理）----
+        self._content: Optional[QWidget] = None  # 内容容器，rebuild 时整体替换
         self._period_labels: List[QLabel] = []   # 按 period_index 存储
         self._period_bars: List[QWidget] = []    # 按 period_index 存储
-        self._all_content_widgets: List[QWidget] = []  # 所有内容行
 
         self._setup_ui()
         self._rebuild_content()
@@ -148,58 +148,71 @@ class ScheduleMainWindow(ThemedWidget):
 
     def _rebuild_content(self) -> None:
         """销毁并重建所有内容行（课时 + 事件）。"""
-        # 清理旧控件
-        for w in self._all_content_widgets:
-            w.deleteLater()
-        self._all_content_widgets.clear()
+        logger.info(f"[REBUILD] START")
+
+        # 彻底销毁旧的 content container
+        if hasattr(self, '_content') and self._content is not None:
+            self._content.setParent(None)
+            self._content.deleteLater()
+            self._content = None
+
         self._period_labels.clear()
         self._period_bars.clear()
 
-        # 扩展 period_labels / period_bars 到 period_count 大小
         pc = self._theme.period_count
         self._period_labels = [None] * pc  # type: ignore
         self._period_bars = [None] * pc    # type: ignore
 
+        # 创建一个新的透明容器 widget
+        self._content = QWidget(self)
+        self._content.setGeometry(0, 0, self._win_width,
+                                  self._win_height - BTN_BAR_H)
+        self._content.setStyleSheet("background: transparent;")
+        self._content.show()
+
         rows = self._get_merged_rows()
         subjects = self._theme.get_current_day_subjects()
 
-        # 计算高度分配
         period_count = sum(1 for r in rows if r["type"] == "period")
         event_count = sum(1 for r in rows if r["type"] == "event")
         available = self._win_height - BTN_BAR_H
         period_h = (available - event_count * EVENT_ROW_H) // max(period_count, 1)
         if period_h < 32:
-            period_h = 32  # 最小高度
+            period_h = 32
 
         current_y = 0
-        for row_data in rows:
-            if row_data["type"] == "period":
-                current_y = self._build_period_row(row_data, subjects,
+        for rd in rows:
+            if rd["type"] == "period":
+                current_y = self._build_period_row(rd, subjects,
                                                    period_h, current_y)
             else:
-                current_y = self._build_event_row(row_data, current_y)
+                current_y = self._build_event_row(rd, current_y)
 
         logger.info(
-            f"内容重建：{period_count} 课时行 + {event_count} 事件行，"
-            f"课时高度 {period_h}px"
+            f"[REBUILD] DONE — {period_count}p+{event_count}e rows, "
+            f"total_y={current_y}"
         )
+        self._content.show()
+        self._content.raise_()
 
     def _build_period_row(self, data: Dict, subjects: List[str],
                           h: int, y: int) -> int:
         """创建一个课时行，返回下一行的 y。"""
+        y_start = y
         pi = data["period_index"]
         subj = subjects[pi] if pi < len(subjects) else ""
 
+        parent = self._content
         # 分隔线（非首行）
         if y > 0:
-            sep = QLabel(self)
+            sep = QLabel(parent)
             sep.setStyleSheet(f"background: {self._theme.border_color};")
             sep.setGeometry(4, y, self._win_width - 8, SEP_H)
-            self._all_content_widgets.append(sep)
+            sep.show()
             y += SEP_H
 
         # 标签
-        label = QLabel(subj if subj else "—", self)
+        label = QLabel(subj if subj else "—", parent)
         label.setObjectName(f"period_label_{pi}")
         label.setFont(QFont("Microsoft YaHei", 13))
         label.setStyleSheet(f"""
@@ -210,32 +223,35 @@ class ScheduleMainWindow(ThemedWidget):
         """)
         label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
         label.setGeometry(0, y, self._win_width, h)
-        self._all_content_widgets.append(label)
+        label.show()
         self._period_labels[pi] = label
 
         # 进度条
-        bar = QWidget(self)
+        bar = QWidget(parent)
         bar.setFixedHeight(3)
         bar.setStyleSheet("background: #64B5F6; border: none; border-radius: 2px;")
         bar.setVisible(False)
         bar.setGeometry(4, y + h - 5, 0, 3)
-        self._all_content_widgets.append(bar)
         self._period_bars[pi] = bar
 
+        logger.debug(f"[ROW] period {pi} at y={y_start} h={h} txt='{subj[:6]}' "
+                     f"label_geom=({0},{y_start},{self._win_width},{h})")
         return y + h
 
     def _build_event_row(self, data: Dict, y: int) -> int:
+        y_start = y
         """创建一个事件行，返回下一行的 y。"""
+        parent = self._content
         # 分隔线
-        sep = QLabel(self)
+        sep = QLabel(parent)
         sep.setStyleSheet(f"background: {self._theme.border_color};")
         sep.setGeometry(4, y, self._win_width - 8, SEP_H)
-        self._all_content_widgets.append(sep)
+        sep.show()
         y += SEP_H
 
         # 事件标记
         text = f" ▪ {data['name']}  {data['time']}"
-        label = QLabel(text, self)
+        label = QLabel(text, parent)
         label.setFont(QFont("Microsoft YaHei", 8))
         label.setStyleSheet(f"""
             color: {self._theme.font_color};
@@ -243,8 +259,8 @@ class ScheduleMainWindow(ThemedWidget):
             padding-left: 10px;
         """)
         label.setGeometry(0, y, self._win_width, EVENT_ROW_H)
-        self._all_content_widgets.append(label)
-
+        label.show()
+        logger.debug(f"[ROW] event '{data['name']}' at y={y_start}")
         return y + EVENT_ROW_H
 
     # ================================================================
