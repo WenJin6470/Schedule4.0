@@ -490,7 +490,6 @@ class ScheduleBackend:
                     self._logger.warning(f"[后端] 无效的 set_period_time: {action}")
         elif action.startswith("set_subject_cell:"):
             # 设置窗口编辑科目单元格
-            # 格式: set_subject_cell:<day_index>:<period_index>:<subject>
             parts = action.split(":", 3)
             if len(parts) >= 4:
                 try:
@@ -502,5 +501,42 @@ class ScheduleBackend:
                     main_window.refresh_labels()
                 except (ValueError, IndexError):
                     self._logger.warning(f"[后端] 无效的 set_subject_cell: {action}")
+        elif action.startswith("add_event:"):
+            # 设置窗口添加事件
+            parts = action.split(":", 3)
+            if len(parts) >= 4:
+                schedule_name = parts[1]
+                time_val = parts[2]
+                name_val = parts[3]
+                theme = main_window.get_theme()
+                theme.add_event(schedule_name, time_val, name_val)
+                main_window.refresh_labels()
+                self._logger.info(f"[后端] 事件已添加：'{name_val}' @ {time_val}")
+        elif action.startswith("remove_event:"):
+            # 设置窗口删除事件
+            parts = action.split(":", 2)
+            if len(parts) >= 3:
+                try:
+                    schedule_name = parts[1]
+                    event_idx = int(parts[2])
+                    theme = main_window.get_theme()
+                    theme.remove_event(schedule_name, event_idx)
+                    main_window.refresh_labels()
+                except (ValueError, IndexError):
+                    self._logger.warning(f"[后端] 无效的 remove_event: {action}")
+        elif action.startswith("set_event:"):
+            # 设置窗口编辑事件
+            parts = action.split(":", 4)
+            if len(parts) >= 5:
+                schedule_name = parts[1]
+                try:
+                    event_idx = int(parts[2])
+                    time_val = parts[3]
+                    name_val = parts[4]
+                    theme = main_window.get_theme()
+                    theme.set_event(schedule_name, event_idx, time_val, name_val)
+                    main_window.refresh_labels()
+                except (ValueError, IndexError):
+                    self._logger.warning(f"[后端] 无效的 set_event: {action}")
         else:
             self._logger.warning(f"[后端] 未知动作: {action}")

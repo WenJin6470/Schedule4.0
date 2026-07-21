@@ -161,6 +161,8 @@ class ThemeManager:
         self.active_time_schedule: str = ""
         self.period_times: List[dict] = []
         self.weekly_schedule: Dict[str, List[str]] = {}
+        self.schedule_events: Dict[str, List[dict]] = {}
+        self.active_events: List[dict] = []
         self.current_day_index: int = 0
         self.DAY_ORDER: List[str] = [
             "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"
@@ -432,6 +434,7 @@ class ThemeManager:
             "active_time_schedule", ""
         )
         self.weekly_schedule = self.schedule_data.get("weekly_schedule", {})
+        self.schedule_events = self.schedule_data.get("schedule_events", {})
         for day in self.DAY_ORDER:
             if day not in self.weekly_schedule:
                 self.weekly_schedule[day] = []
@@ -446,6 +449,10 @@ class ThemeManager:
         else:
             self.period_times = []
             self.active_time_schedule = ""
+        # 提取活跃事件
+        self.active_events = self.schedule_events.get(
+            self.active_time_schedule, []
+        )
 
     def _set_current_day_from_today(self) -> None:
         """根据系统日期设置 current_day_index，周末默认周一。"""
@@ -490,14 +497,39 @@ class ThemeManager:
         for day in self.DAY_ORDER:
             weekly[day] = [""] * pc
 
+        # 默认事件：从 period_times 推算
+        default_times = _make_times(8, 0, 45, 10)
+        summer_times = _make_times(8, 0, 40, 10)
+        winter_times = _make_times(8, 30, 40, 10)
+
         return {
             "version": 1,
             "period_count": pc,
             "active_time_schedule": "默认",
             "time_schedules": {
-                "默认": _make_times(8, 0, 45, 10),
-                "夏令时": _make_times(8, 0, 40, 10),
-                "冬令时": _make_times(8, 30, 40, 10),
+                "默认": default_times,
+                "夏令时": summer_times,
+                "冬令时": winter_times,
+            },
+            "schedule_events": {
+                "默认": [
+                    {"time": default_times[0]["start"], "name": "上学"},
+                    {"time": default_times[3]["end"], "name": "午休"},
+                    {"time": default_times[4]["start"], "name": "下午上课"},
+                    {"time": default_times[-1]["end"], "name": "放学"},
+                ],
+                "夏令时": [
+                    {"time": summer_times[0]["start"], "name": "上学"},
+                    {"time": summer_times[3]["end"], "name": "午休"},
+                    {"time": summer_times[4]["start"], "name": "下午上课"},
+                    {"time": summer_times[-1]["end"], "name": "放学"},
+                ],
+                "冬令时": [
+                    {"time": winter_times[0]["start"], "name": "上学"},
+                    {"time": winter_times[3]["end"], "name": "午休"},
+                    {"time": winter_times[4]["start"], "name": "下午上课"},
+                    {"time": winter_times[-1]["end"], "name": "放学"},
+                ],
             },
             "weekly_schedule": weekly,
         }
@@ -545,6 +577,7 @@ class ThemeManager:
         self.schedule_data["active_time_schedule"] = self.active_time_schedule
         self.schedule_data["time_schedules"] = self.time_schedules
         self.schedule_data["weekly_schedule"] = self.weekly_schedule
+        self.schedule_data["schedule_events"] = self.schedule_events
         self.schedule_data["version"] = 1
 
         try:
@@ -587,8 +620,10 @@ class ThemeManager:
         # 3. 切换
         self.active_time_schedule = name
         self.period_times = target
+        self.active_events = self.schedule_events.get(name, [])
         self._save_schedule_data_to_file()
-        logger.info(f"时间表已切换为 '{name}'（{len(target)} 节）")
+        logger.info(f"时间表已切换为 '{name}'（{len(target)} 节，"
+                    f"{len(self.active_events)} 个事件）")
         return True
 
     def get_active_time_schedule_name(self) -> str:
@@ -667,6 +702,57 @@ class ThemeManager:
         day_name = self.DAY_ORDER[self.current_day_index]
         logger.info(f"星期设置为：{self.DAY_NAMES[day_name]}")
         return day_name
+
+    # ================================================================
+    #  事件管理
+    # ================================================================
+
+    def get_active_events(self) -> List[dict]:
+        """返回当前活跃时间表的事件列表。"""
+        return self.active_events
+
+    def add_event(self, schedule_name: str, time: str,
+                  name: str) -> None:
+        """添加新事件并保存。"""
+        if schedule_name not in self.schedule_events:
+            self.schedule_events[schedule_name] = []
+        self.schedule_events[schedule_name].append({"time": time, "name": name})
+        # 按时间排序
+        self.schedule_events[schedule_name].sort(
+            key=lambda e: e.get("time", "")
+        )
+        # 如果是活跃时间表，同步 active_events
+        if schedule_name == self.active_time_schedule:
+            self.active_events = self.schedule_events[schedule_name]
+        self._save_schedule_data_to_file()
+        logger.info(f"事件已添加：'{name}' @ {time} → {schedule_name}")
+
+    def remove_event(self, schedule_name: str, event_index: int) -> None:
+        """删除事件并保存。"""
+        if (schedule_name in self.schedule_events
+                and 0 <= event_index < len(self.schedule_events[schedule_name])):
+            removed = self.schedule_events[schedule_name].pop(event_index)
+            if schedule_name == self.active_time_schedule:
+                self.active_events = self.schedule_events[schedule_name]
+            self._save_schedule_data_to_file()
+            logger.info(f"事件已删除：'{removed.get('name')}'")
+
+    def set_event(self, schedule_name: str, event_index: int,
+                  time: str, name: str) -> None:
+        """设置事件时间/名称并保存。"""
+        if (schedule_name in self.schedule_events
+                and 0 <= event_index < len(self.schedule_events[schedule_name])):
+            self.schedule_events[schedule_name][event_index] = {
+                "time": time, "name": name
+            }
+            # 重新排序
+            self.schedule_events[schedule_name].sort(
+                key=lambda e: e.get("time", "")
+            )
+            if schedule_name == self.active_time_schedule:
+                self.active_events = self.schedule_events[schedule_name]
+            self._save_schedule_data_to_file()
+            logger.info(f"事件已更新：'{name}' @ {time}")
 
 
 # ==================== 带主题的基础窗口控件 ====================

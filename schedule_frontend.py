@@ -169,6 +169,10 @@ class ScheduleMainWindow(ThemedWidget):
             bar.setGeometry(0, (i + 1) * label_height - 4, 0, 3)
             self.period_bars.append(bar)
 
+        # ===== 事件标记（课时之间的小标签）=====
+        self._event_labels: List[QLabel] = []
+        self._refresh_event_markers(label_height)
+
         # ===== 底部按钮栏（4 个图标按钮）=====
         images_dir: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'images')
         icon_suffix: str = self._theme.get_icon_suffix()
@@ -463,9 +467,84 @@ class ScheduleMainWindow(ThemedWidget):
         for i, label in enumerate(self.period_labels):
             subject_text = subjects[i] if i < len(subjects) else ""
             label.setText(f"  {subject_text}" if subject_text else "")
+        self._refresh_event_markers()
         logger.info(
             f"标签已刷新：{self._theme.DAY_NAMES[self._theme.get_current_day_name()]}"
         )
+
+    def _refresh_event_markers(self, label_height: Optional[int] = None) -> None:
+        """创建/刷新课时间的事件标记标签。"""
+        # 清理旧标记
+        for lbl in self._event_labels:
+            lbl.deleteLater()
+        self._event_labels.clear()
+
+        events = self._theme.get_active_events()
+        times = self._theme.get_period_times()
+        if not events or not times:
+            return
+
+        # 计算 label_height（如果未传入）
+        if label_height is None:
+            close_btn_height = 36
+            available = self._win_height - close_btn_height
+            label_height = available // max(len(self.period_labels), 1)
+
+        # 收集每个事件的插入 Y 位置，处理重叠
+        positioned: List[tuple] = []  # (event_time, event_name, base_y)
+
+        for event in events:
+            event_time = event.get("time", "")
+            event_name = event.get("name", "")
+            if not event_time or not event_name:
+                continue
+
+            insert_y = None
+            # 优先匹配课时边界
+            for i, t in enumerate(times):
+                if event_time == t.get("start", ""):
+                    insert_y = i * label_height
+                    break
+                if event_time == t.get("end", ""):
+                    insert_y = (i + 1) * label_height
+                    break
+            # 严格在课时之间
+            if insert_y is None:
+                for i in range(len(times) - 1):
+                    end_t = times[i].get("end", "")
+                    start_t = times[i + 1].get("start", "")
+                    if end_t < event_time < start_t:
+                        insert_y = (i + 1) * label_height
+                        break
+            # 在所有课时之前/之后
+            if insert_y is None and times:
+                if event_time < times[0].get("start", "99:99"):
+                    insert_y = 0
+                elif event_time >= times[-1].get("end", "00:00"):
+                    insert_y = len(times) * label_height
+
+            if insert_y is not None:
+                positioned.append((event_time, event_name, insert_y))
+
+        # 按 base_y 排序
+        positioned.sort(key=lambda x: x[2])
+
+        # 处理重叠：同一 base_y 的事件垂直分散
+        marker_h = 13
+        seen_y: Dict[int, int] = {}  # base_y → 已用行数
+        for event_time, event_name, base_y in positioned:
+            offset = seen_y.get(base_y, 0)
+            seen_y[base_y] = offset + 1
+            actual_y = base_y + offset * marker_h
+
+            marker = QLabel(f"· {event_name}  {event_time}", self)
+            marker.setFont(QFont("Arial", 7))
+            marker.setStyleSheet(f"""
+                color: {self._theme.font_color};
+                background: transparent;
+            """)
+            marker.setGeometry(4, actual_y, self._win_width - 8, marker_h)
+            self._event_labels.append(marker)
 
     def set_display_day(self, day_index: int) -> None:
         """切换显示星期（供设置窗口调用）。"""
