@@ -127,13 +127,22 @@ def main() -> None:
 
     # ================================================================
     #  第4步：创建前端窗口
+    #  ★ 启动优化：先创建轻量级的 TimeWindow 并立即显示，
+    #  让用户第一时间看到时间；重量级的主窗口延后构造，
+    #  避免用户感知到"点了图标没反应"的空白期。
     # ================================================================
-    # 4a. 时间窗口（屏幕右上角浮动时钟）
+    # 4a. 时间窗口（屏幕右上角浮动时钟）— 轻量，优先创建并显示
     logger.info("正在创建 TimeWindow...")
     time_window: TimeWindow = TimeWindow(theme_manager)
     logger.info("TimeWindow 创建完成")
 
-    # 4b. 课表主窗口（课时标签 + 四按钮栏）
+    # ★ 启动优化：立即显示 TimeWindow 并刷新界面，
+    # 让用户瞬间看到置顶时间，无需等待主窗口构造完成。
+    time_window.show()
+    app.processEvents()  # 强制 Qt 立即渲染 TimeWindow
+    logger.info("TimeWindow 已提前显示（启动优化：用户可立即看到时间）")
+
+    # 4b. 课表主窗口（课时标签 + 四按钮栏）— 重量级，延后构造
     logger.info("正在创建 ScheduleMainWindow...")
     main_window: ScheduleMainWindow = ScheduleMainWindow(theme_manager)
     logger.info("ScheduleMainWindow 创建完成")
@@ -181,9 +190,9 @@ def main() -> None:
 
     # ================================================================
     #  第7步：显示窗口
+    #  ★ 注意：TimeWindow 已在第4步提前显示，这里只需显示主窗口
     # ================================================================
-    logger.info("正在显示窗口...")
-    time_window.show()
+    logger.info("正在显示主窗口...")
     main_window.show()
     # fullscreen_window 默认隐藏，通过全屏时间按钮触发显示
     logger.info("窗口已显示，进入事件循环")
