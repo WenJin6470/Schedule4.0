@@ -29,6 +29,7 @@ from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QIcon
 
 from schedule_theme import ThemeManager, ThemedWidget
+from schedule_actions import ActionMessage, ActionType
 
 # ═══════════════════════════════════════════════════════════════════════════
 # ★ 启动优化：懒加载子模块 ★
@@ -71,7 +72,7 @@ class ScheduleMainWindow(ThemedWidget):
     # ================================================================
     #  信号定义
     # ================================================================
-    backend_signal = Signal(str)
+    backend_signal = Signal(ActionMessage)
 
     # ================================================================
     #  构造函数
@@ -218,18 +219,18 @@ class ScheduleMainWindow(ThemedWidget):
     def _on_fullscreen_time_clicked(self) -> None:
         """全屏时间按钮 — 发射 backend_signal('fullscreen_time')。"""
         logger.info("用户点击了全屏时间按钮")
-        self.backend_signal.emit("fullscreen_time")
+        self.backend_signal.emit(ActionMessage.fullscreen_time())
 
     def _on_quick_edit_clicked(self) -> None:
         """快捷编辑按钮 — 发射信号并显示科目选择子窗口。"""
         logger.info("用户点击了快捷课表编辑按钮")
-        self.backend_signal.emit("quick_edit_opened")
+        self.backend_signal.emit(ActionMessage.quick_edit_opened())
         self._show_subject_window()
 
     def _on_settings_clicked(self) -> None:
         """设置按钮 — 发射信号并显示设置窗口。"""
         logger.info("用户点击了设置按钮")
-        self.backend_signal.emit("settings")
+        self.backend_signal.emit(ActionMessage.settings())
         self._show_settings_window()
 
     def _on_close_clicked(self) -> None:
@@ -241,7 +242,7 @@ class ScheduleMainWindow(ThemedWidget):
         if self._settings_window is not None:
             self._settings_window.close()
             self._settings_window = None
-        self.backend_signal.emit("close")
+        self.backend_signal.emit(ActionMessage.close())
 
     # ================================================================
     #  私有方法：显示子窗口
@@ -339,7 +340,7 @@ class ScheduleMainWindow(ThemedWidget):
         # 返回当前标签的文字内容
         current_text: str = self.period_labels[index].text().strip()
         # 发射信号通知后端 / 快捷编辑窗口
-        self.backend_signal.emit(f"cursor_info:{index}:{current_text}")
+        self.backend_signal.emit(ActionMessage.cursor_info(index, current_text))
         return current_text
 
     def stop_cursor_blink(self) -> None:
@@ -420,7 +421,7 @@ class ScheduleMainWindow(ThemedWidget):
 
         logger.info(f"光标移动到：第 {new_index + 1} 节")
         current_text: str = self.period_labels[new_index].text().strip()
-        self.backend_signal.emit(f"cursor_info:{new_index}:{current_text}")
+        self.backend_signal.emit(ActionMessage.cursor_info(new_index, current_text))
         return current_text
 
     def set_cursor_subject(self, subject_name: str) -> None:

@@ -22,6 +22,7 @@ from PySide6.QtCore import Qt, SignalInstance
 from PySide6.QtGui import QFont, QCloseEvent
 
 from schedule_theme import ThemeManager, ThemedWidget
+from schedule_actions import ActionMessage
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -302,7 +303,9 @@ class SubjectSelectWindow(ThemedWidget):
         btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # type: ignore
         btn.setMinimumHeight(32)
         btn.clicked.connect(
-            lambda checked=False, name=subject_name: self._emit_action(f"subject:{name}")
+            lambda checked=False, name=subject_name: self._emit_action(
+                ActionMessage.subject_selected(name)
+            )
         )
         return btn
 
@@ -372,21 +375,21 @@ class SubjectSelectWindow(ThemedWidget):
         """
 
         control_buttons = [
-            ("倍速向上", "move_double_up", ctrl_btn_style),
-            ("向上",     "move_up",       ctrl_btn_style),
-            ("向下",     "move_down",     ctrl_btn_style),
-            ("倍速向下", "move_double_down", ctrl_btn_style),
+            ("倍速向上", ActionMessage.move_double_up, ctrl_btn_style),
+            ("向上",     ActionMessage.move_up,       ctrl_btn_style),
+            ("向下",     ActionMessage.move_down,     ctrl_btn_style),
+            ("倍速向下", ActionMessage.move_double_down, ctrl_btn_style),
         ]
 
         layout.addStretch()
 
-        for text, action, style in control_buttons:
+        for text, factory, style in control_buttons:
             btn: QPushButton = QPushButton(text)
             btn.setStyleSheet(style)
             btn.setMinimumHeight(36)
             btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # type: ignore
             btn.clicked.connect(
-                lambda checked=False, a=action: self._emit_action(a)
+                lambda checked=False, f=factory: self._emit_action(f())
             )
             layout.addWidget(btn)
 
@@ -396,7 +399,9 @@ class SubjectSelectWindow(ThemedWidget):
         confirm_btn.setStyleSheet(confirm_btn_style)
         confirm_btn.setMinimumHeight(40)
         confirm_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # type: ignore
-        confirm_btn.clicked.connect(lambda: self._emit_action("confirm"))
+        confirm_btn.clicked.connect(
+            lambda: self._emit_action(ActionMessage.confirm())
+        )
         layout.addWidget(confirm_btn)
 
         layout.addStretch()
@@ -412,14 +417,14 @@ class SubjectSelectWindow(ThemedWidget):
         然后隐藏窗口，不触发 QApplication 退出。
         """
         logger.info("[SubjectSelectWindow] 关闭事件 → 通知后端、隐藏窗口")
-        self._parent_signal.emit("quick_edit_closed")
+        self._parent_signal.emit(ActionMessage.quick_edit_closed())
         event.ignore()
         self.hide()
 
     # ================================================================
     #  发射动作信号
     # ================================================================
-    def _emit_action(self, action: str) -> None:
-        """通过父窗口的 backend_signal 发射动作信号。"""
-        logger.info(f"[SubjectSelectWindow] 发射动作: {action}")
-        self._parent_signal.emit(action)
+    def _emit_action(self, msg: ActionMessage) -> None:
+        """通过父窗口的 backend_signal 发射结构化动作消息。"""
+        logger.info(f"[SubjectSelectWindow] 发射动作: {msg.type.value}")
+        self._parent_signal.emit(msg)

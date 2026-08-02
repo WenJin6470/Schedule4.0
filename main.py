@@ -162,27 +162,35 @@ def main() -> None:
 
     # ================================================================
     #  第6步：连接信号和槽
-    #   连接1：定时器 → 时间窗口显示更新
-    #   连接2：定时器 → 全屏时间窗口显示更新（为未来准备）
-    #   连接3：主窗口统一信号 → 后端处理器
-    #   连接4：全屏时间关闭信号 → 隐藏窗口
+    #   连接1：TimeManager.time_tick → 置顶时间窗口（订阅者1）
+    #   连接2：TimeManager.time_tick → 全屏时间窗口（订阅者2，修复全屏时间bug）
+    #   连接3：全屏时间关闭信号 → 隐藏窗口
+    #   连接4：主窗口统一信号 → 后端处理器
     # ================================================================
 
-    # ----- 连接1：定时器 → 时间窗口 -----
-    logger.info("连接信号：定时器 → TimeWindow.update_time_display()")
-    time_manager.start(lambda t: time_window.update_time_display(t))
-    logger.info("定时器已启动")
+    # ----- 连接1：TimeManager.time_tick → 置顶时间窗口 -----
+    logger.info("连接信号：TimeManager.time_tick → TimeWindow.update_time_display()")
+    time_manager.time_tick.connect(time_window.update_time_display)
 
-    # ----- 连接2：全屏时间窗口关闭 → 隐藏 -----
+    # ----- 连接2：TimeManager.time_tick → 全屏时间窗口 -----
+    # ★ 修复了此前全屏时间窗口无时间数据的问题
+    logger.info("连接信号：TimeManager.time_tick → FullscreenTimeWindow.update_time_display()")
+    time_manager.time_tick.connect(fullscreen_window.update_time_display)
+
+    # ----- TimeManager 启动（不再需要传入 callback）-----
+    time_manager.start()
+    logger.info("TimeManager 定时器已启动，时间信号广播中")
+
+    # ----- 连接3：全屏时间窗口关闭 → 隐藏 -----
     fullscreen_window.close_requested.connect(
         lambda: fullscreen_window.hide()
     )
 
-    # ----- 连接3：主窗口统一信号 → 后端 -----
+    # ----- 连接4：主窗口统一信号 → 后端 -----
     logger.info("连接信号：ScheduleMainWindow.backend_signal → ScheduleBackend")
     main_window.backend_signal.connect(
-        lambda action: backend_handler.handle_action(
-            action, main_window, time_window, fullscreen_window, app,
+        lambda msg: backend_handler.handle_action(
+            msg, main_window, time_window, fullscreen_window, app,
             subject_window=main_window._subject_window
         )
     )
