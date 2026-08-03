@@ -1,15 +1,16 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════╗
-║        📅 电子课表系统 —— schedule_theme.py（主题管理 + 基础控件）        ║
-║                     （统一的主题配置与共享基类）                            ║
+║       📅 电子课表系统 —— schedule_config.py（配置管理 + 基础控件）         ║
+║                  （统一的配置读取、课表数据管理与共享基类）                   ║
 ╚══════════════════════════════════════════════════════════════════════════╝
 
 📌 本文件的角色
 ═══════════════════════════════════════════════════════════════════════════
-本文件为整个前端提供统一的主题管理和基础控件，包括：
-  ✅ ThemeManager — 集中管理所有颜色、字体、透明度等主题参数
-  ✅ ThemedWidget — 所有窗口的基类，提供 paintEvent 背景填充
-  ✅ 工具函数 — get_color / RGB_to_Hex / is_color_dark
+本文件为整个前端提供统一的配置管理和基础控件，包括：
+  ✅ ThemeManager       — 集中管理所有颜色、字体、透明度等主题参数
+  ✅ ScheduleDataManager — 读取课表数据和时间表配置
+  ✅ ThemedWidget       — 所有窗口的基类，提供 paintEvent 背景填充
+  ✅ 工具函数           — get_color / RGB_to_Hex / is_color_dark
 
 所有前端窗口类（主窗口、时间窗口、快捷编辑、设置）均通过
 ThemeManager 获取主题颜色，确保全局一致性。
@@ -338,6 +339,101 @@ class ThemeManager:
             else:
                 return ''
         return ''
+
+
+# ==================== 课表数据管理器 ====================
+
+
+class ScheduleDataManager:
+    """
+    # ScheduleDataManager — 课表数据管理器
+
+    负责读取课表课程数据和时间表配置，将 JSON 原始数据加载到内存中。
+    ---
+
+    对外属性：
+      - curriculum_data — 课表课程数据（dict），键为星期几，值为当日课时科目
+      - timetable_data  — 课时时间配置（dict），键为 lesson_N，值为 [开始, 结束]
+
+    数据文件：
+      - Config/curriculum/table_1.json  — 每周课表（周一到周日，每天12节课）
+      - Config/timetable/timetable_1.json — 课时时间定义（每节课的开始/结束时间）
+    """
+
+    def __init__(self) -> None:
+        """初始化课表数据管理器，从 JSON 文件读取原始数据。"""
+        logger.info("ScheduleDataManager 初始化开始")
+
+        # ---- 课表课程数据 ----
+        self.curriculum_data: Dict = {}
+
+        # ---- 课时时间配置 ----
+        self.timetable_data: Dict = {}
+
+        # ---- 加载数据 ----
+        self._load_curriculum()
+        self._load_timetable()
+
+        logger.info("ScheduleDataManager 初始化完成")
+
+    # ================================================================
+    #  读取课表课程数据
+    # ================================================================
+    def _load_curriculum(self) -> None:
+        """从 Config/curriculum/table_1.json 读取每周课表数据。"""
+        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        config_path: str = os.path.join(script_dir, 'Config', 'curriculum', 'table_1.json')
+
+        try:
+            if not os.path.exists(config_path):
+                logger.warning(f"课表数据文件不存在：{config_path}")
+                self.curriculum_data = {}
+                return
+
+            logger.info(f"找到课表数据文件：{config_path}")
+            with open(config_path, 'r', encoding='utf-8') as f:
+                self.curriculum_data = json.load(f)
+
+            days = list(self.curriculum_data.keys())
+            logger.info(f"课表数据加载完成：{len(days)} 天（{', '.join(days)}）")
+
+        except json.JSONDecodeError as e:
+            logger.error(f"课表数据 JSON 解析失败：{e}")
+            self.curriculum_data = {}
+        except Exception as e:
+            logger.error(f"读取课表数据文件失败：{e}")
+            self.curriculum_data = {}
+
+    # ================================================================
+    #  读取课时时间配置
+    # ================================================================
+    def _load_timetable(self) -> None:
+        """从 Config/timetable/timetable_1.json 读取课时时间配置。"""
+        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        config_path: str = os.path.join(script_dir, 'Config', 'timetable', 'timetable_1.json')
+
+        try:
+            if not os.path.exists(config_path):
+                logger.warning(f"课时配置文件不存在：{config_path}")
+                self.timetable_data = {}
+                return
+
+            logger.info(f"找到课时配置文件：{config_path}")
+            with open(config_path, 'r', encoding='utf-8') as f:
+                self.timetable_data = json.load(f)
+
+            lesson_count = len([
+                k for k in self.timetable_data.keys()
+                if k.startswith('lesson_')
+            ])
+            logger.info(f"课时配置加载完成：{lesson_count} 节课")
+
+        except json.JSONDecodeError as e:
+            logger.error(f"课时配置 JSON 解析失败：{e}")
+            self.timetable_data = {}
+        except Exception as e:
+            logger.error(f"读取课时配置文件失败：{e}")
+            self.timetable_data = {}
 
 
 # ==================== 带主题的基础窗口控件 ====================

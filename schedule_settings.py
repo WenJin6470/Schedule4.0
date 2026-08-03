@@ -21,7 +21,7 @@ import logging
 from PySide6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QSizePolicy
 from PySide6.QtCore import Qt, SignalInstance
 
-from schedule_theme import ThemeManager, ThemedWidget
+from schedule_config import ThemeManager, ThemedWidget
 
 logger: logging.Logger = logging.getLogger(__name__)
 

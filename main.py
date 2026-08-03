@@ -12,7 +12,7 @@ main.py 是整个程序的入口，也是前后端分离架构中的"中间层"�
 
 📌 四大窗口模块
 ═══════════════════════════════════════════════════════════════════════════
-  schedule_theme.py    — ThemeManager + ThemedWidget（主题与基础控件）
+  schedule_config.py   — ThemeManager + ScheduleDataManager + ThemedWidget
   schedule_time.py     — TimeWindow + FullscreenTimeWindow（时间模块）
   schedule_frontend.py — ScheduleMainWindow（课表主窗口）
   schedule_quick_edit.py — SubjectSelectWindow（快捷编辑模块）
@@ -33,7 +33,7 @@ from PySide6.QtWidgets import QApplication
 # ================================================================
 # ★ 导入主题、前端口、后端逻辑 ★
 # ================================================================
-from schedule_theme import ThemeManager
+from schedule_config import ThemeManager
 from schedule_time import TimeWindow, FullscreenTimeWindow
 from schedule_frontend import ScheduleMainWindow
 from schedule_backend import TimeManager, ScheduleBackend, WindowHelper

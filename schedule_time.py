@@ -20,7 +20,7 @@ from PySide6.QtWidgets import QLabel, QApplication
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 
-from schedule_theme import ThemeManager, ThemedWidget
+from schedule_config import ThemeManager, ThemedWidget
 
 logger: logging.Logger = logging.getLogger(__name__)
 

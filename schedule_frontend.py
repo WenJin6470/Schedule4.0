@@ -14,7 +14,7 @@
 📌 架构关系
 ═══════════════════════════════════════════════════════════════════════════
 本窗口是四个主要窗口类之一，通过统一的 ThemeManager 获取主题颜色：
-  - schedule_theme.py   — ThemeManager + ThemedWidget（共享基础）
+  - schedule_config.py  — ThemeManager + ScheduleDataManager + ThemedWidget
   - schedule_time.py    — TimeWindow + FullscreenTimeWindow（时间模块）
   - schedule_quick_edit.py — SubjectSelectWindow（快捷编辑模块）
   - schedule_settings.py   — SettingsWindow（设置模块）
@@ -28,7 +28,7 @@ from PySide6.QtWidgets import QLabel, QPushButton
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QIcon
 
-from schedule_theme import ThemeManager, ThemedWidget
+from schedule_config import ThemeManager, ThemedWidget
 from schedule_actions import ActionMessage, ActionType
 
 # ═══════════════════════════════════════════════════════════════════════════

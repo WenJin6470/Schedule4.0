@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton,
 from PySide6.QtCore import Qt, SignalInstance
 from PySide6.QtGui import QFont, QCloseEvent
 
-from schedule_theme import ThemeManager, ThemedWidget
+from schedule_config import ThemeManager, ThemedWidget
 from schedule_actions import ActionMessage
 
 logger: logging.Logger = logging.getLogger(__name__)
