@@ -20,7 +20,7 @@ import json
 import logging
 import os
 from configparser import ConfigParser
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtWidgets import QApplication, QWidget
 from PySide6.QtGui import QColor, QPainter, QPaintEvent
@@ -113,6 +113,8 @@ class ThemeManager:
       - language         — 显示语言
       - period_count     — 课时数量
       - subject_config   — 科目分类配置
+      - curriculum_path  — 课程表 JSON 文件路径（由 INI 的 table 参数指定）
+      - timetable_path   — 时间表 JSON 文件路径（由 INI 的 timetable 参数指定）
 
     对外方法：
       - get_icon_suffix() → str  根据主题返回图标后缀
@@ -155,12 +157,18 @@ class ThemeManager:
         # ---- 科目配置 ----
         self.subject_config: Dict = {}
 
+        # ---- 数据文件路径（由 INI 配置指定）----
+        self.curriculum_path: str = ''
+        self.timetable_path: str = ''
+
         # ---- 加载配置 ----
         self._load_config()
         self._load_subject_config()
 
         logger.info(f"ThemeManager 初始化完成：theme={self.theme}, "
-                    f"period_count={self.period_count}")
+                    f"period_count={self.period_count}, "
+                    f"curriculum={self.curriculum_path}, "
+                    f"timetable={self.timetable_path}")
 
     # ================================================================
     #  读取主配置文件
@@ -173,6 +181,8 @@ class ThemeManager:
         default_period_count: int = 7
         default_theme: str = 'lightcolor'
         default_language: str = 'Chinese'
+        default_curriculum: str = 'Config/curriculum/table_1.json'
+        default_timetable: str = 'Config/timetable/timetable_1.json'
 
         try:
             if not os.path.exists(config_path):
@@ -180,6 +190,8 @@ class ThemeManager:
                 self.period_count = default_period_count
                 self.theme = default_theme
                 self.language = default_language
+                self.curriculum_path = default_curriculum
+                self.timetable_path = default_timetable
                 self._apply_theme()
                 return
 
@@ -214,22 +226,38 @@ class ThemeManager:
             else:
                 self.language = default_language
 
+            # --- table（课程表 JSON 文件路径）---
+            default_curriculum: str = 'Config/curriculum/table_1.json'
+            table_str: str = parser.get('Schedule', 'table', fallback=default_curriculum)
+            self.curriculum_path = table_str.strip()
+
+            # --- timetable（时间表 JSON 文件路径）---
+            default_timetable: str = 'Config/timetable/timetable_1.json'
+            timetable_str: str = parser.get('Schedule', 'timetable', fallback=default_timetable)
+            self.timetable_path = timetable_str.strip()
+
             self._apply_theme()
 
             logger.info(f"配置加载完成：period_count={self.period_count}, "
-                        f"theme={self.theme}, language={self.language}")
+                        f"theme={self.theme}, language={self.language}, "
+                        f"curriculum={self.curriculum_path}, "
+                        f"timetable={self.timetable_path}")
 
         except (ValueError, TypeError) as e:
             logger.warning(f"配置文件参数格式错误：{e}，使用默认值")
             self.period_count = default_period_count
             self.theme = default_theme
             self.language = default_language
+            self.curriculum_path = default_curriculum
+            self.timetable_path = default_timetable
             self._apply_theme()
         except Exception as e:
             logger.error(f"读取配置文件失败：{e}，使用默认值")
             self.period_count = default_period_count
             self.theme = default_theme
             self.language = default_language
+            self.curriculum_path = default_curriculum
+            self.timetable_path = default_timetable
             self._apply_theme()
 
     # ================================================================
@@ -349,20 +377,30 @@ class ScheduleDataManager:
     # ScheduleDataManager — 课表数据管理器
 
     负责读取课表课程数据和时间表配置，将 JSON 原始数据加载到内存中。
+    数据文件路径由 ThemeManager 从 INI 配置中读取后传入。
     ---
 
     对外属性：
       - curriculum_data — 课表课程数据（dict），键为星期几，值为当日课时科目
       - timetable_data  — 课时时间配置（dict），键为 lesson_N，值为 [开始, 结束]
-
-    数据文件：
-      - Config/curriculum/table_1.json  — 每周课表（周一到周日，每天12节课）
-      - Config/timetable/timetable_1.json — 课时时间定义（每节课的开始/结束时间）
+      - curriculum_path — 实际使用的课程表文件路径
+      - timetable_path  — 实际使用的时间表文件路径
     """
 
-    def __init__(self) -> None:
-        """初始化课表数据管理器，从 JSON 文件读取原始数据。"""
+    def __init__(self, curriculum_path: str = 'Config/curriculum/table_1.json',
+                 timetable_path: str = 'Config/timetable/timetable_1.json') -> None:
+        """
+        初始化课表数据管理器，从 JSON 文件读取原始数据。
+        --------------------------------------------
+        参数：
+            curriculum_path （str）：课程表 JSON 文件相对路径（相对于脚本目录）
+            timetable_path  （str）：时间表 JSON 文件相对路径（相对于脚本目录）
+        """
         logger.info("ScheduleDataManager 初始化开始")
+
+        # ---- 记录路径 ----
+        self.curriculum_path: str = curriculum_path
+        self.timetable_path: str = timetable_path
 
         # ---- 课表课程数据 ----
         self.curriculum_data: Dict = {}
@@ -380,9 +418,9 @@ class ScheduleDataManager:
     #  读取课表课程数据
     # ================================================================
     def _load_curriculum(self) -> None:
-        """从 Config/curriculum/table_1.json 读取每周课表数据。"""
+        """根据 self.curriculum_path 读取每周课表数据。"""
         script_dir: str = os.path.dirname(os.path.abspath(__file__))
-        config_path: str = os.path.join(script_dir, 'Config', 'curriculum', 'table_1.json')
+        config_path: str = os.path.join(script_dir, self.curriculum_path)
 
         try:
             if not os.path.exists(config_path):
@@ -408,9 +446,9 @@ class ScheduleDataManager:
     #  读取课时时间配置
     # ================================================================
     def _load_timetable(self) -> None:
-        """从 Config/timetable/timetable_1.json 读取课时时间配置。"""
+        """根据 self.timetable_path 读取课时时间配置。"""
         script_dir: str = os.path.dirname(os.path.abspath(__file__))
-        config_path: str = os.path.join(script_dir, 'Config', 'timetable', 'timetable_1.json')
+        config_path: str = os.path.join(script_dir, self.timetable_path)
 
         try:
             if not os.path.exists(config_path):
@@ -434,6 +472,65 @@ class ScheduleDataManager:
         except Exception as e:
             logger.error(f"读取课时配置文件失败：{e}")
             self.timetable_data = {}
+
+    # ================================================================
+    #  公开方法：获取课时数量
+    # ================================================================
+    def get_lesson_count(self) -> int:
+        """
+        返回时间表中实际课时数量（不包含分隔线）。
+        ---------------------------------------
+        通过统计 timetable_data 中以 lesson_ 开头的键来计算。
+
+        返回值：
+            int：实际课时数量
+        """
+        return len([k for k in self.timetable_data if k.startswith('lesson_')])
+
+    # ================================================================
+    #  公开方法：获取分隔线位置
+    # ================================================================
+    def get_divider_indices(self) -> List[int]:
+        """
+        返回分隔线应插入的位置列表（0-based 课时索引）。
+        --------------------------------------------
+        遍历 timetable_data 的键顺序（保持 JSON 原始顺序），
+        每当遇到 dividerline_ 键时，记录其前面最后一个 lesson 的索引。
+
+        例如时间表结构为：
+          lesson_1, lesson_2, lesson_3, lesson_4, dividerline_1,
+          lesson_5, lesson_6, lesson_7, lesson_8, dividerline_2,
+          lesson_9, lesson_10, lesson_11, lesson_12
+        则返回 [3, 7]，表示在第3节和第7节之后各有一条分隔线。
+
+        返回值：
+            List[int]：分隔线前的课时索引列表（0-based）
+        """
+        indices: List[int] = []
+        lesson_counter: int = 0
+        for key in self.timetable_data:
+            if key.startswith('lesson_'):
+                lesson_counter += 1
+            elif key.startswith('dividerline_'):
+                # 分隔线出现在当前已计数的课时之后
+                indices.append(lesson_counter - 1)
+        return indices
+
+    # ================================================================
+    #  公开方法：获取指定日的课程表
+    # ================================================================
+    def get_curriculum_for_day(self, day_name: str) -> Dict[str, str]:
+        """
+        返回指定星期几的课程表数据。
+        -------------------------
+        参数：
+            day_name（str）：星期名称，如 'Monday', 'Tuesday' 等
+
+        返回值：
+            Dict[str, str]：{lesson_key: subject_name} 映射
+                           若无数据则返回空字典
+        """
+        return self.curriculum_data.get(day_name, {})
 
 
 # ==================== 带主题的基础窗口控件 ====================

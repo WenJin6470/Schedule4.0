@@ -33,7 +33,7 @@ from PySide6.QtWidgets import QApplication
 # ================================================================
 # ★ 导入主题、前端口、后端逻辑 ★
 # ================================================================
-from schedule_config import ThemeManager
+from schedule_config import ThemeManager, ScheduleDataManager
 from schedule_time import TimeWindow, FullscreenTimeWindow
 from schedule_frontend import ScheduleMainWindow
 from schedule_backend import TimeManager, ScheduleBackend, WindowHelper
@@ -72,7 +72,8 @@ def main() -> None:
     执行顺序：
       1. 配置日志系统
       2. 创建 QApplication
-      3. 创建 ThemeManager（读取配置 → 主题颜色就绪）
+      3. 创建 ThemeManager（读取 INI 配置 → 主题颜色就绪）
+      3b. 创建 ScheduleDataManager（读取课程表和时间表 JSON）
       4. 创建各前端窗口（时间窗口、主窗口、全屏时间窗口）
       5. 创建后端实例（TimeManager、ScheduleBackend）
       6. 连接信号与槽
@@ -125,6 +126,14 @@ def main() -> None:
     logger.info(f"ThemeManager 创建完成：theme={theme_manager.theme}, "
                 f"period_count={theme_manager.period_count}")
 
+    #  3b. 创建 ScheduleDataManager（读取课程表和时间表 JSON）
+    logger.info("正在创建 ScheduleDataManager...")
+    schedule_data: ScheduleDataManager = ScheduleDataManager(
+        curriculum_path=theme_manager.curriculum_path,
+        timetable_path=theme_manager.timetable_path,
+    )
+    logger.info("ScheduleDataManager 创建完成")
+
     # ================================================================
     #  第4步：创建前端窗口
     #  ★ 启动优化：先创建轻量级的 TimeWindow 并立即显示，
@@ -144,7 +153,7 @@ def main() -> None:
 
     # 4b. 课表主窗口（课时标签 + 四按钮栏）— 重量级，延后构造
     logger.info("正在创建 ScheduleMainWindow...")
-    main_window: ScheduleMainWindow = ScheduleMainWindow(theme_manager)
+    main_window: ScheduleMainWindow = ScheduleMainWindow(theme_manager, schedule_data)
     logger.info("ScheduleMainWindow 创建完成")
 
     # 4c. 全屏时间窗口（默认隐藏，待后续实现）

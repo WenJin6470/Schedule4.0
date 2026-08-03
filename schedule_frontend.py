@@ -22,13 +22,14 @@
 
 import logging
 import os
-from typing import List, Optional
+from datetime import datetime
+from typing import Dict, List, Optional
 
 from PySide6.QtWidgets import QLabel, QPushButton
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QIcon
 
-from schedule_config import ThemeManager, ThemedWidget
+from schedule_config import ThemeManager, ThemedWidget, ScheduleDataManager, is_color_dark
 from schedule_actions import ActionMessage, ActionType
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -77,17 +78,22 @@ class ScheduleMainWindow(ThemedWidget):
     # ================================================================
     #  构造函数
     # ================================================================
-    def __init__(self, theme_manager: ThemeManager) -> None:
+    def __init__(self, theme_manager: ThemeManager,
+                 schedule_data: ScheduleDataManager) -> None:
         """
         初始化课表主窗口。
         -----------------
         参数：
-            theme_manager（ThemeManager）：全局主题管理器（含配置和颜色）
+            theme_manager（ThemeManager）：        全局主题管理器（含配置和颜色）
+            schedule_data（ScheduleDataManager）： 课表数据管理器（含时间表和课程表数据）
         """
         super().__init__(theme_manager, bg_color_attr='root_back_color')
 
         logger.info("=" * 50)
         logger.info("ScheduleMainWindow 初始化开始")
+
+        # ---- 数据引用 ----
+        self._schedule_data: ScheduleDataManager = schedule_data
 
         # ---- 控件引用 ----
         self._subject_window: Optional[SubjectSelectWindow] = None # type: ignore
@@ -141,31 +147,64 @@ class ScheduleMainWindow(ThemedWidget):
 
         # ===== 课时标签区域 =====
         close_btn_height: int = 36
+        divider_height: int = 4
+        # 从时间表数据中获取实际课时数和分隔线位置
+        lesson_count: int = self._schedule_data.get_lesson_count()
+        divider_indices: List[int] = self._schedule_data.get_divider_indices()
+        divider_count: int = len(divider_indices)
         available_height: int = self._win_height - close_btn_height
-        period_count: int = self._theme.period_count
-        label_height: int = available_height // period_count if period_count > 0 else available_height
+        total_divider_height: int = divider_count * divider_height
+        label_height: int = (
+            (available_height - total_divider_height) // lesson_count
+            if lesson_count > 0 else available_height
+        )
 
-        #开发前期用来占位的科目
-        example_subject_list = ['语文','数学','英语','物理','化学','生物']
-        import random
-        
-        logger.info(f"创建 {period_count} 个课时标签（每个高度 {label_height}px）...")
-        for i in range(period_count):
+        # 获取今天对应星期的课程表
+        today_name: str = datetime.now().strftime('%A')
+        today_curriculum: Dict[str, str] = (
+            self._schedule_data.get_curriculum_for_day(today_name)
+        )
 
-            example_subject = example_subject_list[random.randint(0,5)]
+        logger.info(
+            f"创建课时标签：共 {lesson_count} 节课（含 {divider_count} 条分隔线），"
+            f"每个标签高度 {label_height}px，今天={today_name}"
+        )
 
-            label: QLabel = QLabel(self)
-            label.setObjectName(f"period_label_{i}")
-            label.setFont(QFont("Arial", 12))
-            label.setStyleSheet(f"""
-                color: {self._theme.font_color};
-                background: transparent;
-                border-bottom: 1px solid {self._theme.border_color};
-            """)
-            label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
-            label.setGeometry(0, i * label_height, self._win_width, label_height)
-            label.setText(f"{example_subject}")
-            self.period_labels.append(label)
+        # 根据主题确定分隔线颜色
+        if self._theme.theme == 'lightcolor':
+            divider_color: str = '#999999'
+        elif self._theme.theme == 'darkcolor':
+            divider_color: str = '#AAAAAA'
+        else:  # multicolor：根据桌面背景明暗自动选择
+            divider_color = '#AAAAAA' if is_color_dark(self._theme.back_color) else '#999999'
+
+        # 按时间表 JSON 键顺序遍历，依次创建课时标签和分隔线
+        y_offset: int = 0
+        for key in self._schedule_data.timetable_data:
+            if key.startswith('lesson_'):
+                subject: str = today_curriculum.get(key, '')
+                label: QLabel = QLabel(self)
+                label.setObjectName(key)
+                label.setFont(QFont("Arial", 16))
+                label.setStyleSheet(f"""
+                    color: {self._theme.font_color};
+                    background: transparent;
+                """)
+                label.setAlignment(Qt.AlignCenter)  # type: ignore
+                label.setGeometry(0, y_offset, self._win_width, label_height)
+                label.setText(subject)
+                self.period_labels.append(label)
+                y_offset += label_height
+            elif key.startswith('dividerline_'):
+                divider: QLabel = QLabel(self)
+                divider.setObjectName(key)
+                # 水平分割线：透明背景 + 顶部细边框，颜色随主题自适应
+                divider.setStyleSheet(
+                    f"background: transparent;"
+                    f"border-top: 1px solid {divider_color};"
+                )
+                divider.setGeometry(0, y_offset, self._win_width, divider_height)
+                y_offset += divider_height
 
         # ===== 底部按钮栏（4 个图标按钮）=====
         images_dir: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'images')
@@ -184,7 +223,7 @@ class ScheduleMainWindow(ThemedWidget):
         btn_count: int = len(button_configs)
         total_btn_width: int = btn_count * btn_size
         spacing: int = (self._win_width - total_btn_width) // (btn_count + 1)
-        btn_y: int = period_count * label_height + (close_btn_height - btn_size) // 2
+        btn_y: int = y_offset + (close_btn_height - btn_size) // 2
 
         for i, (attr_name, image_base, handler) in enumerate(button_configs):
             icon_path: str = os.path.join(images_dir, f"{image_base}{icon_suffix}.svg")
@@ -302,8 +341,8 @@ class ScheduleMainWindow(ThemedWidget):
         return None
 
     def get_period_count(self) -> int:
-        """获取当前课时数量。"""
-        return self._theme.period_count
+        """获取当前课时数量（从时间表数据中实际课时数计算）。"""
+        return len(self.period_labels)
 
     def get_all_period_labels(self) -> List[QLabel]:
         """获取所有课时标签控件的列表。"""
@@ -353,7 +392,6 @@ class ScheduleMainWindow(ThemedWidget):
             label.setStyleSheet(f"""
                 color: {self._theme.font_color};
                 background: transparent;
-                border-bottom: 1px solid {self._theme.border_color};
             """)
         self._blink_on = False
         logger.info("光标闪烁已停止")
@@ -372,14 +410,12 @@ class ScheduleMainWindow(ThemedWidget):
             label.setStyleSheet(f"""
                 color: {font_color};
                 background: transparent;
-                border-bottom: 1px solid {border};
             """)
         else:
             # 高亮闪烁（淡蓝色光标杆）
             label.setStyleSheet(f"""
                 color: {font_color};
                 background: rgba(33, 150, 243, 0.18);
-                border-bottom: 1px solid {border};
                 border-left: 3px solid rgba(33, 150, 243, 0.6);
             """)
 
@@ -414,7 +450,6 @@ class ScheduleMainWindow(ThemedWidget):
             label.setStyleSheet(f"""
                 color: {self._theme.font_color};
                 background: transparent;
-                border-bottom: 1px solid {self._theme.border_color};
             """)
         # 立即显示一次高亮
         self._toggle_blink()
@@ -434,7 +469,7 @@ class ScheduleMainWindow(ThemedWidget):
         if 0 <= self._cursor_index < len(self.period_labels):
             label = self.period_labels[self._cursor_index]
             old_text: str = label.text().strip()
-            label.setText(f"  {subject_name}")
+            label.setText(subject_name)
             logger.info(f"标签更新：第 {self._cursor_index + 1} 节 "
                         f"'{old_text}' → '{subject_name}'")
 
