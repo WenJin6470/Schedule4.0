@@ -20,6 +20,7 @@ import json
 import logging
 import os
 from configparser import ConfigParser
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtWidgets import QApplication, QWidget
@@ -531,6 +532,256 @@ class ScheduleDataManager:
                            若无数据则返回空字典
         """
         return self.curriculum_data.get(day_name, {})
+
+
+# ==================== 调试配置管理器 ====================
+
+
+class DebugConfig:
+    """
+    # DebugConfig — 调试配置管理器
+
+    读取 Config/debug_config.ini，提供模拟时间覆盖功能。
+    启用后各参数独立生效：有值则覆盖系统值，留空则回退到系统真实值。
+    ---
+
+    ★ 时间流动机制：
+      加载配置时记录两个锚点：
+        - _anchor_real：当前真实系统时间
+        - _debug_start：由调试参数组合的起始时间
+      之后每次获取当前时间时：
+        当前调试时间 = _debug_start + (真实现在 - _anchor_real)
+      这样调试时间会像真实时间一样自然流逝。
+
+    对外属性：
+      - enabled   — 调试模式是否启用
+      - year      — 模拟年份（None 表示使用真实年份）
+      - month     — 模拟月份（None 表示使用真实月份）
+      - day       — 模拟日期（None 表示使用真实日期）
+      - time_str  — 模拟时间字符串 "HH:MM:SS"（None 表示使用真实时间）
+      - weekday   — 模拟星期（None 表示使用真实星期或由日期推算）
+
+    对外方法：
+      - get_current_datetime() → Optional[datetime]  流动的当前调试时间
+      - get_current_time_str()  → Optional[str]      流动的当前时间 "HH:MM:SS"
+      - get_weekday_name()      → Optional[str]      当前英文星期名
+    """
+
+    # 合法的英文星期名集合
+    _VALID_WEEKDAYS: set = {
+        'Monday', 'Tuesday', 'Wednesday', 'Thursday',
+        'Friday', 'Saturday', 'Sunday',
+    }
+
+    def __init__(self) -> None:
+        """初始化调试配置管理器，从 INI 文件读取参数并建立时间锚点。"""
+        logger.info("DebugConfig 初始化开始")
+
+        # ---- 默认值（调试禁用）----
+        self.enabled: bool = False
+        self.year: Optional[int] = None
+        self.month: Optional[int] = None
+        self.day: Optional[int] = None
+        self.time_str: Optional[str] = None
+        self.weekday: Optional[str] = None
+
+        # ---- 时间流动锚点 ----
+        self._anchor_real: datetime = datetime.now()
+        self._debug_start: Optional[datetime] = None
+
+        # ---- 加载配置 ----
+        self._load()
+
+        # ---- 构建调试起始时间 ----
+        if self.enabled:
+            self._build_debug_start()
+
+        logger.info(f"DebugConfig 初始化完成：enabled={self.enabled}, "
+                    f"year={self.year}, month={self.month}, day={self.day}, "
+                    f"time={self.time_str}, weekday={self.weekday}, "
+                    f"debug_start={self._debug_start}")
+
+    # ================================================================
+    #  读取调试配置文件
+    # ================================================================
+    def _load(self) -> None:
+        """从 Config/debug_config.ini 读取调试参数。"""
+        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        config_path: str = os.path.join(script_dir, 'Config', 'debug_config.ini')
+
+        try:
+            if not os.path.exists(config_path):
+                logger.info(f"调试配置文件不存在：{config_path}，调试模式保持禁用")
+                return
+
+            logger.info(f"找到调试配置文件：{config_path}")
+            parser: ConfigParser = ConfigParser()
+            parser.read(config_path, encoding='utf-8')
+
+            # --- enabled ---
+            enabled_str: str = parser.get('Debug', 'enabled', fallback='false')
+            self.enabled = enabled_str.strip().lower() == 'true'
+
+            if not self.enabled:
+                logger.info("调试模式未启用，使用系统真实时间")
+                return
+
+            logger.info("调试模式已启用，读取时间覆盖参数...")
+
+            # --- year ---
+            year_str: str = parser.get('Debug', 'year', fallback='').strip()
+            if year_str:
+                try:
+                    y = int(year_str)
+                    if 2024 <= y <= 2099:
+                        self.year = y
+                    else:
+                        logger.warning(f"year={y} 超出范围，回退到系统年份")
+                except ValueError:
+                    logger.warning(f"year='{year_str}' 格式无效，回退到系统年份")
+
+            # --- month ---
+            month_str: str = parser.get('Debug', 'month', fallback='').strip()
+            if month_str:
+                try:
+                    m = int(month_str)
+                    if 1 <= m <= 12:
+                        self.month = m
+                    else:
+                        logger.warning(f"month={m} 超出范围，回退到系统月份")
+                except ValueError:
+                    logger.warning(f"month='{month_str}' 格式无效，回退到系统月份")
+
+            # --- day ---
+            day_str: str = parser.get('Debug', 'day', fallback='').strip()
+            if day_str:
+                try:
+                    d = int(day_str)
+                    if 1 <= d <= 31:
+                        self.day = d
+                    else:
+                        logger.warning(f"day={d} 超出范围，回退到系统日期")
+                except ValueError:
+                    logger.warning(f"day='{day_str}' 格式无效，回退到系统日期")
+
+            # --- time ---
+            time_val: str = parser.get('Debug', 'time', fallback='').strip()
+            if time_val:
+                parts = time_val.split(':')
+                if len(parts) == 3 and all(p.isdigit() for p in parts):
+                    h, m, s = int(parts[0]), int(parts[1]), int(parts[2])
+                    if 0 <= h <= 23 and 0 <= m <= 59 and 0 <= s <= 59:
+                        self.time_str = time_val
+                    else:
+                        logger.warning(f"time='{time_val}' 值超出范围，回退到系统时间")
+                else:
+                    logger.warning(f"time='{time_val}' 格式无效（需 HH:MM:SS），回退到系统时间")
+
+            # --- weekday ---
+            weekday_val: str = parser.get('Debug', 'weekday', fallback='').strip()
+            if weekday_val:
+                if weekday_val in self._VALID_WEEKDAYS:
+                    self.weekday = weekday_val
+                else:
+                    logger.warning(
+                        f"weekday='{weekday_val}' 无效"
+                        f"（需为 Monday~Sunday），回退到系统星期"
+                    )
+
+        except Exception as e:
+            logger.error(f"读取调试配置文件失败：{e}，调试模式保持禁用")
+            self.enabled = False
+
+    # ================================================================
+    #  构建调试起始时间
+    # ================================================================
+    def _build_debug_start(self) -> None:
+        """
+        根据调试参数构建起始 datetime，并重新记录锚点。
+        ---------------------------------------------
+        各参数独立回退：有调试值用调试值，无则用真实系统值。
+        构建后立即更新锚点，确保流逝计算从此刻开始。
+        """
+        now: datetime = datetime.now()
+        self._anchor_real = now
+
+        y: int = self.year if self.year is not None else now.year
+        m: int = self.month if self.month is not None else now.month
+        d: int = self.day if self.day is not None else now.day
+
+        if self.time_str:
+            h, mi, s = map(int, self.time_str.split(':'))
+        else:
+            h, mi, s = now.hour, now.minute, now.second
+
+        try:
+            self._debug_start = datetime(y, m, d, h, mi, s)
+        except ValueError:
+            logger.warning(f"调试日期无效：{y}-{m:02d}-{d:02d}，回退到系统日期")
+            self._debug_start = datetime(now.year, now.month, now.day, h, mi, s)
+
+        logger.info(f"调试时间锚点已建立：start={self._debug_start}, "
+                    f"anchor_real={self._anchor_real}")
+
+    # ================================================================
+    #  公开方法：获取流动的当前调试时间
+    # ================================================================
+    def get_current_datetime(self) -> Optional[datetime]:
+        """
+        返回流动的当前调试 datetime。
+        ----------------------------
+        计算公式：_debug_start + (datetime.now() - _anchor_real)
+
+        若调试禁用返回 None，调用方应使用系统真实时间。
+
+        返回值：
+            Optional[datetime]：流动的当前调试时间；None 表示不使用
+        """
+        if not self.enabled or self._debug_start is None:
+            return None
+        elapsed = datetime.now() - self._anchor_real
+        return self._debug_start + elapsed
+
+    # ================================================================
+    #  公开方法：获取流动的当前时间字符串
+    # ================================================================
+    def get_current_time_str(self) -> Optional[str]:
+        """
+        返回流动的当前调试时间字符串 "HH:MM:SS"。
+        -----------------------------------------
+        若调试禁用返回 None，调用方应使用系统真实时间。
+
+        返回值：
+            Optional[str]：当前时间字符串；None 表示不使用
+        """
+        dt: Optional[datetime] = self.get_current_datetime()
+        return dt.strftime('%H:%M:%S') if dt else None
+
+    # ================================================================
+    #  公开方法：获取当前英文星期名
+    # ================================================================
+    def get_weekday_name(self) -> Optional[str]:
+        """
+        返回当前英文星期名（如 'Monday'）。
+        -----------------------------------
+        优先级：
+          1. weekday 参数显式设置 → 直接返回（静态，不随流动时间变化）
+          2. 由流动的当前时间推算 → 可跨越午夜自动切换
+          3. 调试禁用 → 返回 None（调用方使用系统真实星期）
+
+        返回值：
+            Optional[str]：英文星期名；None 表示不使用调试时间
+        """
+        if not self.enabled:
+            return None
+
+        # weekday 显式设置时优先使用
+        if self.weekday is not None:
+            return self.weekday
+
+        # 否则由流动的当前时间推算
+        dt: Optional[datetime] = self.get_current_datetime()
+        return dt.strftime('%A') if dt else None
 
 
 # ==================== 带主题的基础窗口控件 ====================

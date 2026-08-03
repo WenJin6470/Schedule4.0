@@ -29,7 +29,7 @@ from PySide6.QtWidgets import QLabel, QPushButton
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QIcon
 
-from schedule_config import ThemeManager, ThemedWidget, ScheduleDataManager, is_color_dark
+from schedule_config import ThemeManager, ThemedWidget, ScheduleDataManager, DebugConfig, is_color_dark
 from schedule_actions import ActionMessage, ActionType
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -79,13 +79,15 @@ class ScheduleMainWindow(ThemedWidget):
     #  构造函数
     # ================================================================
     def __init__(self, theme_manager: ThemeManager,
-                 schedule_data: ScheduleDataManager) -> None:
+                 schedule_data: ScheduleDataManager,
+                 debug_config: DebugConfig) -> None:
         """
         初始化课表主窗口。
         -----------------
         参数：
             theme_manager（ThemeManager）：        全局主题管理器（含配置和颜色）
             schedule_data（ScheduleDataManager）： 课表数据管理器（含时间表和课程表数据）
+            debug_config（DebugConfig）：          调试配置管理器（含时间覆盖参数）
         """
         super().__init__(theme_manager, bg_color_attr='root_back_color')
 
@@ -94,6 +96,7 @@ class ScheduleMainWindow(ThemedWidget):
 
         # ---- 数据引用 ----
         self._schedule_data: ScheduleDataManager = schedule_data
+        self._debug_config: DebugConfig = debug_config
 
         # ---- 控件引用 ----
         self._subject_window: Optional[SubjectSelectWindow] = None # type: ignore
@@ -159,8 +162,12 @@ class ScheduleMainWindow(ThemedWidget):
             if lesson_count > 0 else available_height
         )
 
-        # 获取今天对应星期的课程表
-        today_name: str = datetime.now().strftime('%A')
+        # 获取今天对应星期的课程表（调试模式下使用模拟日期）
+        debug_weekday: Optional[str] = self._debug_config.get_weekday_name()
+        today_name: str = (
+            debug_weekday if debug_weekday is not None
+            else datetime.now().strftime('%A')
+        )
         today_curriculum: Dict[str, str] = (
             self._schedule_data.get_curriculum_for_day(today_name)
         )

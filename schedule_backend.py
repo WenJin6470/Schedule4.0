@@ -20,12 +20,15 @@
 """
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 
 from PySide6.QtCore import QTimer, QTime, Signal, QObject
 from PySide6.QtWidgets import QApplication, QWidget
 
 from schedule_actions import ActionMessage, ActionType
+
+if TYPE_CHECKING:
+    from schedule_config import DebugConfig
 
 # 获取本模块的 logger，日志将传播到 main.py 配置的根 logger
 logger: logging.Logger = logging.getLogger(__name__)
@@ -61,15 +64,20 @@ class TimeManager(QObject):
     # ================================================================
     time_tick = Signal(str)
 
-    def __init__(self) -> None:
+    def __init__(self, debug_config: "Optional[DebugConfig]" = None) -> None:
         """
         初始化时间管理器。
         -----------------
         创建 QTimer 实例并设置间隔为 1000ms（1 秒）。
         定时器在调用 start() 之前不会启动。
+
+        参数：
+            debug_config（Optional[DebugConfig]）：调试配置管理器，
+              传入后时间将使用调试模拟时间（流动计时）
         """
         super().__init__()
         logger.info("TimeManager 初始化：创建 QTimer（间隔 1000ms）+ time_tick Signal")
+        self._debug_config: "Optional[DebugConfig]" = debug_config
         self._timer: QTimer = QTimer()
         self._timer.setInterval(1000)
         self._timer.timeout.connect(self._on_timeout)
@@ -115,14 +123,17 @@ class TimeManager(QObject):
         """
         手动获取当前时间字符串（不依赖定时器）。
         -------------------------------------
+        若调试模式启用，返回流动的调试模拟时间；
+        否则返回系统真实时间。
+
         返回值：
             str：当前时间，格式为 HH:MM:SS（24 小时制）
                  示例："14:30:05"
-
-        使用场景：
-          - 需要在定时器未启动时获取一次当前时间
-          - 其他模块直接调用获取时间，不需要走回调
         """
+        if self._debug_config is not None:
+            debug_time = self._debug_config.get_current_time_str()
+            if debug_time is not None:
+                return debug_time
         return QTime.currentTime().toString("hh:mm:ss")
 
     # ================================================================

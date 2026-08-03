@@ -33,7 +33,7 @@ from PySide6.QtWidgets import QApplication
 # ================================================================
 # ★ 导入主题、前端口、后端逻辑 ★
 # ================================================================
-from schedule_config import ThemeManager, ScheduleDataManager
+from schedule_config import ThemeManager, ScheduleDataManager, DebugConfig
 from schedule_time import TimeWindow, FullscreenTimeWindow
 from schedule_frontend import ScheduleMainWindow
 from schedule_backend import TimeManager, ScheduleBackend, WindowHelper
@@ -134,6 +134,11 @@ def main() -> None:
     )
     logger.info("ScheduleDataManager 创建完成")
 
+    #  3c. 创建 DebugConfig（读取调试配置）
+    logger.info("正在创建 DebugConfig...")
+    debug_config: DebugConfig = DebugConfig()
+    logger.info(f"DebugConfig 创建完成：enabled={debug_config.enabled}")
+
     # ================================================================
     #  第4步：创建前端窗口
     #  ★ 启动优化：先创建轻量级的 TimeWindow 并立即显示，
@@ -153,7 +158,7 @@ def main() -> None:
 
     # 4b. 课表主窗口（课时标签 + 四按钮栏）— 重量级，延后构造
     logger.info("正在创建 ScheduleMainWindow...")
-    main_window: ScheduleMainWindow = ScheduleMainWindow(theme_manager, schedule_data)
+    main_window: ScheduleMainWindow = ScheduleMainWindow(theme_manager, schedule_data, debug_config)
     logger.info("ScheduleMainWindow 创建完成")
 
     # 4c. 全屏时间窗口（默认隐藏，待后续实现）
@@ -165,7 +170,7 @@ def main() -> None:
     #  第5步：创建后端实例
     # ================================================================
     logger.info("正在创建后端实例...")
-    time_manager: TimeManager = TimeManager()
+    time_manager: TimeManager = TimeManager(debug_config=debug_config)
     backend_handler: ScheduleBackend = ScheduleBackend()
     logger.info("后端实例创建完成")
 
