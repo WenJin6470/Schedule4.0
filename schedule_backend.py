@@ -325,9 +325,31 @@ class QuickEditHandler:
     #  确认操作
     # ================================================================
     def _on_confirm(self, main_window, subject_window=None) -> None:
-        """确认编辑 → 停止光标闪烁并退出快捷编辑界面。"""
-        self._logger.info("[QuickEdit] 确认编辑，停止光标闪烁并关闭快捷编辑窗口")
+        """
+        确认编辑 → 保存课表数据到文件，停止光标闪烁并退出快捷编辑界面。
+        ---------------------------------------------------------
+        流程：
+          1. 将当前显示星期的标签修改同步回 curriculum_data
+          2. 将完整的七日课表数据写入 JSON 文件
+          3. 停止光标闪烁
+          4. 隐藏快捷编辑窗口
+        """
+        self._logger.info("[QuickEdit] 确认编辑，正在保存课表数据...")
+
+        # 第1步：同步当前星期的标签修改到内存数据
+        main_window._sync_current_day_labels()
+
+        # 第2步：将完整的七日课表写入 JSON 文件
+        success: bool = main_window._schedule_data.save_curriculum()
+        if success:
+            self._logger.info("[QuickEdit] 课表数据已成功保存到文件")
+        else:
+            self._logger.error("[QuickEdit] 课表数据保存失败！")
+
+        # 第3步：停止光标闪烁
         main_window.stop_cursor_blink()
+
+        # 第4步：隐藏快捷编辑窗口
         if subject_window is not None:
             subject_window.hide()
 

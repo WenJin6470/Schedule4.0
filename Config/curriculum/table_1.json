@@ -1,5 +1,5 @@
 {
-    "Monday":{
+    "Monday": {
         "lesson_1": "体育",
         "lesson_2": "体育",
         "lesson_3": "数学",
@@ -14,8 +14,8 @@
         "lesson_12": "语文",
         "lesson_13": "公共自习"
     },
-    "Tuesday":{
-        "lesson_1": "语文",
+    "Tuesday": {
+        "lesson_1": "信息",
         "lesson_2": "语文",
         "lesson_3": "数学",
         "lesson_4": "英语",
@@ -29,7 +29,7 @@
         "lesson_12": "语文",
         "lesson_13": "公共自习"
     },
-    "Wednesday":{
+    "Wednesday": {
         "lesson_1": "语文",
         "lesson_2": "语文",
         "lesson_3": "数学",
@@ -43,7 +43,7 @@
         "lesson_11": "自习",
         "lesson_12": "语文"
     },
-    "Thursday":{
+    "Thursday": {
         "lesson_1": "语文",
         "lesson_2": "语文",
         "lesson_3": "数学",
@@ -57,7 +57,7 @@
         "lesson_11": "自习",
         "lesson_12": "语文"
     },
-    "Friday":{
+    "Friday": {
         "lesson_1": "语文",
         "lesson_2": "语文",
         "lesson_3": "数学",
@@ -71,7 +71,7 @@
         "lesson_11": "自习",
         "lesson_12": "语文"
     },
-    "Saturday":{
+    "Saturday": {
         "lesson_1": "语文",
         "lesson_2": "语文",
         "lesson_3": "数学",
@@ -85,7 +85,7 @@
         "lesson_11": "自习",
         "lesson_12": "语文"
     },
-    "Sunday":{
+    "Sunday": {
         "lesson_1": "语文",
         "lesson_2": "语文",
         "lesson_3": "数学",
@@ -99,5 +99,4 @@
         "lesson_11": "自习",
         "lesson_12": "语文"
     }
-
 }

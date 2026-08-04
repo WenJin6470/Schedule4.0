@@ -533,6 +533,42 @@ class ScheduleDataManager:
         """
         return self.curriculum_data.get(day_name, {})
 
+    # ================================================================
+    #  公开方法：保存课程表到文件
+    # ================================================================
+    def save_curriculum(self) -> bool:
+        """
+        将当前内存中的 curriculum_data 写回到 JSON 文件。
+        ------------------------------------------------
+        保持 JSON 键的顺序（Monday → Sunday），使用 UTF-8 编码，
+        缩进 4 空格，ensure_ascii=False 保证中文正常显示。
+
+        返回值：
+            bool：True 表示保存成功，False 表示保存失败
+        """
+        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        config_path: str = os.path.join(script_dir, self.curriculum_path)
+
+        # 确保目标目录存在
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+
+        # 按星期顺序排列的键
+        day_order: List[str] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday',
+                                'Friday', 'Saturday', 'Sunday']
+        ordered_data: Dict[str, Any] = {}
+        for day in day_order:
+            if day in self.curriculum_data:
+                ordered_data[day] = self.curriculum_data[day]
+
+        try:
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(ordered_data, f, ensure_ascii=False, indent=4)
+            logger.info(f"课程表已保存至：{config_path}（共 {len(ordered_data)} 天）")
+            return True
+        except Exception as e:
+            logger.error(f"保存课程表失败：{e}")
+            return False
+
 
 # ==================== 调试配置管理器 ====================
 

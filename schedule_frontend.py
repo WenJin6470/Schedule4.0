@@ -511,6 +511,7 @@ class ScheduleMainWindow(ThemedWidget):
         说明：
           遍历所有 period_labels，根据其 objectName（如 lesson_1）从
           课程表数据中查找对应课时的科目名称并更新显示文字。
+          切换前会自动保存当前星期的标签修改到 curriculum_data 中。
           无效的星期名会被静默忽略。
         """
         valid_weeks = {'Monday', 'Tuesday', 'Wednesday', 'Thursday',
@@ -518,6 +519,9 @@ class ScheduleMainWindow(ThemedWidget):
         if week_name not in valid_weeks:
             logger.warning(f"set_display_week: 无效的星期名 '{week_name}'")
             return
+
+        # 切换前：将当前显示的标签内容同步回 curriculum_data
+        self._sync_current_day_labels()
 
         self._current_display_day = week_name
         curriculum: Dict[str, str] = self._schedule_data.get_curriculum_for_day(week_name)
@@ -528,6 +532,22 @@ class ScheduleMainWindow(ThemedWidget):
                 label.setText(curriculum.get(key, ''))
 
         logger.info(f"主窗口课表已切换至：{week_name}")
+
+    def _sync_current_day_labels(self) -> None:
+        """
+        将当前显示星期的所有课时标签文字同步回 curriculum_data。
+        ----------------------------------------------------
+        这样用户在快捷编辑中对标签的修改不会因为切换星期而丢失。
+        """
+        day: str = self._current_display_day
+        day_data: Dict[str, str] = {}
+        for label in self.period_labels:
+            key: str = label.objectName()  # type: ignore
+            if key.startswith('lesson_'):
+                day_data[key] = label.text().strip()
+        # 更新内存中的课程表数据
+        self._schedule_data.curriculum_data[day] = day_data
+        logger.debug(f"已同步 {day} 的 {len(day_data)} 个课时标签到 curriculum_data")
 
     def get_display_week(self) -> str:
         """获取主窗口当前显示的星期名称。"""
