@@ -489,3 +489,79 @@ class ScheduleMainWindow(ThemedWidget):
         if 0 <= self._cursor_index < len(self.period_labels):
             return self.period_labels[self._cursor_index].text().strip()
         return ""
+
+    # ================================================================
+    #  公开 API：课时标签高亮（根据当前时间动态变色）
+    # ================================================================
+
+    def update_period_highlight(self, time_str: str) -> None:
+        """
+        根据当前时间高亮对应的科目标签。
+        -----------------------------
+        规则：
+          - 当前时间在某节课的 [开始, 结束) 区间内 → 该课标签字体红色
+          - 当前时间不在任何课内，但下一节课即将到来 → 下一节课标签橙色
+          - 其他情况（如放学后）→ 所有标签保持默认颜色
+
+        参数：
+            time_str（str）：当前时间字符串，格式 HH:MM:SS
+        """
+        # 解析当前时间
+        try:
+            current_time = datetime.strptime(time_str, "%H:%M:%S").time()
+        except (ValueError, TypeError):
+            return
+
+        timetable = self._schedule_data.timetable_data
+        if not timetable:
+            return
+
+        # 第一步：将所有标签重置为默认字体颜色
+        default_color = self._theme.font_color
+        for label in self.period_labels:
+            label.setStyleSheet(f"color: {default_color}; background: transparent;")
+
+        # 第二步：提取所有课时的时间范围（保持 JSON 原始顺序）
+        lessons: list = []  # [(lesson_key, start_time, end_time), ...]
+        for key in timetable:
+            if not key.startswith('lesson_'):
+                continue
+            times = timetable[key]
+            if not (isinstance(times, list) and len(times) == 2):
+                continue
+            try:
+                start = datetime.strptime(times[0], "%H:%M:%S").time()
+                end = datetime.strptime(times[1], "%H:%M:%S").time()
+                lessons.append((key, start, end))
+            except (ValueError, TypeError):
+                continue
+
+        if not lessons:
+            return
+
+        # 第三步：判断当前时间是否在某节课期间 → 红色
+        for key, start, end in lessons:
+            if start <= current_time < end:
+                self._set_label_color_by_lesson_key(key, 'red')
+                return
+
+        # 第四步：不在任何课内 → 查找下一节课 → 橙色
+        for key, start, end in lessons:
+            if current_time < start:
+                self._set_label_color_by_lesson_key(key, 'orange')
+                return
+
+        # 第五步：在所有课之后 → 保持默认颜色（已在第一步重置）
+
+    def _set_label_color_by_lesson_key(self, lesson_key: str, color: str) -> None:
+        """
+        根据课时键名（如 lesson_3）找到对应的 QLabel 并设置字体颜色。
+        ------------------------------------------------------------
+        参数：
+            lesson_key（str）：课时键名，如 'lesson_1'
+            color     （str）：目标颜色，如 'red' / 'orange' / '#FF0000'
+        """
+        for label in self.period_labels:
+            if label.objectName() == lesson_key:
+                label.setStyleSheet(f"color: {color}; background: transparent;")
+                return

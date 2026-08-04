@@ -191,6 +191,10 @@ def main() -> None:
     logger.info("连接信号：TimeManager.time_tick → FullscreenTimeWindow.update_time_display()")
     time_manager.time_tick.connect(fullscreen_window.update_time_display)
 
+    # ----- 连接2b：TimeManager.time_tick → 主窗口科目标签高亮 -----
+    logger.info("连接信号：TimeManager.time_tick → ScheduleMainWindow.update_period_highlight()")
+    time_manager.time_tick.connect(main_window.update_period_highlight)
+
     # ----- TimeManager 启动（不再需要传入 callback）-----
     time_manager.start()
     logger.info("TimeManager 定时器已启动，时间信号广播中")
