@@ -162,6 +162,9 @@ class ThemeManager:
         self.curriculum_path: str = ''
         self.timetable_path: str = ''
 
+        # ---- 日志保留天数 ----
+        self.log_retention_days: int = 7
+
         # ---- 加载配置 ----
         self._load_config()
         self._load_subject_config()
@@ -169,7 +172,8 @@ class ThemeManager:
         logger.info(f"ThemeManager 初始化完成：theme={self.theme}, "
                     f"period_count={self.period_count}, "
                     f"curriculum={self.curriculum_path}, "
-                    f"timetable={self.timetable_path}")
+                    f"timetable={self.timetable_path}, "
+                    f"log_retention_days={self.log_retention_days}")
 
     # ================================================================
     #  读取主配置文件
@@ -193,6 +197,7 @@ class ThemeManager:
                 self.language = default_language
                 self.curriculum_path = default_curriculum
                 self.timetable_path = default_timetable
+                self.log_retention_days = 7
                 self._apply_theme()
                 return
 
@@ -237,12 +242,28 @@ class ThemeManager:
             timetable_str: str = parser.get('Schedule', 'timetable', fallback=default_timetable)
             self.timetable_path = timetable_str.strip()
 
+            # --- log_retention_days（日志保留天数）---
+            default_log_retention: int = 7
+            log_retention_str: str = parser.get('Schedule', 'log_retention_days',
+                                                 fallback=str(default_log_retention))
+            try:
+                log_retention: int = int(log_retention_str)
+                if 0 <= log_retention <= 365:
+                    self.log_retention_days = log_retention
+                else:
+                    logger.warning(f"log_retention_days={log_retention} 超出范围，使用默认值 {default_log_retention}")
+                    self.log_retention_days = default_log_retention
+            except ValueError:
+                logger.warning(f"log_retention_days='{log_retention_str}' 格式无效，使用默认值 {default_log_retention}")
+                self.log_retention_days = default_log_retention
+
             self._apply_theme()
 
             logger.info(f"配置加载完成：period_count={self.period_count}, "
                         f"theme={self.theme}, language={self.language}, "
                         f"curriculum={self.curriculum_path}, "
-                        f"timetable={self.timetable_path}")
+                        f"timetable={self.timetable_path}, "
+                        f"log_retention_days={self.log_retention_days}")
 
         except (ValueError, TypeError) as e:
             logger.warning(f"配置文件参数格式错误：{e}，使用默认值")
@@ -251,6 +272,7 @@ class ThemeManager:
             self.language = default_language
             self.curriculum_path = default_curriculum
             self.timetable_path = default_timetable
+            self.log_retention_days = 7
             self._apply_theme()
         except Exception as e:
             logger.error(f"读取配置文件失败：{e}，使用默认值")
@@ -259,6 +281,7 @@ class ThemeManager:
             self.language = default_language
             self.curriculum_path = default_curriculum
             self.timetable_path = default_timetable
+            self.log_retention_days = 7
             self._apply_theme()
 
     # ================================================================

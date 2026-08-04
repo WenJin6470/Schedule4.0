@@ -36,7 +36,7 @@ from PySide6.QtWidgets import QApplication
 from schedule_config import ThemeManager, ScheduleDataManager, DebugConfig
 from schedule_time import TimeWindow, FullscreenTimeWindow
 from schedule_frontend import ScheduleMainWindow
-from schedule_backend import TimeManager, ScheduleBackend, WindowHelper
+from schedule_backend import TimeManager, ScheduleBackend, WindowHelper, LogManager
 
 
 # ================================================================
@@ -125,6 +125,11 @@ def main() -> None:
     theme_manager: ThemeManager = ThemeManager()
     logger.info(f"ThemeManager 创建完成：theme={theme_manager.theme}, "
                 f"period_count={theme_manager.period_count}")
+
+    # ================================================================
+    #  第3.5步：清理过期日志（在 ThemeManager 读取 log_retention_days 之后）
+    # ================================================================
+    LogManager.cleanup_old_logs(log_dir, theme_manager.log_retention_days, logger)
 
     #  3b. 创建 ScheduleDataManager（读取课程表和时间表 JSON）
     logger.info("正在创建 ScheduleDataManager...")

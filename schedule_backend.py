@@ -8,6 +8,7 @@
 ═══════════════════════════════════════════════════════════════════════════
   TimeManager  — 时间管理类：负责实时时间的获取，通过 QTimer 定时触发
   WindowHelper — 辅助功能类：负责关闭所有窗口并退出程序
+  LogManager   — 日志管理类：负责清理过期日志文件
 
 📌 设计理念
 ═══════════════════════════════════════════════════════════════════════════
@@ -20,6 +21,9 @@
 """
 
 import logging
+import os
+import re
+from datetime import datetime, timedelta
 from typing import List, Optional, TYPE_CHECKING
 
 from PySide6.QtCore import QTimer, QTime, Signal, QObject
@@ -464,3 +468,95 @@ class ScheduleBackend:
             self._logger.info("[后端] 设置")
         else:
             self._logger.warning(f"[后端] 未知动作: {msg.type.value}")
+
+
+# ==================== 日志管理类 ====================
+
+class LogManager:
+    """
+    # LogManager — 日志管理类
+
+    负责清理超过保留期限的旧日志文件。
+    ---
+
+    所有方法均为静态方法，无需实例化即可使用。
+
+    对外接口：
+      - cleanup_old_logs(log_dir, retention_days) — 清理过期日志文件
+    """
+
+    # 日志文件名正则：schedule_YYYY-MM-DD.log
+    _LOG_FILE_PATTERN: str = r'^schedule_(\d{4}-\d{2}-\d{2})\.log$'
+
+    @staticmethod
+    def cleanup_old_logs(log_dir: str, retention_days: int,
+                         logger: Optional[logging.Logger] = None) -> int:
+        """
+        清理超过保留期限的旧日志文件。
+        ---------------------------
+        参数：
+            log_dir        （str）：          日志文件所在目录
+            retention_days （int）：          日志保留天数，≤0 表示跳过清理
+            logger         （Optional[Logger]）：用于记录清理结果的 logger
+
+        返回值：
+            int：删除的日志文件数量
+
+        说明：
+          日志文件名格式为 schedule_YYYY-MM-DD.log，
+          文件名中的日期早于 (今天 - retention_days) 的文件将被删除。
+        """
+        if logger is None:
+            logger = logging.getLogger(__name__)
+
+        if retention_days <= 0:
+            logger.info("log_retention_days ≤ 0，跳过日志清理")
+            return 0
+
+        if not os.path.isdir(log_dir):
+            logger.warning(f"日志目录不存在：{log_dir}，跳过日志清理")
+            return 0
+
+        # 计算保留截止日期（在此日期之前的日志将被删除）
+        cutoff_date: datetime = datetime.now() - timedelta(days=retention_days)
+        logger.info(
+            f"开始日志清理：保留最近 {retention_days} 天，"
+            f"截止日期 {cutoff_date.strftime('%Y-%m-%d')} 之前的日志将被删除"
+        )
+
+        pattern = re.compile(LogManager._LOG_FILE_PATTERN)
+        deleted_count: int = 0
+
+        try:
+            for filename in os.listdir(log_dir):
+                match = pattern.match(filename)
+                if not match:
+                    continue
+
+                try:
+                    file_date: datetime = datetime.strptime(
+                        match.group(1), '%Y-%m-%d'
+                    )
+                except ValueError:
+                    logger.debug(f"无法解析日志文件日期：{filename}，跳过")
+                    continue
+
+                if file_date < cutoff_date:
+                    filepath: str = os.path.join(log_dir, filename)
+                    try:
+                        os.remove(filepath)
+                        deleted_count += 1
+                        logger.info(f"已删除过期日志：{filename}")
+                    except OSError as e:
+                        logger.warning(f"无法删除日志文件 {filename}：{e}")
+
+        except OSError as e:
+            logger.error(f"遍历日志目录失败：{e}")
+            return deleted_count
+
+        if deleted_count == 0:
+            logger.info("日志清理完成，无需删除的文件")
+        else:
+            logger.info(f"日志清理完成，共删除 {deleted_count} 个过期日志文件")
+
+        return deleted_count
