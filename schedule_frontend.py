@@ -214,7 +214,7 @@ class ScheduleMainWindow(ThemedWidget):
                 y_offset += divider_height
 
         # ===== 底部按钮栏（4 个图标按钮）=====
-        images_dir: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'images')
+        images_dir: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'images', 'Icons')
         icon_suffix: str = self._theme.get_icon_suffix()
 
         logger.info(f"图标后缀：'{icon_suffix}'（主题={self._theme.theme}）")
