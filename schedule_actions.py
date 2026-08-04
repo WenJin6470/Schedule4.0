@@ -43,6 +43,7 @@ class ActionType(StrEnum):
     # ---- 数据操作 ----
     SUBJECT_SELECTED  = "subject_selected"
     CURSOR_INFO       = "cursor_info"
+    WEEK_CHANGED      = "week_changed"
 
 
 # ==================== 结构化动作消息 ====================
@@ -137,3 +138,14 @@ class ActionMessage:
             text （str）：课时当前显示的科目文字
         """
         return cls(ActionType.CURSOR_INFO, {"index": index, "text": text})
+
+    @classmethod
+    def week_changed(cls, index: int, week_name: str) -> "ActionMessage":
+        """
+        星期滚轮切换到了新的星期。
+        ------------------------
+        参数：
+            index     （int）：星期索引（0=Monday, ..., 6=Sunday）
+            week_name （str）：星期名称，如 'Monday'
+        """
+        return cls(ActionType.WEEK_CHANGED, {"index": index, "week_name": week_name})

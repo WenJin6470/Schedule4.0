@@ -112,6 +112,9 @@ class ScheduleMainWindow(ThemedWidget):
         # ---- 课时标签列表 ----
         self.period_labels: List[QLabel] = []
 
+        # ---- 当前显示的星期 ----
+        self._current_display_day: str = 'Monday'
+
         # ---- 计算窗口尺寸和位置 ----
         self._win_width: int = int(self._theme.screen_width * (150 / 1920))
         self._win_height: int = int(self._theme.screen_height / 13 * 11)
@@ -171,6 +174,9 @@ class ScheduleMainWindow(ThemedWidget):
         today_curriculum: Dict[str, str] = (
             self._schedule_data.get_curriculum_for_day(today_name)
         )
+
+        # 记住当前显示的星期（供后续星期滚轮切换使用）
+        self._current_display_day = today_name
 
         logger.info(
             f"创建课时标签：共 {lesson_count} 节课（含 {divider_count} 条分隔线），"
@@ -296,8 +302,9 @@ class ScheduleMainWindow(ThemedWidget):
     def _show_subject_window(self) -> None:
         """显示科目选择子窗口（复用已有实例或新建）。"""
         if self._subject_window is not None:
-            # 窗口已存在（可能被隐藏），直接显示
+            # 窗口已存在（可能被隐藏），同步滚轮到当前显示星期后显示
             logger.info("复用已有的科目选择子窗口")
+            self._subject_window.sync_week(self._current_display_day)
             self._subject_window.show()
             return
 
@@ -308,6 +315,7 @@ class ScheduleMainWindow(ThemedWidget):
         self._subject_window = SubjectSelectWindow(
             parent_signal=self.backend_signal,
             theme_manager=self._theme,
+            initial_week=self._current_display_day,
         )
         self._subject_window.show() # type: ignore
         logger.info("科目选择子窗口已显示")
@@ -489,6 +497,41 @@ class ScheduleMainWindow(ThemedWidget):
         if 0 <= self._cursor_index < len(self.period_labels):
             return self.period_labels[self._cursor_index].text().strip()
         return ""
+
+    # ================================================================
+    #  公开 API：切换显示星期
+    # ================================================================
+    def set_display_week(self, week_name: str) -> None:
+        """
+        将主窗口的课时标签切换为指定星期的课程表。
+        -----------------------------------------
+        参数：
+            week_name（str）：英文星期名，如 'Monday'、'Tuesday' 等
+
+        说明：
+          遍历所有 period_labels，根据其 objectName（如 lesson_1）从
+          课程表数据中查找对应课时的科目名称并更新显示文字。
+          无效的星期名会被静默忽略。
+        """
+        valid_weeks = {'Monday', 'Tuesday', 'Wednesday', 'Thursday',
+                       'Friday', 'Saturday', 'Sunday'}
+        if week_name not in valid_weeks:
+            logger.warning(f"set_display_week: 无效的星期名 '{week_name}'")
+            return
+
+        self._current_display_day = week_name
+        curriculum: Dict[str, str] = self._schedule_data.get_curriculum_for_day(week_name)
+
+        for label in self.period_labels:
+            key: str = label.objectName()  # type: ignore
+            if key.startswith('lesson_'):
+                label.setText(curriculum.get(key, ''))
+
+        logger.info(f"主窗口课表已切换至：{week_name}")
+
+    def get_display_week(self) -> str:
+        """获取主窗口当前显示的星期名称。"""
+        return self._current_display_day
 
     # ================================================================
     #  公开 API：课时标签高亮（根据当前时间动态变色）

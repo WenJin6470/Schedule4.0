@@ -272,6 +272,10 @@ class QuickEditHandler:
             # 主窗口发来的光标信息 → 转发给快捷编辑窗口显示
             self._on_cursor_info(msg, subject_window)
 
+        elif msg.type == ActionType.WEEK_CHANGED:
+            # 星期滚轮切换 → 更新主窗口课表显示
+            self._on_week_changed(msg, main_window)
+
         else:
             self._logger.debug(f"[QuickEdit] 不处理的动作: {msg.type.value}")
 
@@ -334,6 +338,17 @@ class QuickEditHandler:
         """快捷编辑窗口关闭 → 停止光标闪烁，退出快捷编辑界面。"""
         self._logger.info("[QuickEdit] 快捷编辑窗口关闭，停止光标闪烁")
         main_window.stop_cursor_blink()
+
+    # ================================================================
+    #  星期滚轮切换
+    # ================================================================
+    def _on_week_changed(self, msg: ActionMessage, main_window) -> None:
+        """
+        用户通过星期滚轮切换了显示星期 → 更新主窗口课表标签。
+        """
+        week_name: str = msg.payload.get("week_name", "Monday")
+        self._logger.info(f"[QuickEdit] 星期切换：{week_name}")
+        main_window.set_display_week(week_name)
 
     # ================================================================
     #  光标信息回传
@@ -408,7 +423,8 @@ class ScheduleBackend:
         if msg.type in (ActionType.QUICK_EDIT_OPENED, ActionType.CONFIRM,
                         ActionType.QUICK_EDIT_CLOSED, ActionType.SUBJECT_SELECTED,
                         ActionType.CURSOR_INFO, ActionType.MOVE_UP, ActionType.MOVE_DOWN,
-                        ActionType.MOVE_DOUBLE_UP, ActionType.MOVE_DOUBLE_DOWN):
+                        ActionType.MOVE_DOUBLE_UP, ActionType.MOVE_DOUBLE_DOWN,
+                        ActionType.WEEK_CHANGED):
             self.quick_edit.handle(msg, main_window, subject_window)
             return
 
