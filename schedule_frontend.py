@@ -153,7 +153,7 @@ class ScheduleMainWindow(ThemedWidget):
 
         # ===== 课时标签区域 =====
         close_btn_height: int = 36
-        divider_height: int = 4
+        divider_height: int = 6
         # 从时间表数据中获取实际课时数和分隔线位置
         lesson_count: int = self._schedule_data.get_lesson_count()
         divider_indices: List[int] = self._schedule_data.get_divider_indices()
@@ -214,7 +214,7 @@ class ScheduleMainWindow(ThemedWidget):
                 # 水平分割线：透明背景 + 顶部细边框，颜色随主题自适应
                 divider.setStyleSheet(
                     f"background: transparent;"
-                    f"border-top: 1px solid {divider_color};"
+                    f"border-top: 2px solid {divider_color};"
                 )
                 divider.setGeometry(0, y_offset, self._win_width, divider_height)
                 y_offset += divider_height
@@ -418,7 +418,6 @@ class ScheduleMainWindow(ThemedWidget):
 
         label = self.period_labels[self._cursor_index]
         font_color = self._theme.font_color
-        border = self._theme.border_color
 
         if self._blink_on:
             # 恢复常态
@@ -428,10 +427,19 @@ class ScheduleMainWindow(ThemedWidget):
             """)
         else:
             # 高亮闪烁（淡蓝色光标杆）
+            # 深色模式：提高蓝色亮度，使光标在暗背景上更醒目
+            # 浅色模式：降低蓝色亮度，使光标在白背景上更柔和
+            if self._theme.theme == 'darkcolor':
+                bg_alpha: str = "0.30"
+                border_alpha: str = "0.80"
+            else:
+                bg_alpha = "0.30"
+                border_alpha = "0.65"
+
             label.setStyleSheet(f"""
                 color: {font_color};
-                background: rgba(33, 150, 243, 0.18);
-                border-left: 3px solid rgba(33, 150, 243, 0.6);
+                background: rgba(33, 150, 243, {bg_alpha});
+                border-left: 3px solid rgba(33, 150, 243, {border_alpha});
             """)
 
         self._blink_on = not self._blink_on

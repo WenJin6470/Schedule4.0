@@ -412,7 +412,7 @@ class SubjectSelectWindow(ThemedWidget):
 
         # 状态栏：使用提示
         self._status_label: QLabel = QLabel(
-            "上下移动光标，点击左侧科目即可完成修改，最后点击 确认 保存修改"
+            "上下移动光标，点击左侧科目即可完成修改，点击 确定 保存一周七天完整课表"
         )
         hint_font = QFont("Microsoft YaHei", 8)
         hint_font.setItalic(True)
