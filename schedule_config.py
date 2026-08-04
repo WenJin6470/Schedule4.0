@@ -593,6 +593,258 @@ class ScheduleDataManager:
             return False
 
 
+# ==================== 换课记录管理器 ====================
+
+
+class SwapManager:
+    """
+    # SwapManager — 换课记录管理器
+
+    负责管理临时换课记录的持久化、应用和清理。
+    ---
+
+    换课记录文件路径：
+      Config/swap_schedule.json
+
+    记录格式：
+      [
+        {
+          "day_name": "Tuesday",
+          "lesson_key": "lesson_2",
+          "old_subject": "数学",
+          "new_subject": "体育",
+          "swap_date": "2026-08-11"
+        }
+      ]
+
+    生命周期：
+      1. 用户在快捷编辑窗口确认换课 → 记录追加到文件
+      2. 软件启动时 → 检查换课记录：
+         - swap_date == 今天 → 将 curriculum_data 中对应科目修改为新科目
+         - swap_date < 今天   → 删除该条换课记录（已过期）
+         - swap_date > 今天   → 保留该记录（尚未到换课日期）
+    ---
+
+    对外接口：
+      - process_on_startup(curriculum_data) → 处理换课并返回修改后的数据
+      - add_swaps(swaps)                     → 追加换课记录到文件
+      - load_swaps()                         → 读取所有换课记录
+    """
+
+    # 换课记录文件路径（相对于脚本目录）
+    SWAP_FILE_PATH: str = 'Config/swap_schedule.json'
+
+    def __init__(self) -> None:
+        """初始化换课记录管理器。"""
+        self._script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        self._swap_file_path: str = os.path.join(
+            self._script_dir, self.SWAP_FILE_PATH
+        )
+        logger.info("SwapManager 初始化完成")
+
+    # ================================================================
+    #  公开方法：读取所有换课记录
+    # ================================================================
+    def load_swaps(self) -> List[Dict]:
+        """
+        从换课记录文件中读取所有记录。
+        ---------------------------
+        返回值：
+            List[Dict]：换课记录列表，文件不存在或为空时返回空列表
+        """
+        try:
+            if not os.path.exists(self._swap_file_path):
+                logger.info("换课记录文件不存在，返回空列表")
+                return []
+            with open(self._swap_file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                logger.debug(f"已加载 {len(data)} 条换课记录")
+                return data
+            logger.warning("换课记录文件格式异常（非列表），返回空列表")
+            return []
+        except json.JSONDecodeError as e:
+            logger.error(f"换课记录 JSON 解析失败：{e}")
+            return []
+        except Exception as e:
+            logger.error(f"读取换课记录文件失败：{e}")
+            return []
+
+    # ================================================================
+    #  公开方法：保存换课记录（全量覆盖）
+    # ================================================================
+    def _save_swaps(self, swaps: List[Dict]) -> bool:
+        """
+        将换课记录列表完整写入文件（内部方法）。
+        ------------------------------------
+        参数：
+            swaps（List[Dict]）：要保存的换课记录列表
+
+        返回值：
+            bool：True 表示保存成功
+        """
+        try:
+            os.makedirs(os.path.dirname(self._swap_file_path), exist_ok=True)
+            with open(self._swap_file_path, 'w', encoding='utf-8') as f:
+                json.dump(swaps, f, ensure_ascii=False, indent=4)
+            logger.info(f"换课记录已保存：{len(swaps)} 条")
+            return True
+        except Exception as e:
+            logger.error(f"保存换课记录失败：{e}")
+            return False
+
+    # ================================================================
+    #  公开方法：追加换课记录
+    # ================================================================
+    def add_swaps(self, new_swaps: List[Dict]) -> bool:
+        """
+        追加新的换课记录到文件中。
+        -----------------------
+        参数：
+            new_swaps（List[Dict]）：要追加的换课记录列表，每项包含
+                                    day_name, lesson_key, old_subject,
+                                    new_subject, swap_date
+
+        返回值：
+            bool：True 表示追加成功
+        """
+        existing: List[Dict] = self.load_swaps()
+        existing.extend(new_swaps)
+        success: bool = self._save_swaps(existing)
+        if success:
+            logger.info(
+                f"已追加 {len(new_swaps)} 条换课记录，"
+                f"当前共 {len(existing)} 条"
+            )
+        return success
+
+    # ================================================================
+    #  静态方法：获取生效的"今天"日期
+    # ================================================================
+    @staticmethod
+    def _get_effective_today(debug_config=None) -> str:
+        """
+        获取生效的"今天"日期字符串，优先使用调试配置中的模拟日期。
+        -------------------------------------------------------
+        参数：
+            debug_config（DebugConfig | None）：调试配置管理器，为 None 时使用系统日期
+
+        返回值：
+            str：YYYY-MM-DD 格式的日期字符串
+        """
+        if debug_config is not None and debug_config.enabled:
+            debug_dt = debug_config.get_current_datetime()
+            if debug_dt is not None:
+                return debug_dt.strftime('%Y-%m-%d')
+        return datetime.now().strftime('%Y-%m-%d')
+
+    # ================================================================
+    #  公开方法：启动时处理换课记录
+    # ================================================================
+    def process_on_startup(self, curriculum_data: Dict,
+                           debug_config=None) -> Dict:
+        """
+        软件启动时调用：应用今日换课并清理过期记录。
+        -----------------------------------------
+        处理逻辑：
+          1. 读取所有换课记录
+          2. 遍历每条记录：
+             - swap_date == 今天 → 将 curriculum_data 中对应位置修改为新科目
+             - swap_date < 今天   → 标记为待删除
+             - swap_date > 今天   → 保留（未来换课）
+          3. 移除待删除记录并写回文件
+          4. 返回修改后的 curriculum_data
+
+        参数：
+            curriculum_data（Dict）：当前内存中的课表数据
+            debug_config（DebugConfig | None）：调试配置，传入后使用模拟日期
+
+        返回值：
+            Dict：应用了今日换课后的课表数据（可能未被修改）
+        """
+        swaps: List[Dict] = self.load_swaps()
+        if not swaps:
+            logger.info("无换课记录需要处理")
+            return curriculum_data
+
+        today_str: str = self._get_effective_today(debug_config)
+        logger.info(
+            f"开始处理换课记录：共 {len(swaps)} 条，今天={today_str}"
+        )
+
+        kept_swaps: List[Dict] = []
+        applied_count: int = 0
+        removed_count: int = 0
+
+        for swap in swaps:
+            swap_date: str = swap.get('swap_date', '')
+
+            if swap_date == today_str:
+                # 今天需要换课 → 应用到 curriculum_data
+                self._apply_swap(curriculum_data, swap)
+                applied_count += 1
+                # 今天换课后，记录保留到明天再删除
+                kept_swaps.append(swap)
+
+            elif swap_date < today_str:
+                # 已过期的换课 → 删除记录
+                logger.info(
+                    f"清理过期换课记录：{swap.get('day_name', '')} "
+                    f"{swap.get('lesson_key', '')} "
+                    f"'{swap.get('old_subject', '')}' → "
+                    f"'{swap.get('new_subject', '')}' "
+                    f"({swap_date})"
+                )
+                removed_count += 1
+
+            else:
+                # 未来换课 → 保留
+                kept_swaps.append(swap)
+
+        # 如果有删除，写回文件
+        if removed_count > 0 or applied_count > 0:
+            self._save_swaps(kept_swaps)
+
+        logger.info(
+            f"换课处理完成：应用 {applied_count} 条，"
+            f"清理 {removed_count} 条，保留 {len(kept_swaps) - applied_count} 条未来换课"
+        )
+
+        return curriculum_data
+
+    # ================================================================
+    #  私有方法：将单条换课应用到 curriculum_data
+    # ================================================================
+    @staticmethod
+    def _apply_swap(curriculum_data: Dict, swap: Dict) -> None:
+        """
+        将一条换课记录应用到课表数据中（直接修改 dict）。
+        ----------------------------------------------
+        参数：
+            curriculum_data（Dict）：课表数据
+            swap           （Dict）：换课记录
+        """
+        day_name: str = swap.get('day_name', '')
+        lesson_key: str = swap.get('lesson_key', '')
+        new_subject: str = swap.get('new_subject', '')
+
+        if not day_name or not lesson_key:
+            logger.warning(f"换课记录缺少必要字段：{swap}")
+            return
+
+        if day_name in curriculum_data:
+            old_value: str = curriculum_data[day_name].get(lesson_key, '')
+            curriculum_data[day_name][lesson_key] = new_subject
+            logger.info(
+                f"已应用换课：{day_name} {lesson_key} "
+                f"'{old_value}' → '{new_subject}'"
+            )
+        else:
+            logger.warning(
+                f"课表数据中不存在 {day_name}，无法应用换课"
+            )
+
+
 # ==================== 调试配置管理器 ====================
 
 
@@ -860,7 +1112,8 @@ class ThemedWidget(QWidget):
     """
 
     def __init__(self, theme_manager: ThemeManager,
-                 bg_color_attr: str = 'back_color') -> None:
+                 bg_color_attr: str = 'back_color',
+                 parent: QWidget | None = None) -> None:
         """
         初始化基础窗口。
         ---------------
@@ -868,8 +1121,9 @@ class ThemedWidget(QWidget):
             theme_manager （ThemeManager）：全局主题管理器
             bg_color_attr （str）：         用于背景的颜色属性名
                                             可选：'back_color' / 'root_back_color'
+            parent        （QWidget | None）：父控件
         """
-        super().__init__()
+        super().__init__(parent)
         self._theme: ThemeManager = theme_manager
         self._bg_color_attr: str = bg_color_attr
         self._bg_color: QColor = QColor(getattr(self._theme, bg_color_attr, '#FFFFFF'))

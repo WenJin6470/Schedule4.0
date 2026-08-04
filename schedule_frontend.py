@@ -316,6 +316,7 @@ class ScheduleMainWindow(ThemedWidget):
             parent_signal=self.backend_signal,
             theme_manager=self._theme,
             initial_week=self._current_display_day,
+            main_window=self,
         )
         self._subject_window.show() # type: ignore
         logger.info("科目选择子窗口已显示")

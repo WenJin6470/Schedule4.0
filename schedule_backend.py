@@ -280,6 +280,10 @@ class QuickEditHandler:
             # 星期滚轮切换 → 更新主窗口课表显示
             self._on_week_changed(msg, main_window)
 
+        elif msg.type == ActionType.TEMP_SWAP_CONFIRMED:
+            # 用户确认临时换课 → 保存换课记录并立即应用
+            self._on_temp_swap_confirmed(msg, main_window)
+
         else:
             self._logger.debug(f"[QuickEdit] 不处理的动作: {msg.type.value}")
 
@@ -377,6 +381,69 @@ class QuickEditHandler:
         main_window.set_display_week(week_name)
 
     # ================================================================
+    #  临时换课确认
+    # ================================================================
+    def _on_temp_swap_confirmed(self, msg: ActionMessage, main_window) -> None:
+        """
+        用户确认临时换课 → 保存换课记录并立即应用到当前课表。
+        --------------------------------------------------
+        流程：
+          1. 从消息中提取换课数据
+          2. 通过 SwapManager 追加换课记录到文件
+          3. 立即将换课应用到当前 curriculum_data（内存中）
+          4. 刷新主窗口显示
+        """
+        from schedule_config import SwapManager
+
+        swaps: list = msg.payload.get("swaps", [])
+        if not swaps:
+            self._logger.warning("[QuickEdit] 换课确认信号中无数据")
+            return
+
+        self._logger.info(f"[QuickEdit] 收到换课确认：{len(swaps)} 条")
+
+        # 打印换课详情
+        for swap in swaps:
+            self._logger.info(
+                f"  换课：{swap.get('day_name', '')} "
+                f"{swap.get('lesson_key', '')} "
+                f"'{swap.get('old_subject', '')}' → "
+                f"'{swap.get('new_subject', '')}' "
+                f"日期={swap.get('swap_date', '')}"
+            )
+
+        # 保存换课记录到文件
+        swap_manager: SwapManager = SwapManager()
+        swap_manager.add_swaps(swaps)
+
+        # 立即将今日的换课应用到内存中的课表数据
+        # ★ 使用 SwapManager 统一获取生效日期（自动适配调试模式）
+        today_str: str = SwapManager._get_effective_today(
+            main_window._debug_config
+        )
+        schedule_data = main_window._schedule_data
+        applied_today: int = 0
+        for swap in swaps:
+            if swap.get('swap_date', '') == today_str:
+                day_name: str = swap.get('day_name', '')
+                lesson_key: str = swap.get('lesson_key', '')
+                new_subject: str = swap.get('new_subject', '')
+                if day_name and lesson_key:
+                    if day_name in schedule_data.curriculum_data:
+                        schedule_data.curriculum_data[day_name][lesson_key] = new_subject
+                        applied_today += 1
+
+        if applied_today > 0:
+            self._logger.info(
+                f"[QuickEdit] 已立即应用 {applied_today} 条今日换课到内存数据"
+            )
+            # 如果当前显示的是被修改的星期，刷新标签
+            current_day: str = main_window.get_display_week()
+            main_window.set_display_week(current_day)
+
+        self._logger.info("[QuickEdit] 换课处理完成")
+
+    # ================================================================
     #  光标信息回传
     # ================================================================
     def _on_cursor_info(self, msg: ActionMessage, subject_window=None) -> None:
@@ -450,7 +517,7 @@ class ScheduleBackend:
                         ActionType.QUICK_EDIT_CLOSED, ActionType.SUBJECT_SELECTED,
                         ActionType.CURSOR_INFO, ActionType.MOVE_UP, ActionType.MOVE_DOWN,
                         ActionType.MOVE_DOUBLE_UP, ActionType.MOVE_DOUBLE_DOWN,
-                        ActionType.WEEK_CHANGED):
+                        ActionType.WEEK_CHANGED, ActionType.TEMP_SWAP_CONFIRMED):
             self.quick_edit.handle(msg, main_window, subject_window)
             return
 

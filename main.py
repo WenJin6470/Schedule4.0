@@ -33,7 +33,7 @@ from PySide6.QtWidgets import QApplication
 # ================================================================
 # ★ 导入主题、前端口、后端逻辑 ★
 # ================================================================
-from schedule_config import ThemeManager, ScheduleDataManager, DebugConfig
+from schedule_config import ThemeManager, ScheduleDataManager, DebugConfig, SwapManager
 from schedule_time import TimeWindow, FullscreenTimeWindow
 from schedule_frontend import ScheduleMainWindow
 from schedule_backend import TimeManager, ScheduleBackend, WindowHelper, LogManager
@@ -143,6 +143,12 @@ def main() -> None:
     logger.info("正在创建 DebugConfig...")
     debug_config: DebugConfig = DebugConfig()
     logger.info(f"DebugConfig 创建完成：enabled={debug_config.enabled}")
+
+    #  3d. 处理换课记录：应用今日换课、清理过期记录
+    logger.info("正在处理换课记录...")
+    swap_manager: SwapManager = SwapManager()
+    swap_manager.process_on_startup(schedule_data.curriculum_data, debug_config)
+    logger.info("换课记录处理完成")
 
     # ================================================================
     #  第4步：创建前端窗口

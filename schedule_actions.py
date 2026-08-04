@@ -41,9 +41,10 @@ class ActionType(StrEnum):
     MOVE_DOUBLE_DOWN   = "move_double_down"
 
     # ---- 数据操作 ----
-    SUBJECT_SELECTED  = "subject_selected"
-    CURSOR_INFO       = "cursor_info"
-    WEEK_CHANGED      = "week_changed"
+    SUBJECT_SELECTED     = "subject_selected"
+    CURSOR_INFO          = "cursor_info"
+    WEEK_CHANGED         = "week_changed"
+    TEMP_SWAP_CONFIRMED  = "temp_swap_confirmed"
 
 
 # ==================== 结构化动作消息 ====================
@@ -149,3 +150,15 @@ class ActionMessage:
             week_name （str）：星期名称，如 'Monday'
         """
         return cls(ActionType.WEEK_CHANGED, {"index": index, "week_name": week_name})
+
+    @classmethod
+    def temp_swap_confirmed(cls, swaps: list) -> "ActionMessage":
+        """
+        用户确认了临时换课。
+        -----------------
+        参数：
+            swaps（list[dict]）：换课数据列表，每项包含
+                                day_name, lesson_key, old_subject,
+                                new_subject, swap_date
+        """
+        return cls(ActionType.TEMP_SWAP_CONFIRMED, {"swaps": swaps})

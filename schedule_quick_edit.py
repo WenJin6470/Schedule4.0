@@ -14,10 +14,13 @@
 科目按钮，右侧提供移动光标和确认操作的控制按钮。
 """
 
+import json
 import logging
+import os
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
-from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton,
+from PySide6.QtWidgets import (QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton,
                                 QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 from PySide6.QtCore import Qt, QTimer, Signal, SignalInstance
 from PySide6.QtGui import QFont, QCloseEvent
@@ -341,7 +344,8 @@ class SubjectSelectWindow(ThemedWidget):
 
     def __init__(self, parent_signal: SignalInstance,
                  theme_manager: ThemeManager,
-                 initial_week: str = 'Monday') -> None:
+                 initial_week: str = 'Monday',
+                 main_window=None) -> None:
         """
         初始化科目选择窗口。
         -----------------
@@ -349,10 +353,12 @@ class SubjectSelectWindow(ThemedWidget):
             parent_signal（SignalInstance）：父窗口的 backend_signal
             theme_manager（ThemeManager）：  全局主题管理器
             initial_week （str）：           初始显示的星期，默认 'Monday'
+            main_window  （ScheduleMainWindow）：课表主窗口引用，用于临时换课比对
         """
         super().__init__(theme_manager, bg_color_attr='root_back_color')
 
         self._parent_signal: SignalInstance = parent_signal
+        self._main_window = main_window
 
         self._initial_week: str = initial_week
 
@@ -634,7 +640,7 @@ class SubjectSelectWindow(ThemedWidget):
     # ================================================================
     def _build_right_panel(self) -> QWidget:
         """
-        构建右侧控制按钮面板（4 个方向按钮 + 星期滚轮 + 确认按钮）。
+        构建右侧控制按钮面板（4 个方向按钮 + 星期滚轮 + 确认修改 + 临时换课按钮）。
         右侧面板使用轻微分色背景，与左侧形成层次感。
         """
 
@@ -725,7 +731,34 @@ class SubjectSelectWindow(ThemedWidget):
 
         layout.addSpacing(10)
 
-        confirm_btn: QPushButton = QPushButton("确定")
+        # ---- 临时换课按钮（琥珀色）----
+        swap_btn_style: str = f"""
+            QPushButton {{
+                color: #FFFFFF;
+                background: rgba(255, 152, 0, 0.7);
+                border: 1px solid rgba(255, 152, 0, 0.5);
+                border-radius: 4px;
+                padding: 8px 4px;
+                font-size: 12px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background: rgba(255, 152, 0, 0.9);
+            }}
+            QPushButton:pressed {{
+                background: rgba(255, 152, 0, 1.0);
+            }}
+        """
+
+        swap_btn: QPushButton = QPushButton("临时换课")
+        swap_btn.setStyleSheet(swap_btn_style)
+        swap_btn.setMinimumHeight(36)
+        swap_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # type: ignore
+        swap_btn.clicked.connect(self._on_temp_swap_clicked)
+        layout.addWidget(swap_btn)
+
+        # ---- 确认修改按钮（蓝色）----
+        confirm_btn: QPushButton = QPushButton("确认修改")
         confirm_btn.setStyleSheet(confirm_btn_style)
         confirm_btn.setMinimumHeight(40)
         confirm_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # type: ignore
@@ -737,6 +770,108 @@ class SubjectSelectWindow(ThemedWidget):
         layout.addStretch()
 
         return panel
+
+    # ================================================================
+    #  临时换课：比对未保存修改 → 弹出确认窗口
+    # ================================================================
+    def _on_temp_swap_clicked(self) -> None:
+        """
+        用户点击「临时换课」按钮。
+        -----------------------
+        流程：
+          1. 同步当前显示星期的标签修改到 curriculum_data
+          2. 加载 JSON 文件中保存的原始课表
+          3. 逐日逐课比对，找出所有差异项
+          4. 若有差异则弹出 TempSwapWindow，无差异则提示
+        """
+        logger.info("[SubjectSelectWindow] 临时换课按钮被点击")
+
+        main_window = self._main_window
+        if main_window is None:
+            logger.warning("[SubjectSelectWindow] 未设置 main_window 引用，无法执行临时换课")
+            return
+
+        # 第1步：同步当前显示星期的标签
+        main_window._sync_current_day_labels()
+
+        # 第2步：加载 JSON 文件中保存的原始课表
+        schedule_data = main_window._schedule_data
+        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        json_path: str = os.path.join(script_dir, schedule_data.curriculum_path)
+
+        saved_data: Dict = {}
+        try:
+            if os.path.exists(json_path):
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    saved_data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"[SubjectSelectWindow] 无法读取原始课表文件：{e}")
+
+        # 第3步：比对差异
+        changes: List[Dict] = self._compute_swap_diff(
+            schedule_data.curriculum_data, saved_data
+        )
+
+        if not changes:
+            logger.info("[SubjectSelectWindow] 没有检测到课表修改，无需临时换课")
+            # 显示一个简单提示
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(
+                self, "临时换课", "当前没有检测到课表修改，无需临时换课。",
+                QMessageBox.Ok  # type: ignore
+            )
+            return
+
+        logger.info(f"[SubjectSelectWindow] 检测到 {len(changes)} 处课表修改，弹出确认窗口")
+
+        # 第4步：弹出 TempSwapWindow
+        self._temp_swap_window: TempSwapWindow = TempSwapWindow(
+            theme_manager=self._theme,
+            changes=changes,
+            parent_signal=self._parent_signal,
+            parent=self,
+        )
+        self._temp_swap_window.show()
+
+    @staticmethod
+    def _compute_swap_diff(current_data: Dict, saved_data: Dict) -> List[Dict]:
+        """
+        比对新旧课表数据，找出所有差异项。
+        ------------------------------
+        参数：
+            current_data（Dict）：内存中当前课表数据（可能已修改）
+            saved_data  （Dict）：JSON 文件中保存的原始课表
+
+        返回值：
+            List[Dict]：差异项列表，每项包含：
+              - day_name   （str）：星期名，如 'Monday'
+              - lesson_key （str）：课时键名，如 'lesson_2'
+              - old_subject（str）：JSON 中保存的原始科目
+              - new_subject（str）：修改后的新科目
+        """
+        changes: List[Dict] = []
+        day_order: List[str] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday',
+                                'Friday', 'Saturday', 'Sunday']
+
+        for day in day_order:
+            current_day: Dict = current_data.get(day, {})
+            saved_day: Dict = saved_data.get(day, {})
+            # 获取该天所有 lesson 键
+            all_keys = set(current_day.keys()) | set(saved_day.keys())
+            for key in sorted(all_keys):
+                if not key.startswith('lesson_'):
+                    continue
+                old_val: str = saved_day.get(key, '')
+                new_val: str = current_day.get(key, '')
+                if old_val != new_val:
+                    changes.append({
+                        'day_name': day,
+                        'lesson_key': key,
+                        'old_subject': old_val,
+                        'new_subject': new_val,
+                    })
+
+        return changes
 
     # ================================================================
     #  关闭事件：仅隐藏窗口，不关闭整个应用
@@ -758,3 +893,462 @@ class SubjectSelectWindow(ThemedWidget):
         """通过父窗口的 backend_signal 发射结构化动作消息。"""
         logger.info(f"[SubjectSelectWindow] 发射动作: {msg.type.value}")
         self._parent_signal.emit(msg)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ★ 临时换课确认窗口 — TempSwapWindow ★
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+# 星期中英文映射
+_WEEK_CN_MAP: Dict[str, str] = {
+    'Monday': '周一', 'Tuesday': '周二', 'Wednesday': '周三',
+    'Thursday': '周四', 'Friday': '周五', 'Saturday': '周六', 'Sunday': '周日',
+}
+
+
+def _lesson_label(lesson_key: str) -> str:
+    """将 lesson_N 转为 '第N节' 格式。"""
+    try:
+        num = int(lesson_key.split('_')[1])
+        return f"第{num}节"
+    except (IndexError, ValueError):
+        return lesson_key
+
+
+def _next_dates_for_weekday(weekday_name: str, count: int = 4) -> List[datetime]:
+    """
+    获取未来 count 个匹配指定星期的日期。
+    -----------------------------------
+    参数：
+        weekday_name（str）：英文星期名，如 'Monday'
+        count       （int）：需要的日期个数
+
+    返回值：
+        List[datetime]：匹配的未来日期列表（从今天开始，含今天）
+    """
+    weekday_map: Dict[str, int] = {
+        'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3,
+        'Friday': 4, 'Saturday': 5, 'Sunday': 6,
+    }
+    target_wd: int = weekday_map.get(weekday_name, 0)
+    today: datetime = datetime.now()
+    today_wd: int = today.weekday()
+    # 计算距离目标星期几还有多少天
+    days_until: int = (target_wd - today_wd) % 7
+    dates: List[datetime] = []
+    for i in range(count):
+        dates.append(today + timedelta(days=days_until + i * 7))
+    return dates
+
+
+# 换课项数据结构：day_name, lesson_key, old_subject, new_subject, date, enabled
+# date 为 datetime，默认取该星期的下一个匹配日
+
+
+class TempSwapWindow(ThemedWidget):
+    """
+    # TempSwapWindow — 临时换课确认窗口
+
+    比对未保存的课表修改与 JSON 文件中的原始数据，逐项展示差异，
+    允许用户为每项换课选择具体日期、取消部分换课，最后统一确认。
+    ---
+
+    窗口布局：
+      ┌ 临时换课确认 ─────────────────── □ ─ ✕ ┐
+      ├────────────────────────────────────────┤
+      │ 以下 N 个课时已修改，请逐项确认换课日期：  │
+      │                                        │
+      │ ┌── 换课 1 ──────────────────────┐     │
+      │ │ 周二 第2节：数学 → 体育        │     │
+      │ │ 换课日期：[8月11日(周二)] [✕] │     │
+      │ └────────────────────────────────┘     │
+      │                                        │
+      │ ┌── 换课 2 ──────────────────────┐     │
+      │ │ 周三 第3节：英语 → 语文        │     │
+      │ │ 换课日期：[8月5日(周三)]  [✕] │     │
+      │ └────────────────────────────────┘     │
+      │                                        │
+      │                        [确认换课]       │
+      └────────────────────────────────────────┘
+    """
+
+    # 信号：确认换课 → emit 换课数据列表
+    swap_confirmed = Signal(list)
+
+    def __init__(self, theme_manager: ThemeManager,
+                 changes: List[Dict],
+                 parent_signal: Optional[SignalInstance] = None,
+                 parent=None) -> None:
+        """
+        初始化临时换课确认窗口。
+        ---------------------
+        参数：
+            theme_manager（ThemeManager）：      全局主题管理器
+            changes      （List[Dict]）：        差异项列表，每项包含
+                                                  day_name, lesson_key,
+                                                  old_subject, new_subject
+            parent_signal（SignalInstance | None）：父窗口信号
+            parent       （QWidget | None）：     父窗口
+        """
+        super().__init__(theme_manager, bg_color_attr='root_back_color', parent=parent)
+        self._theme: ThemeManager = theme_manager
+        self._parent_signal: Optional[SignalInstance] = parent_signal
+        self._changes: List[Dict] = changes
+        # 每个换课项的控件引用
+        self._swap_cards: List[Dict] = []
+
+        self._setup_ui()
+        logger.info(f"TempSwapWindow 初始化完成：{len(changes)} 个换课项目")
+
+    # ================================================================
+    #  私有方法：创建 UI
+    # ================================================================
+    def _setup_ui(self) -> None:
+        """创建临时换课确认窗口的所有 UI 元素。"""
+        # ----- 窗口属性 -----
+        self.setWindowFlags(
+            Qt.Window                         # type: ignore
+            | Qt.WindowStaysOnTopHint         # type: ignore
+            | Qt.WindowCloseButtonHint        # type: ignore
+        )
+        self.setWindowTitle("临时换课确认")
+        self.setAutoFillBackground(True)
+        self.setWindowOpacity(1.0)
+
+        # 窗口尺寸
+        win_w: int = int(self._theme.screen_width * 0.32)
+        win_h: int = int(self._theme.screen_height * 0.55)
+        self.setMinimumSize(420, 320)
+        self.resize(win_w, win_h)
+        # 居中
+        pos_x: int = (self._theme.screen_width - win_w) // 2
+        pos_y: int = (self._theme.screen_height - win_h) // 2
+        self.move(pos_x, pos_y)
+
+        # ----- 主布局 -----
+        outer_layout: QVBoxLayout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(12, 10, 12, 8)
+        outer_layout.setSpacing(6)
+
+        # ----- 顶部提示 -----
+        header: QLabel = QLabel(
+            f"以下 {len(self._changes)} 个课时已修改，请逐项确认换课日期："
+        )
+        header.setFont(QFont("Microsoft YaHei", 10, QFont.Bold))  # type: ignore
+        header.setStyleSheet(f"color: {self._theme.font_color}; background: transparent;")
+        header.setWordWrap(True)
+        outer_layout.addWidget(header)
+
+        # ----- 滚动区域：换课项目卡片 -----
+        scroll_area: QScrollArea = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setStyleSheet(f"""
+            QScrollArea {{
+                background: transparent;
+                border: none;
+            }}
+            QScrollBar:vertical {{
+                width: 6px;
+                background: transparent;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {self._theme.border_color};
+                border-radius: 3px;
+                min-height: 20px;
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+        """)
+
+        inner_widget: QWidget = QWidget()
+        inner_widget.setStyleSheet("background: transparent;")
+        inner_layout: QVBoxLayout = QVBoxLayout(inner_widget)
+        inner_layout.setContentsMargins(0, 0, 0, 0)
+        inner_layout.setSpacing(8)
+
+        # 为每个差异项创建一张卡片
+        for i, change in enumerate(self._changes):
+            card: QWidget = self._build_swap_card(i, change)
+            inner_layout.addWidget(card)
+
+        inner_layout.addStretch()
+        scroll_area.setWidget(inner_widget)
+        outer_layout.addWidget(scroll_area, stretch=1)
+
+        # ----- 底部确认按钮（右下角）-----
+        bottom_layout: QHBoxLayout = QHBoxLayout()
+        bottom_layout.setContentsMargins(0, 4, 0, 0)
+        bottom_layout.addStretch()
+
+        confirm_style: str = f"""
+            QPushButton {{
+                color: #FFFFFF;
+                background: rgba(33, 150, 243, 0.7);
+                border: 1px solid rgba(33, 150, 243, 0.5);
+                border-radius: 4px;
+                padding: 10px 28px;
+                font-size: 14px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background: rgba(33, 150, 243, 0.9);
+            }}
+            QPushButton:pressed {{
+                background: rgba(33, 150, 243, 1.0);
+            }}
+        """
+
+        confirm_btn: QPushButton = QPushButton("确认换课")
+        confirm_btn.setStyleSheet(confirm_style)
+        confirm_btn.setMinimumHeight(40)
+        confirm_btn.clicked.connect(self._on_confirm)
+        bottom_layout.addWidget(confirm_btn)
+
+        outer_layout.addLayout(bottom_layout)
+
+    # ================================================================
+    #  构建单张换课卡片
+    # ================================================================
+    def _build_swap_card(self, index: int, change: Dict) -> QWidget:
+        """
+        构建一张换课项目卡片。
+        -------------------
+        参数：
+            index  （int）：  卡片序号
+            change （Dict）： 差异数据
+
+        返回值：
+            QWidget：组装好的卡片控件
+        """
+        day_name: str = change['day_name']
+        lesson_key: str = change['lesson_key']
+        old_subj: str = change['old_subject']
+        new_subj: str = change['new_subject']
+
+        # 计算该星期对应的候选日期列表
+        dates: List[datetime] = _next_dates_for_weekday(day_name, count=4)
+
+        # 卡片背景
+        if self._theme.theme == 'darkcolor':
+            card_bg: str = "rgba(255, 255, 255, 0.05)"
+        else:
+            card_bg = "rgba(0, 0, 0, 0.03)"
+
+        card: QWidget = QWidget()
+        card.setStyleSheet(f"""
+            background: {card_bg};
+            border: 1px solid {self._theme.border_color};
+            border-radius: 6px;
+        """)
+
+        card_layout: QVBoxLayout = QVBoxLayout(card)
+        card_layout.setContentsMargins(10, 8, 10, 8)
+        card_layout.setSpacing(6)
+
+        # ---- 换课描述 ----
+        day_cn: str = _WEEK_CN_MAP.get(day_name, day_name)
+        lesson_cn: str = _lesson_label(lesson_key)
+        info_text: str = f"{day_cn} {lesson_cn}：{old_subj} → {new_subj}"
+        info_label: QLabel = QLabel(info_text)
+        info_label.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))  # type: ignore
+        info_label.setStyleSheet(f"""
+            color: {self._theme.font_color};
+            background: transparent;
+            border: none;
+        """)
+        card_layout.addWidget(info_label)
+
+        # ---- 日期选择 + 取消按钮行 ----
+        row_layout: QHBoxLayout = QHBoxLayout()
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(8)
+
+        date_label: QLabel = QLabel("换课日期：")
+        date_label.setFont(QFont("Microsoft YaHei", 9))
+        date_label.setStyleSheet(f"""
+            color: {self._theme.font_color};
+            background: transparent;
+            border: none;
+        """)
+        row_layout.addWidget(date_label)
+
+        # 日期下拉框
+        combo: QComboBox = QComboBox()
+        combo.setMinimumWidth(160)
+        for dt in dates:
+            # 格式：8月11日 (周二)
+            display_text: str = f"{dt.month}月{dt.day}日（{_WEEK_CN_MAP.get(day_name, '')}）"
+            combo.addItem(display_text, dt)
+        combo.setCurrentIndex(0)
+
+        combo_font: QFont = QFont("Microsoft YaHei", 9)
+        combo.setFont(combo_font)
+        combo.setStyleSheet(f"""
+            QComboBox {{
+                color: {self._theme.font_color};
+                background: rgba(128, 128, 128, 0.08);
+                border: 1px solid {self._theme.border_color};
+                border-radius: 3px;
+                padding: 4px 8px;
+            }}
+            QComboBox:hover {{
+                background: rgba(128, 128, 128, 0.18);
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 20px;
+            }}
+            QComboBox QAbstractItemView {{
+                color: {self._theme.font_color};
+                background: {self._theme.root_back_color};
+                selection-background-color: rgba(33, 150, 243, 0.25);
+            }}
+        """)
+        row_layout.addWidget(combo)
+
+        row_layout.addStretch()
+
+        # 取消此项按钮
+        cancel_btn_style: str = f"""
+            QPushButton {{
+                color: {self._theme.font_color};
+                background: rgba(128, 128, 128, 0.10);
+                border: 1px solid {self._theme.border_color};
+                border-radius: 3px;
+                padding: 4px 12px;
+                font-size: 11px;
+            }}
+            QPushButton:hover {{
+                background: rgba(244, 67, 54, 0.25);
+                border: 1px solid rgba(244, 67, 54, 0.4);
+            }}
+        """
+
+        cancel_btn: QPushButton = QPushButton("✕ 取消此项")
+        cancel_btn.setFont(QFont("Microsoft YaHei", 9))
+        cancel_btn.setStyleSheet(cancel_btn_style)
+        cancel_btn.clicked.connect(
+            lambda checked=False, idx=index: self._on_cancel_item(idx)
+        )
+        row_layout.addWidget(cancel_btn)
+
+        card_layout.addLayout(row_layout)
+
+        # 记录卡片数据
+        self._swap_cards.append({
+            'card': card,
+            'combo': combo,
+            'cancel_btn': cancel_btn,
+            'change': change,
+            'active': True,
+        })
+
+        return card
+
+    # ================================================================
+    #  取消单项换课
+    # ================================================================
+    def _on_cancel_item(self, index: int) -> None:
+        """
+        取消指定序号的换课项目（隐藏卡片）。
+        --------------------------------
+        参数：
+            index（int）：要取消的换课项目序号
+        """
+        if 0 <= index < len(self._swap_cards):
+            card_info = self._swap_cards[index]
+            card_info['card'].hide()
+            card_info['active'] = False
+            logger.info(f"[TempSwapWindow] 换课项目 {index + 1} 已取消")
+
+    # ================================================================
+    #  确认换课
+    # ================================================================
+    def _on_confirm(self) -> None:
+        """
+        用户点击「确认换课」按钮。
+        -----------------------
+        收集所有未被取消的换课项目及其日期选择，emit 确认信号后关闭窗口。
+        """
+        confirmed: List[Dict] = []
+        for card_info in self._swap_cards:
+            if not card_info['active']:
+                continue
+            change: Dict = card_info['change']
+            combo: QComboBox = card_info['combo']
+            selected_date: datetime = combo.currentData()
+            confirmed.append({
+                'day_name': change['day_name'],
+                'lesson_key': change['lesson_key'],
+                'old_subject': change['old_subject'],
+                'new_subject': change['new_subject'],
+                'swap_date': selected_date.strftime('%Y-%m-%d'),
+            })
+
+        logger.info(
+            f"[TempSwapWindow] 确认换课：{len(confirmed)} 个项目，"
+            f"取消 {len(self._swap_cards) - len(confirmed)} 个"
+        )
+
+        if confirmed:
+            self.swap_confirmed.emit(confirmed)
+            if self._parent_signal is not None:
+                # 通过父窗口信号发送换课数据到后端处理
+                self._parent_signal.emit(
+                    ActionMessage.temp_swap_confirmed(confirmed)
+                )
+                logger.info(
+                    f"[TempSwapWindow] 换课确认信号已发射：{len(confirmed)} 条"
+                )
+
+            # ★ 弹窗提醒用户换课已确认
+            self._show_success_popup(confirmed)
+
+        # 关闭换课确认窗口自身
+        self.close()
+
+        # 关闭父窗口（SubjectSelectWindow 课表快捷编辑窗口）
+        parent_widget = self.parent()
+        if parent_widget is not None:
+            parent_widget.close()  # type: ignore
+
+    # ================================================================
+    #  弹窗：换课确认成功提醒
+    # ================================================================
+    def _show_success_popup(self, confirmed: List[Dict]) -> None:
+        """
+        弹出换课确认成功的提示窗口，逐条列出已确认的换课项目。
+        ---------------------------------------------------
+        参数：
+            confirmed（List[Dict]）：已确认的换课数据列表
+        """
+        from PySide6.QtWidgets import QMessageBox
+
+        # 逐条构建换课摘要
+        lines: List[str] = []
+        for item in confirmed:
+            day_cn: str = _WEEK_CN_MAP.get(item['day_name'], item['day_name']) # type: ignore
+            lesson_cn: str = _lesson_label(item['lesson_key'])
+            old_s: str = item['old_subject']
+            new_s: str = item['new_subject']
+            date_s: str = item['swap_date']
+            lines.append(f"• {day_cn} {lesson_cn}：{old_s} → {new_s}（{date_s}）")
+
+        detail: str = "\n".join(lines)
+        msg_box: QMessageBox = QMessageBox(self)
+        msg_box.setWindowTitle("换课确认成功")
+        msg_box.setIcon(QMessageBox.Information)  # type: ignore
+        msg_box.setText(f"已确认 {len(confirmed)} 条换课记录：")
+        msg_box.setInformativeText(detail)
+        msg_box.setStandardButtons(QMessageBox.Ok)  # type: ignore
+        msg_box.exec()
+
+    # ================================================================
+    #  关闭事件
+    # ================================================================
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """关闭窗口时记录日志。"""
+        logger.info("[TempSwapWindow] 临时换课窗口已关闭")
+        event.accept()
