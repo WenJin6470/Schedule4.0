@@ -674,9 +674,12 @@ class TimeWheelPicker(QDialog):
         super().__init__(parent)
         self.setWindowTitle('设置考试时间')
         self.setWindowFlags(
-            Qt.Dialog | Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint  # type: ignore
+            Qt.Window                         # type: ignore
+            | Qt.WindowStaysOnTopHint         # type: ignore
+            | Qt.WindowCloseButtonHint        # type: ignore
+            | Qt.WindowMinimizeButtonHint     # type: ignore
+            | Qt.WindowMaximizeButtonHint     # type: ignore
         )
-        self.setAttribute(Qt.WA_TranslucentBackground)   # type: ignore
         self.setAttribute(Qt.WA_DeleteOnClose, False)    # type: ignore
         self.setModal(True)
 
@@ -706,23 +709,14 @@ class TimeWheelPicker(QDialog):
         container.setStyleSheet(f"""
             QFrame {{
                 background-color: {EXAM_BG_COLOR};
-                border-radius: 16px;
+                border-radius: 12px;
                 border: 1px solid rgba(255,255,255,0.08);
             }}
         """)
 
         inner: QVBoxLayout = QVBoxLayout(container)
-        inner.setSpacing(14)
-        inner.setContentsMargins(28, 22, 28, 22)
-
-        # ---- 标题 ----
-        title: QLabel = QLabel('设置考试时间')
-        title.setFont(QFont('Arial', 18, QFont.Bold)) # type: ignore
-        title.setStyleSheet(
-            f"color: {EXAM_TEXT_COLOR}; background: transparent;"
-        )
-        title.setAlignment(Qt.AlignCenter)  # type: ignore
-        inner.addWidget(title)
+        inner.setSpacing(10)
+        inner.setContentsMargins(16, 8, 16, 16)
 
         # ---- 滚轮列 ----
         hour_items: List[str] = [f"{i:02d}" for i in range(24)]
@@ -733,18 +727,22 @@ class TimeWheelPicker(QDialog):
         wheels_row.setAlignment(Qt.AlignCenter)  # type: ignore
 
         self._start_hour: WheelColumn = WheelColumn(hour_items, sh)
+        self._start_hour.setFixedWidth(60)
         wheels_row.addWidget(self._start_hour)
         wheels_row.addWidget(self._make_sep(':'))
 
         self._start_min: WheelColumn = WheelColumn(min_items, sm)
+        self._start_min.setFixedWidth(60)
         wheels_row.addWidget(self._start_min)
         wheels_row.addWidget(self._make_sep('—'))
 
         self._end_hour: WheelColumn = WheelColumn(hour_items, fh)
+        self._end_hour.setFixedWidth(60)
         wheels_row.addWidget(self._end_hour)
         wheels_row.addWidget(self._make_sep(':'))
 
         self._end_min: WheelColumn = WheelColumn(min_items, fm)
+        self._end_min.setFixedWidth(60)
         wheels_row.addWidget(self._end_min)
 
         inner.addLayout(wheels_row)
@@ -755,41 +753,41 @@ class TimeWheelPicker(QDialog):
         labels_row.setAlignment(Qt.AlignCenter)  # type: ignore
 
         start_lbl: QLabel = QLabel('开始时间')
-        start_lbl.setFont(QFont('Arial', 12))
+        start_lbl.setFont(QFont('Arial', 11))
         start_lbl.setStyleSheet(
             "color: rgba(255,255,255,0.40); background: transparent;"
         )
         start_lbl.setAlignment(Qt.AlignCenter)  # type: ignore
-        start_lbl.setFixedWidth(80 + 28 + 80)  # 两个滚轮 + 冒号分隔符
+        start_lbl.setFixedWidth(60 + 16 + 60)  # 两个滚轮 + 冒号分隔符
         labels_row.addWidget(start_lbl)
 
-        labels_row.addSpacing(28)  # "—" 分隔符的空间
+        labels_row.addSpacing(16)  # "—" 分隔符的空间
 
         end_lbl: QLabel = QLabel('结束时间')
-        end_lbl.setFont(QFont('Arial', 12))
+        end_lbl.setFont(QFont('Arial', 11))
         end_lbl.setStyleSheet(
             "color: rgba(255,255,255,0.40); background: transparent;"
         )
         end_lbl.setAlignment(Qt.AlignCenter)  # type: ignore
-        end_lbl.setFixedWidth(80 + 28 + 80)
+        end_lbl.setFixedWidth(60 + 16 + 60)
         labels_row.addWidget(end_lbl)
 
         inner.addLayout(labels_row)
 
         # ---- 按钮 ----
         btn_row: QHBoxLayout = QHBoxLayout()
-        btn_row.setSpacing(30)
+        btn_row.setSpacing(20)
         btn_row.setAlignment(Qt.AlignCenter)  # type: ignore
 
         cancel_btn: QPushButton = QPushButton('取消')
-        cancel_btn.setFont(QFont('Arial', 15))
+        cancel_btn.setFont(QFont('Arial', 14))
         cancel_btn.setStyleSheet(f"""
             QPushButton {{
                 color: rgba(255,255,255,0.50);
                 background: transparent;
                 border: 1px solid rgba(255,255,255,0.12);
                 border-radius: 8px;
-                padding: 10px 36px;
+                padding: 8px 28px;
             }}
             QPushButton:hover {{
                 color: {EXAM_TEXT_COLOR};
@@ -803,14 +801,14 @@ class TimeWheelPicker(QDialog):
         btn_row.addWidget(cancel_btn)
 
         confirm_btn: QPushButton = QPushButton('确认')
-        confirm_btn.setFont(QFont('Arial', 15, QFont.Bold)) # type: ignore
+        confirm_btn.setFont(QFont('Arial', 14, QFont.Bold)) # type: ignore
         confirm_btn.setStyleSheet(f"""
             QPushButton {{
                 color: {EXAM_TEXT_COLOR};
                 background-color: #1a4a32;
                 border: none;
                 border-radius: 8px;
-                padding: 10px 36px;
+                padding: 8px 28px;
             }}
             QPushButton:hover {{
                 background-color: #235a40;
@@ -822,7 +820,7 @@ class TimeWheelPicker(QDialog):
         confirm_btn.clicked.connect(self._on_confirm)
         btn_row.addWidget(confirm_btn)
 
-        inner.addSpacing(4)
+        inner.addSpacing(2)
         inner.addLayout(btn_row)
 
         outer.addWidget(container)
@@ -837,7 +835,7 @@ class TimeWheelPicker(QDialog):
             "color: rgba(255,255,255,0.35); background: transparent;"
         )
         label.setAlignment(Qt.AlignCenter)  # type: ignore
-        label.setFixedWidth(28)
+        label.setFixedWidth(16)
         return label
 
     # ================================================================
@@ -943,10 +941,8 @@ class ExamFullscreenWindow(QWidget):
 
         # ---- 控件引用 ----
         self._time_label: Optional[QLabel] = None
-        self._start_btn: Optional[QPushButton] = None
-        self._finish_btn: Optional[QPushButton] = None
-        self._next_start_btn: Optional[QPushButton] = None
-        self._next_finish_btn: Optional[QPushButton] = None
+        self._time_btn: Optional[QPushButton] = None
+        self._next_time_btn: Optional[QPushButton] = None
 
         # ---- 构建 UI ----
         self._setup_ui()
@@ -1039,23 +1035,12 @@ class ExamFullscreenWindow(QWidget):
         time_label_w.setStyleSheet(f"color: {EXAM_TEXT_COLOR}; background: transparent;")
         edit_layout.addWidget(time_label_w, 2, 0)
 
-        self._start_btn = self._make_time_button(
-            self._start_time,
-            lambda: self._open_keypad(self._start_btn, self._finish_btn), # type: ignore
+        combined_time = f"{self._start_time} — {self._finish_time}"
+        self._time_btn = self._make_time_button(
+            combined_time,
+            lambda: self._open_keypad(self._time_btn), # type: ignore
         )
-        edit_layout.addWidget(self._start_btn, 2, 1)
-
-        dash1 = QLabel('—', self)
-        dash1.setFont(font_time_btn)
-        dash1.setStyleSheet(f"color: {EXAM_TEXT_COLOR}; background: transparent;")
-        dash1.setAlignment(Qt.AlignCenter)  # type: ignore
-        edit_layout.addWidget(dash1, 2, 2)
-
-        self._finish_btn = self._make_time_button(
-            self._finish_time,
-            lambda: self._open_keypad(self._start_btn, self._finish_btn), # type: ignore
-        )
-        edit_layout.addWidget(self._finish_btn, 2, 3)
+        edit_layout.addWidget(self._time_btn, 2, 1, 1, 3)
 
         # —— 下一场行 ——
         next_label = QLabel('下一场:', self)
@@ -1066,23 +1051,12 @@ class ExamFullscreenWindow(QWidget):
         self._next_subject_combo = self._make_combo(self._subjects, 0)
         edit_layout.addWidget(self._next_subject_combo, 3, 1)
 
-        self._next_start_btn = self._make_time_button(
-            self._next_start_time,
-            lambda: self._open_keypad(self._next_start_btn, self._next_finish_btn), # type: ignore
+        combined_next = f"{self._next_start_time} — {self._next_finish_time}"
+        self._next_time_btn = self._make_time_button(
+            combined_next,
+            lambda: self._open_keypad(self._next_time_btn), # type: ignore
         )
-        edit_layout.addWidget(self._next_start_btn, 3, 2)
-
-        dash2 = QLabel('—', self)
-        dash2.setFont(font_time_btn)
-        dash2.setStyleSheet(f"color: {EXAM_TEXT_COLOR}; background: transparent;")
-        dash2.setAlignment(Qt.AlignCenter)  # type: ignore
-        edit_layout.addWidget(dash2, 3, 3)
-
-        self._next_finish_btn = self._make_time_button(
-            self._next_finish_time,
-            lambda: self._open_keypad(self._next_start_btn, self._next_finish_btn), # type: ignore
-        )
-        edit_layout.addWidget(self._next_finish_btn, 3, 4)
+        edit_layout.addWidget(self._next_time_btn, 3, 2, 1, 3)
 
         root.addWidget(edit_frame, 2, 1, 2, 1, Qt.AlignCenter)  # type: ignore
 
@@ -1153,13 +1127,12 @@ class ExamFullscreenWindow(QWidget):
                 color: {EXAM_TEXT_COLOR};
                 background: transparent;
                 border: none;
-                border-bottom: 2px solid rgba(255,255,255,0.12);
                 border-radius: 0;
-                padding: 8px 16px;
-                min-width: 80px;
+                padding: 0px;
+                max-width: 240px;
             }}
             QPushButton:hover {{
-                border-bottom: 2px solid rgba(255,255,255,0.35);
+                color: rgba(255,255,255,0.75);
             }}
         """)
         btn.clicked.connect(slot)
@@ -1168,34 +1141,28 @@ class ExamFullscreenWindow(QWidget):
     # ================================================================
     #  滚轮时间选择器
     # ================================================================
-    def _open_keypad(self, start_btn: QPushButton,
-                     finish_btn: QPushButton) -> None:
+    def _open_keypad(self, btn: QPushButton) -> None:
         """
         打开滚轮时间选择器编辑起止时间。
 
         参数：
-            start_btn  (QPushButton)：开始时间按钮
-            finish_btn (QPushButton)：结束时间按钮
+            btn（QPushButton）：合并的时间按钮，文本格式为 "HH:MM — HH:MM"
         """
-        picker = TimeWheelPicker(
-            start_btn.text(),
-            finish_btn.text(),
-            parent=self,
-        )
+        parts = btn.text().split(' — ')
+        start_time = parts[0].strip() if len(parts) >= 1 else '00:00'
+        finish_time = parts[1].strip() if len(parts) >= 2 else '00:00'
+
+        picker = TimeWheelPicker(start_time, finish_time, parent=self)
         picker.time_confirmed.connect(
-            lambda st, ft: self._on_time_confirmed(
-                start_btn, finish_btn, st, ft
-            )
+            lambda st, ft: self._on_time_confirmed(btn, st, ft)
         )
         picker.exec()
 
-    def _on_time_confirmed(self, start_btn: QPushButton,
-                           finish_btn: QPushButton,
+    def _on_time_confirmed(self, btn: QPushButton,
                            start_time: str,
                            finish_time: str) -> None:
         """数字小键盘确认后将结果写入对应按钮."""
-        start_btn.setText(start_time)
-        finish_btn.setText(finish_time)
+        btn.setText(f"{start_time} — {finish_time}")
         logger.info(f"时间已更新：{start_time} — {finish_time}")
 
     # ================================================================
