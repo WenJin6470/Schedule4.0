@@ -165,6 +165,9 @@ class ThemeManager:
         # ---- 日志保留天数 ----
         self.log_retention_days: int = 7
 
+        # ---- 全屏时间创意模式背景图片文件夹 ----
+        self.fullscreen_bg_folder: str = 'images/FullScreenBackgrounds/default'
+
         # ---- 加载配置 ----
         self._load_config()
         self._load_subject_config()
@@ -173,6 +176,7 @@ class ThemeManager:
                     f"period_count={self.period_count}, "
                     f"curriculum={self.curriculum_path}, "
                     f"timetable={self.timetable_path}, "
+                    f"fullscreen_bg_folder={self.fullscreen_bg_folder}, "
                     f"log_retention_days={self.log_retention_days}")
 
     # ================================================================
@@ -197,6 +201,7 @@ class ThemeManager:
                 self.language = default_language
                 self.curriculum_path = default_curriculum
                 self.timetable_path = default_timetable
+                self.fullscreen_bg_folder = 'images/FullScreenBackgrounds/default'
                 self.log_retention_days = 7
                 self._apply_theme()
                 return
@@ -257,6 +262,12 @@ class ThemeManager:
                 logger.warning(f"log_retention_days='{log_retention_str}' 格式无效，使用默认值 {default_log_retention}")
                 self.log_retention_days = default_log_retention
 
+            # --- fullscreen_bg_folder（全屏时间创意模式背景图片文件夹）---
+            default_bg_folder: str = 'images/FullScreenBackgrounds/default'
+            bg_folder_str: str = parser.get('Schedule', 'fullscreen_bg_folder',
+                                             fallback=default_bg_folder)
+            self.fullscreen_bg_folder = bg_folder_str.strip()
+
             self._apply_theme()
 
             logger.info(f"配置加载完成：period_count={self.period_count}, "
@@ -272,6 +283,7 @@ class ThemeManager:
             self.language = default_language
             self.curriculum_path = default_curriculum
             self.timetable_path = default_timetable
+            self.fullscreen_bg_folder = 'images/FullScreenBackgrounds/default'
             self.log_retention_days = 7
             self._apply_theme()
         except Exception as e:
@@ -281,6 +293,7 @@ class ThemeManager:
             self.language = default_language
             self.curriculum_path = default_curriculum
             self.timetable_path = default_timetable
+            self.fullscreen_bg_folder = 'images/FullScreenBackgrounds/default'
             self.log_retention_days = 7
             self._apply_theme()
 

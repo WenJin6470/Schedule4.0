@@ -25,9 +25,9 @@ import os
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from PySide6.QtWidgets import QLabel, QPushButton
+from PySide6.QtWidgets import QLabel, QPushButton, QMenu
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QIcon
+from PySide6.QtGui import QColor, QFont, QIcon, QAction
 
 from schedule_config import ThemeManager, ThemedWidget, ScheduleDataManager, DebugConfig, is_color_dark
 from schedule_actions import ActionMessage, ActionType
@@ -269,9 +269,88 @@ class ScheduleMainWindow(ThemedWidget):
     #  按钮点击槽函数
     # ================================================================
     def _on_fullscreen_time_clicked(self) -> None:
-        """全屏时间按钮 — 发射 backend_signal('fullscreen_time')。"""
-        logger.info("用户点击了全屏时间按钮")
-        self.backend_signal.emit(ActionMessage.fullscreen_time())
+        """
+        全屏时间按钮 — 弹出模式选择菜单（考试模式 / 创意模式）。
+        ------------------------------------------------
+        用户点击按钮后，在按钮上方弹出一个下拉菜单，
+        让用户选择进入考试模式或创意模式的全屏时间。
+        """
+        logger.info("用户点击了全屏时间按钮，弹出模式选择菜单")
+
+        # 创建弹出菜单
+        menu: QMenu = QMenu(self)
+        menu.setFont(QFont("Arial", 11))
+
+        # 菜单样式：与主窗口主题协调
+        is_dark: bool = (self._theme.theme == 'darkcolor')
+        menu_bg: str = '#2D2D30' if is_dark else '#FFFFFF'
+        menu_text: str = '#E0E0E0' if is_dark else '#212121'
+        menu_hover: str = '#3E3E42' if is_dark else '#E8E8E8'
+        menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {menu_bg};
+                color: {menu_text};
+                border: 1px solid rgba(128, 128, 128, 0.3);
+                border-radius: 6px;
+                padding: 4px 0px;
+            }}
+            QMenu::item {{
+                padding: 8px 32px 8px 16px;
+                border-radius: 4px;
+                margin: 2px 4px;
+            }}
+            QMenu::item:selected {{
+                background-color: {menu_hover};
+            }}
+            QMenu::separator {{
+                height: 1px;
+                background: rgba(128, 128, 128, 0.2);
+                margin: 4px 8px;
+            }}
+        """)
+
+        # 创建两个模式选项
+        exam_action: QAction = QAction("📝  考试模式", menu)
+        exam_action.setToolTip("纯色背景 + 实时时间")
+
+        creative_action: QAction = QAction("🎨  创意模式", menu)
+        creative_action.setToolTip("随机图片背景 + 红色实时时间")
+
+        menu.addAction(exam_action)
+        menu.addSeparator()
+        menu.addAction(creative_action)
+
+        # 连接动作信号
+        exam_action.triggered.connect(
+            lambda: self._start_fullscreen_mode('exam')
+        )
+        creative_action.triggered.connect(
+            lambda: self._start_fullscreen_mode('creative')
+        )
+
+        # 在按钮上方弹出菜单
+        btn: QPushButton = getattr(self, '_fullscreen_btn', None)
+        if btn is not None:
+            # 弹出在按钮右上方
+            menu.exec(btn.mapToGlobal(btn.rect().topRight()))
+        else:
+            menu.exec(self.mapToGlobal(self.rect().center()))
+
+    def _start_fullscreen_mode(self, mode: str) -> None:
+        """
+        根据用户选择的模式启动全屏时间。
+        ---------------------------
+        参数：
+            mode（str）：'exam' — 考试模式；'creative' — 创意模式
+        """
+        if mode == 'exam':
+            logger.info("用户选择了考试模式全屏时间")
+            self.backend_signal.emit(ActionMessage.fullscreen_time_exam())
+        elif mode == 'creative':
+            logger.info("用户选择了创意模式全屏时间")
+            self.backend_signal.emit(ActionMessage.fullscreen_time_creative())
+        else:
+            logger.warning(f"未知的全屏时间模式：'{mode}'")
 
     def _on_quick_edit_clicked(self) -> None:
         """快捷编辑按钮 — 发射信号并显示科目选择子窗口。"""

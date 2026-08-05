@@ -529,8 +529,14 @@ class ScheduleBackend:
                 [time_window, main_window, fullscreen_window], app
             )
         elif msg.type == ActionType.FULLSCREEN_TIME:
-            self._logger.info("[后端] 全屏时间 — 显示全屏时间窗口")
-            fullscreen_window.show_fullscreen()
+            self._logger.info("[后端] 全屏时间 — 显示全屏时间窗口（旧版兼容）")
+            fullscreen_window.show_fullscreen(mode='exam')
+        elif msg.type == ActionType.FULLSCREEN_TIME_EXAM:
+            self._logger.info("[后端] 全屏时间（考试模式）— 纯色背景 + 实时时间")
+            fullscreen_window.show_fullscreen(mode='exam')
+        elif msg.type == ActionType.FULLSCREEN_TIME_CREATIVE:
+            self._logger.info("[后端] 全屏时间（创意模式）— 随机图片背景 + 红色实时时间")
+            fullscreen_window.show_fullscreen(mode='creative')
         elif msg.type == ActionType.SETTINGS:
             self._logger.info("[后端] 设置")
         else:

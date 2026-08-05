@@ -27,9 +27,11 @@ class ActionType(StrEnum):
     """课表系统统一动作枚举。StrEnum 继承 str，可直接用于字符串比较。"""
 
     # ---- 系统操作 ----
-    CLOSE            = "close"
-    FULLSCREEN_TIME  = "fullscreen_time"
-    SETTINGS         = "settings"
+    CLOSE                     = "close"
+    FULLSCREEN_TIME           = "fullscreen_time"
+    FULLSCREEN_TIME_EXAM      = "fullscreen_time_exam"
+    FULLSCREEN_TIME_CREATIVE  = "fullscreen_time_creative"
+    SETTINGS                  = "settings"
 
     # ---- 快捷编辑 ----
     QUICK_EDIT_OPENED  = "quick_edit_opened"
@@ -76,8 +78,18 @@ class ActionMessage:
 
     @classmethod
     def fullscreen_time(cls) -> "ActionMessage":
-        """显示全屏时间窗口。"""
+        """显示全屏时间窗口（旧版，无模式选择）。"""
         return cls(ActionType.FULLSCREEN_TIME)
+
+    @classmethod
+    def fullscreen_time_exam(cls) -> "ActionMessage":
+        """考试模式全屏时间 — 纯色背景 + 实时时间。"""
+        return cls(ActionType.FULLSCREEN_TIME_EXAM)
+
+    @classmethod
+    def fullscreen_time_creative(cls) -> "ActionMessage":
+        """创意模式全屏时间 — 随机图片背景 + 红色实时时间。"""
+        return cls(ActionType.FULLSCREEN_TIME_CREATIVE)
 
     @classmethod
     def settings(cls) -> "ActionMessage":

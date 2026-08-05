@@ -14,11 +14,13 @@
 """
 
 import logging
+import os
+import random
 from typing import Optional
 
 from PySide6.QtWidgets import QLabel, QApplication
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QPixmap, QPainter
 
 from schedule_config import ThemeManager, ThemedWidget
 
@@ -95,20 +97,22 @@ class TimeWindow(ThemedWidget):
         self._time_label.setText(time_str)
 
 
-# ==================== 全屏时间窗口（预留） ====================
+# ==================== 全屏时间窗口 ====================
 
 class FullscreenTimeWindow(ThemedWidget):
     """
     # FullscreenTimeWindow — 全屏时间显示窗口
 
     全屏显示当前时间的窗口，适合在教室投影等场景使用。
+    支持两种模式：
+      - 考试模式（exam）：纯色背景 + 实时时间（与旧版行为一致）
+      - 创意模式（creative）：随机图片背景 + 红色实时时间
     ---
 
-    当前状态：界面框架已搭建，具体功能待后续实现。
-
     对外接口：
-      - show_fullscreen() — 显示全屏时间窗口
-      - hide_fullscreen() — 隐藏全屏时间窗口
+      - show_fullscreen(mode) — 以指定模式显示全屏时间窗口
+      - hide_fullscreen()     — 隐藏全屏时间窗口
+      - set_mode(mode)        — 切换显示模式
     """
 
     # 信号：全屏时间窗口关闭请求
@@ -125,6 +129,10 @@ class FullscreenTimeWindow(ThemedWidget):
 
         logger.info("FullscreenTimeWindow 初始化开始")
 
+        # ---- 当前模式 ----
+        self._mode: str = 'exam'  # 'exam' 或 'creative'
+        self._bg_pixmap: Optional[QPixmap] = None  # 创意模式的背景图片
+
         # ---- 窗口属性 ----
         self.setWindowFlags(
             Qt.FramelessWindowHint           # type: ignore
@@ -132,7 +140,7 @@ class FullscreenTimeWindow(ThemedWidget):
             | Qt.Tool                        # type: ignore
         )
         self.setAutoFillBackground(True)
-        self.setWindowOpacity(0.95)
+        self.setWindowOpacity(1.0)
 
         # 全屏尺寸
         self.setFixedSize(
@@ -141,9 +149,9 @@ class FullscreenTimeWindow(ThemedWidget):
         )
         self.move(0, 0)
 
-        # ---- 居中时间标签 ----
+        # ---- 居中时间标签（红色，始终显示）----
         self._time_label: QLabel = QLabel(self)
-        self._time_label.setFont(QFont("Arial", 120))
+        self._time_label.setFont(QFont("Arial", 180))
         self._time_label.setStyleSheet(
             f"color: {self._theme.time_color}; background: transparent;"
         )
@@ -175,15 +183,96 @@ class FullscreenTimeWindow(ThemedWidget):
         """更新时间显示（与 TimeWindow 接口一致）。"""
         self._time_label.setText(time_str)
 
-    def show_fullscreen(self) -> None:
-        """显示全屏时间窗口。"""
-        logger.info("显示全屏时间窗口")
+    def set_mode(self, mode: str) -> None:
+        """
+        设置全屏时间的显示模式。
+        ----------------------
+        参数：
+            mode（str）：'exam' — 考试模式（纯色背景）
+                        'creative' — 创意模式（随机图片背景）
+        """
+        if mode not in ('exam', 'creative'):
+            logger.warning(f"未知的全屏时间模式：'{mode}'，保持当前模式")
+            return
+        self._mode = mode
+        logger.info(f"全屏时间模式已切换为：{mode}")
+
+    def show_fullscreen(self, mode: str = 'exam') -> None:
+        """
+        以指定模式显示全屏时间窗口。
+        -------------------------
+        参数：
+            mode（str）：'exam' — 考试模式（纯色背景 + 实时时间）
+                        'creative' — 创意模式（随机图片背景 + 红色实时时间）
+        """
+        logger.info(f"显示全屏时间窗口（模式：{mode}）")
+        self.set_mode(mode)
+
+        if self._mode == 'creative':
+            self._load_random_background()
+
         self.show()
 
     def hide_fullscreen(self) -> None:
         """隐藏全屏时间窗口。"""
         logger.info("隐藏全屏时间窗口")
+        if self._bg_pixmap is not None:
+            self._bg_pixmap = None
         self.hide()
+
+    # ================================================================
+    #  创意模式：随机加载背景图片
+    # ================================================================
+    def _load_random_background(self) -> None:
+        """
+        从配置的文件夹中随机选取一张图片作为创意模式背景。
+        -----------------------------------------------
+        支持的格式：png, jpg, jpeg, bmp
+        若文件夹不存在或无可用图片，回退到纯色背景。
+        """
+        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        bg_folder: str = os.path.join(script_dir, self._theme.fullscreen_bg_folder)
+
+        logger.info(f"创意模式：在文件夹中随机选择背景图片：{bg_folder}")
+
+        if not os.path.isdir(bg_folder):
+            logger.warning(f"背景图片文件夹不存在：{bg_folder}，回退到纯色背景")
+            self._bg_pixmap = None
+            return
+
+        # 收集支持的图片文件
+        valid_extensions: tuple = ('.png', '.jpg', '.jpeg', '.bmp')
+        image_files: list = [
+            f for f in os.listdir(bg_folder)
+            if f.lower().endswith(valid_extensions)
+        ]
+
+        if not image_files:
+            logger.warning(f"背景图片文件夹为空（无支持的图片文件）：{bg_folder}，回退到纯色背景")
+            self._bg_pixmap = None
+            return
+
+        # 随机选择一张图片
+        chosen_file: str = random.choice(image_files)
+        image_path: str = os.path.join(bg_folder, chosen_file)
+
+        logger.info(f"创意模式：随机选中背景图片：{chosen_file}")
+
+        pixmap: QPixmap = QPixmap(image_path)
+        if pixmap.isNull():
+            logger.warning(f"无法加载图片：{image_path}，回退到纯色背景")
+            self._bg_pixmap = None
+            return
+
+        # 缩放图片到全屏尺寸（拉伸充满，考虑高 DPI 避免模糊）
+        dpr: float = self.devicePixelRatio()
+        self._bg_pixmap = pixmap.scaled(
+            int(self._theme.screen_width * dpr),
+            int(self._theme.screen_height * dpr),
+            Qt.IgnoreAspectRatio,            # type: ignore
+            Qt.SmoothTransformation,          # type: ignore
+        )
+        self._bg_pixmap.setDevicePixelRatio(dpr)
 
     # ================================================================
     #  鼠标点击关闭
@@ -193,3 +282,22 @@ class FullscreenTimeWindow(ThemedWidget):
         logger.info("用户点击全屏时间窗口，关闭")
         self.hide()
         self.close_requested.emit()
+
+    # ================================================================
+    #  重写 paintEvent：创意模式绘制背景图片
+    # ================================================================
+    def paintEvent(self, event) -> None:
+        """
+        自定义背景绘制。
+        -------------
+        创意模式：绘制随机背景图片（拉伸覆盖全屏）。
+        考试模式：使用父类 ThemedWidget 的纯色背景填充。
+        """
+        painter: QPainter = QPainter(self)
+
+        if self._mode == 'creative' and self._bg_pixmap is not None:
+            # 创意模式：拉伸图片充满整个窗口
+            painter.drawPixmap(self.rect(), self._bg_pixmap)
+        else:
+            # 考试模式或创意模式无图片时：使用纯色背景
+            painter.fillRect(self.rect(), self._bg_color)
