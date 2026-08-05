@@ -1058,6 +1058,15 @@ class ExamFullscreenWindow(QWidget):
         )
         edit_layout.addWidget(self._next_time_btn, 3, 2, 1, 3)
 
+        # ---- 使用提示 ----
+        hint_label = QLabel('点击 语文 或 白色时间 则可进行修改。', self)
+        hint_label.setFont(QFont('宋体', 12))
+        hint_label.setStyleSheet(
+            "color: rgba(255,255,255,0.35); background: transparent; font-style: italic;"
+        )
+        hint_label.setAlignment(Qt.AlignCenter)  # type: ignore
+        edit_layout.addWidget(hint_label, 4, 0, 1, 4, Qt.AlignCenter)  # type: ignore
+
         root.addWidget(edit_frame, 2, 1, 2, 1, Qt.AlignCenter)  # type: ignore
 
         # ---- 6. 退出全屏按钮 ----
@@ -1087,14 +1096,14 @@ class ExamFullscreenWindow(QWidget):
         combo = QComboBox(self)
         combo.addItems(items)
         combo.setCurrentIndex(default_index)
-        combo.setFont(QFont('宋体', 22))
+        combo.setFont(QFont('宋体', 28))
         combo.setStyleSheet(f"""
             QComboBox {{
                 color: {EXAM_TEXT_COLOR};
                 background: transparent;
                 border: none;
-                padding: 6px 32px 6px 8px;
-                min-width: 100px;
+                padding: 6px 24px 6px 6px;
+                min-width: 70px;
             }}
             QComboBox:hover {{
                 color: {EXAM_TEXT_COLOR};
@@ -1121,7 +1130,7 @@ class ExamFullscreenWindow(QWidget):
     def _make_time_button(self, text: str, slot) -> QPushButton:
         """创建时间按钮（无边框，点击弹出数字小键盘）."""
         btn = QPushButton(text, self)
-        btn.setFont(QFont('宋体', 25))
+        btn.setFont(QFont('宋体', 28))
         btn.setStyleSheet(f"""
             QPushButton {{
                 color: {EXAM_TEXT_COLOR};
@@ -1129,7 +1138,7 @@ class ExamFullscreenWindow(QWidget):
                 border: none;
                 border-radius: 0;
                 padding: 0px;
-                max-width: 240px;
+                max-width: 300px;
             }}
             QPushButton:hover {{
                 color: rgba(255,255,255,0.75);
