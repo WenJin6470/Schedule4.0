@@ -34,7 +34,7 @@ from PySide6.QtWidgets import QApplication
 # ★ 导入主题、前端口、后端逻辑 ★
 # ================================================================
 from schedule_config import ThemeManager, ScheduleDataManager, DebugConfig, SwapManager
-from schedule_time import TimeWindow, FullscreenTimeWindow
+from schedule_time import TimeWindow, FullscreenTimeWindow, ExamFullscreenWindow
 from schedule_frontend import ScheduleMainWindow
 from schedule_backend import TimeManager, ScheduleBackend, WindowHelper, LogManager
 
@@ -172,10 +172,15 @@ def main() -> None:
     main_window: ScheduleMainWindow = ScheduleMainWindow(theme_manager, schedule_data, debug_config)
     logger.info("ScheduleMainWindow 创建完成")
 
-    # 4c. 全屏时间窗口（默认隐藏，待后续实现）
+    # 4c. 全屏时间窗口（默认隐藏，支持考试/创意模式）
     logger.info("正在创建 FullscreenTimeWindow...")
     fullscreen_window: FullscreenTimeWindow = FullscreenTimeWindow(theme_manager)
     logger.info("FullscreenTimeWindow 创建完成")
+
+    # 4d. 考试模式全屏窗口（默认隐藏）
+    logger.info("正在创建 ExamFullscreenWindow...")
+    exam_window: ExamFullscreenWindow = ExamFullscreenWindow(theme_manager)
+    logger.info("ExamFullscreenWindow 创建完成")
 
     # ================================================================
     #  第5步：创建后端实例
@@ -198,9 +203,12 @@ def main() -> None:
     time_manager.time_tick.connect(time_window.update_time_display)
 
     # ----- 连接2：TimeManager.time_tick → 全屏时间窗口 -----
-    # ★ 修复了此前全屏时间窗口无时间数据的问题
     logger.info("连接信号：TimeManager.time_tick → FullscreenTimeWindow.update_time_display()")
     time_manager.time_tick.connect(fullscreen_window.update_time_display)
+
+    # ----- 连接2c：TimeManager.time_tick → 考试模式全屏窗口 -----
+    logger.info("连接信号：TimeManager.time_tick → ExamFullscreenWindow.update_time_display()")
+    time_manager.time_tick.connect(exam_window.update_time_display)
 
     # ----- 连接2b：TimeManager.time_tick → 主窗口科目标签高亮 -----
     logger.info("连接信号：TimeManager.time_tick → ScheduleMainWindow.update_period_highlight()")
@@ -210,9 +218,20 @@ def main() -> None:
     time_manager.start()
     logger.info("TimeManager 定时器已启动，时间信号广播中")
 
-    # ----- 连接3：全屏时间窗口关闭 → 隐藏 -----
+    # ----- 连接3：全屏时间窗口关闭 → 隐藏 + 恢复 TimeWindow 置顶 -----
     fullscreen_window.close_requested.connect(
-        lambda: fullscreen_window.hide()
+        lambda: (
+            fullscreen_window.hide(),
+            time_window.set_always_on_top(True),
+        )
+    )
+
+    # ----- 连接3b：考试模式全屏窗口关闭 → 隐藏 + 恢复 TimeWindow 置顶 -----
+    exam_window.close_requested.connect(
+        lambda: (
+            exam_window.hide(),
+            time_window.set_always_on_top(True),
+        )
     )
 
     # ----- 连接4：主窗口统一信号 → 后端 -----
@@ -220,7 +239,8 @@ def main() -> None:
     main_window.backend_signal.connect(
         lambda msg: backend_handler.handle_action(
             msg, main_window, time_window, fullscreen_window, app,
-            subject_window=main_window._subject_window
+            exam_window=exam_window,
+            subject_window=main_window._subject_window,
         )
     )
     logger.info("统一后端信号已连接")

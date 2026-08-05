@@ -494,6 +494,7 @@ class ScheduleBackend:
     def handle_action(self, msg: ActionMessage, main_window,
                        time_window, fullscreen_window,
                        app: QApplication,
+                       exam_window=None,
                        subject_window=None) -> None:
         """
         处理来自前端的统一信号。
@@ -502,8 +503,9 @@ class ScheduleBackend:
             msg                （ActionMessage）：      结构化动作消息
             main_window        （ScheduleMainWindow）： 课表主窗口引用
             time_window        （TimeWindow）：         时间窗口引用
-            fullscreen_window  （FullscreenTimeWindow）：全屏时间窗口引用
+            fullscreen_window  （FullscreenTimeWindow）：全屏时间窗口引用（创意模式）
             app                （QApplication）：       QApplication 实例
+            exam_window        （ExamFullscreenWindow）：考试模式全屏窗口引用（可选）
             subject_window     （SubjectSelectWindow）：快捷编辑窗口引用（可选）
 
         说明：
@@ -526,16 +528,20 @@ class ScheduleBackend:
             # 先停止光标闪烁
             main_window.stop_cursor_blink()
             WindowHelper.close_all(
-                [time_window, main_window, fullscreen_window], app
+                [time_window, main_window, fullscreen_window, exam_window], app
             )
         elif msg.type == ActionType.FULLSCREEN_TIME:
             self._logger.info("[后端] 全屏时间 — 显示全屏时间窗口（旧版兼容）")
+            time_window.set_always_on_top(False)
             fullscreen_window.show_fullscreen(mode='exam')
         elif msg.type == ActionType.FULLSCREEN_TIME_EXAM:
-            self._logger.info("[后端] 全屏时间（考试模式）— 纯色背景 + 实时时间")
-            fullscreen_window.show_fullscreen(mode='exam')
+            self._logger.info("[后端] 全屏时间（考试模式）— 墨绿色背景 + 科目/时间编辑")
+            if exam_window is not None:
+                time_window.set_always_on_top(False)
+                exam_window.show_fullscreen()
         elif msg.type == ActionType.FULLSCREEN_TIME_CREATIVE:
             self._logger.info("[后端] 全屏时间（创意模式）— 随机图片背景 + 红色实时时间")
+            time_window.set_always_on_top(False)
             fullscreen_window.show_fullscreen(mode='creative')
         elif msg.type == ActionType.SETTINGS:
             self._logger.info("[后端] 设置")

@@ -143,7 +143,6 @@ class ScheduleMainWindow(ThemedWidget):
         # ---- 窗口属性 ----
         self.setWindowFlags(
             Qt.FramelessWindowHint           # type: ignore
-            | Qt.WindowStaysOnTopHint        # type: ignore
             | Qt.Tool                        # type: ignore
         )
         self.setAutoFillBackground(True)
