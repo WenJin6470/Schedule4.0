@@ -401,10 +401,12 @@ class ScheduleMainWindow(ThemedWidget):
         logger.info("科目选择子窗口已显示")
 
     def _show_settings_window(self) -> None:
-        """创建并显示设置窗口。"""
+        """显示全屏设置窗口（复用已有实例或新建）。"""
         if self._settings_window is not None:
-            self._settings_window.close()
-            self._settings_window = None
+            # 窗口已存在（可能被隐藏），直接最大化显示
+            logger.info("复用已有的设置窗口")
+            self._settings_window.showMaximized()
+            return
 
         # ★ 启动优化：懒加载 — 仅在首次点击设置按钮时才导入模块
         from schedule_settings import SettingsWindow  # noqa: E402
@@ -414,7 +416,7 @@ class ScheduleMainWindow(ThemedWidget):
             parent_signal=self.backend_signal,
             theme_manager=self._theme,
         )
-        self._settings_window.show() # type: ignore
+        self._settings_window.showMaximized()  # type: ignore
         logger.info("设置窗口已显示")
 
     # ================================================================
