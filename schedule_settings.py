@@ -34,7 +34,7 @@ from PySide6.QtCore import Qt, Signal, SignalInstance
 from PySide6.QtGui import QFont, QIcon, QCloseEvent, QColor
 
 from schedule_config import ThemeManager, ThemedWidget, ScheduleDataManager
-from schedule_backend import TimeWheelPicker
+from schedule_backend import TimeWheelPicker, WheelColumn
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -88,6 +88,7 @@ class SettingsWindow(ThemedWidget):
         self._status_label: Optional[QLabel] = None
         self._status_card: Optional[QFrame] = None
         self._table_frame: Optional[QFrame] = None
+        self._add_dialog: Optional[TimetableEntryDialog] = None
 
         logger.info("SettingsWindow 初始化开始")
         self._setup_ui()
@@ -730,8 +731,8 @@ class SettingsWindow(ThemedWidget):
                 logger.error(f"复制时间表模板失败：{e}")
                 data = {"lesson_1": ["8:00:00", "8:40:00"]}
         else:
-            # 空白模板
-            data = {"lesson_1": ["8:00:00", "8:40:00"]}
+            # 空白模板（默认第一节课 7:00–7:40）
+            data = {"lesson_1": ["7:00:00", "7:40:00"]}
 
         try:
             with open(new_path, 'w', encoding='utf-8') as f:
@@ -800,52 +801,119 @@ class SettingsWindow(ThemedWidget):
     # ================================================================
     #  事件：新加条目
     # ================================================================
+    def _calculate_default_times(self) -> tuple:
+        """根据上一节课的结束时间计算新条目的默认起止时间。
+
+        规则：
+          - 开始时间 = 上一节课结束时间 + 10 分钟
+          - 结束时间 = 开始时间 + 40 分钟
+          - 若无现有课时，默认 7:00–7:40
+        """
+        data: Dict = self._schedule_data.timetable_data  # type: ignore
+
+        # 收集所有课时的结束时间，按 lesson_N 序号排序
+        last_end_minutes: Optional[int] = None
+        for key in data:
+            if key.startswith('lesson_'):
+                val = data[key]
+                if isinstance(val, list) and len(val) >= 2:
+                    try:
+                        parts = val[1].split(':')
+                        h, m = int(parts[0]), int(parts[1])
+                        end_mins = h * 60 + m
+                        if last_end_minutes is None or end_mins > last_end_minutes:
+                            last_end_minutes = end_mins
+                    except (ValueError, IndexError):
+                        pass
+
+        if last_end_minutes is None:
+            # 无现有课时，默认 7:00–7:40
+            return '07:00', '07:40'
+
+        # 开始时间 = 最后结束时间 + 10 分钟
+        start_mins: int = last_end_minutes + 10
+        start_h: int = (start_mins // 60) % 24
+        start_m: int = start_mins % 60
+
+        # 结束时间 = 开始时间 + 40 分钟
+        end_mins: int = start_mins + 40
+        end_h: int = (end_mins // 60) % 24
+        end_m: int = end_mins % 60
+
+        return f"{start_h:02d}:{start_m:02d}", f"{end_h:02d}:{end_m:02d}"
+
     def _on_add_entry(self) -> None:
-        """弹出条目编辑器添加新条目。"""
+        """弹出条目编辑器添加新条目（非模态，可连续添加）。"""
+        # 若已有打开的添加对话框，激活它
+        if self._add_dialog is not None and self._add_dialog.isVisible():
+            self._add_dialog.raise_()
+            self._add_dialog.activateWindow()
+            return
+
+        # 根据上一节课计算默认时间
+        start_time, end_time = self._calculate_default_times()
+
         dialog: TimetableEntryDialog = TimetableEntryDialog(
             entry_type='lesson',
-            start_time='08:00',
-            end_time='08:40',
+            start_time=start_time,
+            end_time=end_time,
             theme_manager=self._theme,
             parent=self,
+            stay_open=True,
         )
-        if dialog.exec() == QDialog.Accepted:  # type: ignore
-            result: dict = dialog.result()
-            data: Dict = self._schedule_data.timetable_data # type: ignore
+        dialog.entry_confirmed.connect(self._on_entry_confirmed)
+        self._add_dialog = dialog
+        dialog.show()
 
-            # 生成新 key
-            if result['type'] == 'lesson':
-                # 找到下一个可用的 lesson_N
-                lesson_nums: List[int] = []
-                for k in data:
-                    if k.startswith('lesson_'):
-                        try:
-                            lesson_nums.append(int(k.replace('lesson_', '')))
-                        except ValueError:
-                            pass
-                next_num: int = max(lesson_nums) + 1 if lesson_nums else 1
-                new_key: str = f"lesson_{next_num}"
-                data[new_key] = [
-                    f"{result['start_time']}:00",
-                    f"{result['end_time']}:00",
-                ]
-            else:
-                # 分隔线：找到下一个可用的 dividerline_N
-                div_nums: List[int] = []
-                for k in data:
-                    if k.startswith('dividerline_'):
-                        try:
-                            div_nums.append(int(k.replace('dividerline_', '')))
-                        except ValueError:
-                            pass
-                next_num = max(div_nums) + 1 if div_nums else 1
-                new_key = f"dividerline_{next_num}"
-                data[new_key] = "-"
+    def _on_entry_confirmed(self, etype: str,
+                            start_time: str, end_time: str) -> None:
+        """处理新建条目对话框的确认信号（不关闭对话框）。"""
+        data: Dict = self._schedule_data.timetable_data  # type: ignore
 
-            if self._schedule_data is not None:
-                self._schedule_data.save_timetable()
-            self._refresh_table()
-            self.timetable_changed.emit()
+        if etype == 'lesson':
+            lesson_nums: List[int] = []
+            for k in data:
+                if k.startswith('lesson_'):
+                    try:
+                        lesson_nums.append(int(k.replace('lesson_', '')))
+                    except ValueError:
+                        pass
+            next_num: int = max(lesson_nums) + 1 if lesson_nums else 1
+            new_key: str = f"lesson_{next_num}"
+            data[new_key] = [
+                f"{start_time}:00",
+                f"{end_time}:00",
+            ]
+        else:
+            div_nums: List[int] = []
+            for k in data:
+                if k.startswith('dividerline_'):
+                    try:
+                        div_nums.append(int(k.replace('dividerline_', '')))
+                    except ValueError:
+                        pass
+            next_num = max(div_nums) + 1 if div_nums else 1
+            new_key = f"dividerline_{next_num}"
+            data[new_key] = "-"
+
+        if self._schedule_data is not None:
+            self._schedule_data.save_timetable()
+        self._refresh_table()
+        self.timetable_changed.emit()
+
+        # 计算下一次默认时间（结束时间 + 10 分钟开始，+ 40 分钟结束）
+        next_start_time, next_end_time = self._calculate_default_times()
+
+        # 在对话框中显示结果
+        lesson_label: str = (
+            f"第{next_num}节课" if etype == 'lesson'
+            else f"分隔线{next_num}"
+        )
+        if self._add_dialog is not None:
+            self._add_dialog.show_result(
+                lesson_label, start_time, end_time,
+                next_start_time, next_end_time,
+            )
 
     # ================================================================
     #  主题刷新（覆盖基类）
@@ -993,16 +1061,24 @@ class TimetableEntryDialog(QDialog):
 
     用于新增或编辑时间表中的一条记录。
     支持两种类型：
-      - 课时：需要设置开始和结束时间
+      - 课时：需要设置开始和结束时间（内嵌滚轮控件）
       - 分隔线：不需要时间设置
+
+    支持两种模式：
+      - 编辑模式（stay_open=False）：模态弹窗，确认后关闭
+      - 新建模式（stay_open=True）： 非模态，确认后保持打开，显示反馈
     ---
     """
+
+    # 信号：新建模式下条目确认（类型, 开始时间, 结束时间）
+    entry_confirmed = Signal(str, str, str)
 
     def __init__(self, entry_type: str = 'lesson',
                  start_time: str = '08:00',
                  end_time: str = '08:40',
                  theme_manager: Optional[ThemeManager] = None,
-                 parent: Optional[QWidget] = None) -> None:
+                 parent: Optional[QWidget] = None,
+                 stay_open: bool = False) -> None:
         """
         初始化条目编辑对话框。
 
@@ -1012,33 +1088,67 @@ class TimetableEntryDialog(QDialog):
             end_time      （str）：课时结束时间 HH:MM
             theme_manager （ThemeManager）：主题管理器
             parent        （QWidget | None）：父窗口
+            stay_open     （bool）：True=新建模式（不关闭），False=编辑模式
         """
         super().__init__(parent)
         self._theme: Optional[ThemeManager] = theme_manager
         self._entry_type: str = entry_type
         self._start_time: str = start_time
         self._end_time: str = end_time
+        self._stay_open: bool = stay_open
 
-        self.setWindowTitle('编辑条目')
+        self.setWindowTitle('新建条目' if stay_open else '编辑条目')
         self.setWindowFlags(
             Qt.Window                         # type: ignore
             | Qt.WindowCloseButtonHint        # type: ignore
         )
-        self.setModal(True)
-        self.setMinimumWidth(320)
+        self.setModal(not stay_open)
+        self.setMinimumWidth(380)
+
+        # 滚轮控件引用
+        self._start_hour: Optional[WheelColumn] = None
+        self._start_min: Optional[WheelColumn] = None
+        self._end_hour: Optional[WheelColumn] = None
+        self._end_min: Optional[WheelColumn] = None
+        self._result_label: Optional[QLabel] = None
+        self._confirm_btn: Optional[QPushButton] = None
 
         self._setup_ui()
-        logger.info(f"TimetableEntryDialog 初始化完成（类型={entry_type}）")
+        logger.info(
+            f"TimetableEntryDialog 初始化完成"
+            f"（类型={entry_type}, stay_open={stay_open}）"
+        )
 
+    # ================================================================
+    #  主题颜色获取
+    # ================================================================
+    def _get_wheel_colors(self) -> tuple:
+        """根据主题获取滚轮的背景色和文字色。"""
+        if self._theme is not None:
+            if self._theme.theme == 'lightcolor':
+                return '#FFFFFF', '#212121'
+            elif self._theme.theme == 'darkcolor':
+                return '#252526', '#E0E0E0'
+            else:
+                return self._theme.back_color, self._theme.font_color
+        return '#FFFFFF', '#212121'
+
+    # ================================================================
+    #  UI 构建
+    # ================================================================
     def _setup_ui(self) -> None:
-        """构造对话框布局。"""
+        """构造对话框布局（内嵌时间滚轮控件）。"""
         layout: QVBoxLayout = QVBoxLayout(self)
         layout.setSpacing(12)
         layout.setContentsMargins(20, 16, 20, 16)
 
+        fc: str = self._theme.font_color if self._theme else '#212121'
+
         # ---- 类型选择 ----
         type_label: QLabel = QLabel("条目类型：")
         type_label.setFont(QFont("Microsoft YaHei", 12))
+        if self._theme:
+            type_label.setStyleSheet(f"color: {fc}; background: transparent;")
         layout.addWidget(type_label)
 
         self._lesson_radio: QRadioButton = QRadioButton("课时")
@@ -1058,33 +1168,109 @@ class TimetableEntryDialog(QDialog):
         else:
             self._lesson_radio.setChecked(True)
 
-        # ---- 时间区域（仅课时有）----
+        # ---- 时间滚轮区域（内嵌，替代原来的弹窗按钮）----
         self._time_frame: QFrame = QFrame()
         time_layout: QVBoxLayout = QVBoxLayout(self._time_frame)
-        time_layout.setContentsMargins(0, 4, 0, 0)
-        time_layout.setSpacing(8)
+        time_layout.setContentsMargins(0, 6, 0, 0)
+        time_layout.setSpacing(4)
 
-        self._time_display: QLabel = QLabel(
-            f"当前时间：{self._start_time} — {self._end_time}"
+        bg, tc = self._get_wheel_colors()
+
+        # 解析初始时间
+        sh_str, sm_str = self._start_time.split(':')
+        fh_str, fm_str = self._end_time.split(':')
+        sh: int = int(sh_str)
+        sm: int = int(sm_str)
+        fh: int = int(fh_str)
+        fm: int = int(fm_str)
+
+        hour_items: List[str] = [f"{i:02d}" for i in range(24)]
+        min_items: List[str] = [f"{i:02d}" for i in range(60)]
+
+        # 滚轮行（4 列滚轮 + 分隔符）
+        wheels_row: QHBoxLayout = QHBoxLayout()
+        wheels_row.setSpacing(0)
+        wheels_row.setAlignment(Qt.AlignCenter)  # type: ignore
+
+        self._start_hour = WheelColumn(
+            hour_items, sh, bg_color=bg, text_color=tc
         )
-        self._time_display.setFont(QFont("Microsoft YaHei", 11))
-        time_layout.addWidget(self._time_display)
+        self._start_hour.setFixedWidth(60)
+        wheels_row.addWidget(self._start_hour)
+        wheels_row.addWidget(self._make_sep(':'))
 
-        set_time_btn: QPushButton = QPushButton("设置时间")
-        set_time_btn.setFont(QFont("Microsoft YaHei", 11))
-        set_time_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
-        set_time_btn.setMinimumHeight(32)
-        set_time_btn.clicked.connect(self._on_set_time)
-        time_layout.addWidget(set_time_btn)
+        self._start_min = WheelColumn(
+            min_items, sm, bg_color=bg, text_color=tc
+        )
+        self._start_min.setFixedWidth(60)
+        wheels_row.addWidget(self._start_min)
+        wheels_row.addWidget(self._make_sep('—'))
+
+        self._end_hour = WheelColumn(
+            hour_items, fh, bg_color=bg, text_color=tc
+        )
+        self._end_hour.setFixedWidth(60)
+        wheels_row.addWidget(self._end_hour)
+        wheels_row.addWidget(self._make_sep(':'))
+
+        self._end_min = WheelColumn(
+            min_items, fm, bg_color=bg, text_color=tc
+        )
+        self._end_min.setFixedWidth(60)
+        wheels_row.addWidget(self._end_min)
+
+        time_layout.addLayout(wheels_row)
+
+        # 分组标签行（"开始时间" / "结束时间"）
+        labels_row: QHBoxLayout = QHBoxLayout()
+        labels_row.setSpacing(0)
+        labels_row.setAlignment(Qt.AlignCenter)  # type: ignore
+
+        label_alpha: str = (
+            "rgba(0,0,0,0.40)" if tc == '#212121'
+            else "rgba(255,255,255,0.40)"
+        )
+
+        start_lbl: QLabel = QLabel('开始时间')
+        start_lbl.setFont(QFont('Microsoft YaHei', 10))
+        start_lbl.setStyleSheet(
+            f"color: {label_alpha}; background: transparent;"
+        )
+        start_lbl.setAlignment(Qt.AlignCenter)  # type: ignore
+        start_lbl.setFixedWidth(60 + 16 + 60)
+        labels_row.addWidget(start_lbl)
+
+        labels_row.addSpacing(16)
+
+        end_lbl: QLabel = QLabel('结束时间')
+        end_lbl.setFont(QFont('Microsoft YaHei', 10))
+        end_lbl.setStyleSheet(
+            f"color: {label_alpha}; background: transparent;"
+        )
+        end_lbl.setAlignment(Qt.AlignCenter)  # type: ignore
+        end_lbl.setFixedWidth(60 + 16 + 60)
+        labels_row.addWidget(end_lbl)
+
+        time_layout.addLayout(labels_row)
 
         layout.addWidget(self._time_frame)
 
-        # 分隔线提示
+        # ---- 分隔线提示 ----
         self._divider_hint: QLabel = QLabel("分隔线不需要时间设置")
         self._divider_hint.setFont(QFont("Microsoft YaHei", 11))
         self._divider_hint.setStyleSheet("opacity: 0.5;")
         self._divider_hint.setVisible(self._entry_type == 'dividerline')
         layout.addWidget(self._divider_hint)
+
+        # ---- 结果反馈标签（新建模式下显示）----
+        self._result_label = QLabel("")
+        self._result_label.setFont(QFont("Microsoft YaHei", 10, QFont.Bold))  # type: ignore
+        self._result_label.setStyleSheet(
+            "color: #4CAF50; background: transparent; padding: 4px 0;"
+        )
+        self._result_label.setWordWrap(True)
+        self._result_label.setVisible(False)
+        layout.addWidget(self._result_label)
 
         # ---- 联动：radio 切换 ----
         self._lesson_radio.toggled.connect(self._on_type_changed)
@@ -1093,23 +1279,53 @@ class TimetableEntryDialog(QDialog):
         btn_row: QHBoxLayout = QHBoxLayout()
         btn_row.addStretch()
 
-        cancel_btn: QPushButton = QPushButton("取消")
-        cancel_btn.setFont(QFont("Microsoft YaHei", 11))
-        cancel_btn.setMinimumHeight(32)
-        cancel_btn.clicked.connect(self.reject)
-        btn_row.addWidget(cancel_btn)
+        if self._stay_open:
+            done_btn: QPushButton = QPushButton("完成")
+            done_btn.setFont(QFont("Microsoft YaHei", 11))
+            done_btn.setMinimumHeight(32)
+            done_btn.clicked.connect(self.reject)
+            btn_row.addWidget(done_btn)
+        else:
+            cancel_btn: QPushButton = QPushButton("取消")
+            cancel_btn.setFont(QFont("Microsoft YaHei", 11))
+            cancel_btn.setMinimumHeight(32)
+            cancel_btn.clicked.connect(self.reject)
+            btn_row.addWidget(cancel_btn)
 
-        confirm_btn: QPushButton = QPushButton("确认")
-        confirm_btn.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))  # type: ignore
-        confirm_btn.setMinimumHeight(32)
-        confirm_btn.clicked.connect(self._on_confirm)
-        btn_row.addWidget(confirm_btn)
+        self._confirm_btn = QPushButton("确认")
+        self._confirm_btn.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))  # type: ignore
+        self._confirm_btn.setMinimumHeight(32)
+        self._confirm_btn.clicked.connect(self._on_confirm)
+        btn_row.addWidget(self._confirm_btn)
 
         layout.addLayout(btn_row)
 
         self.setLayout(layout)
         self._update_visibility()
+        self.setFixedSize(self.sizeHint())
 
+    # ================================================================
+    #  分隔符标签
+    # ================================================================
+    def _make_sep(self, text: str) -> QLabel:
+        """创建分隔符标签（: 或 —）。"""
+        _, tc = self._get_wheel_colors()
+        sep_alpha: str = (
+            "rgba(0,0,0,0.30)" if tc == '#212121'
+            else "rgba(255,255,255,0.35)"
+        )
+        label: QLabel = QLabel(text)
+        label.setFont(QFont('Arial', 22))
+        label.setStyleSheet(
+            f"color: {sep_alpha}; background: transparent;"
+        )
+        label.setAlignment(Qt.AlignCenter)  # type: ignore
+        label.setFixedWidth(16)
+        return label
+
+    # ================================================================
+    #  事件处理
+    # ================================================================
     def _on_type_changed(self, _checked: bool) -> None:
         """课时/分隔线切换时更新可见区域。"""
         self._update_visibility()
@@ -1119,58 +1335,88 @@ class TimetableEntryDialog(QDialog):
         is_lesson: bool = self._lesson_radio.isChecked()
         self._time_frame.setVisible(is_lesson)
         self._divider_hint.setVisible(not is_lesson)
+        # 调整窗口大小以适应内容变化
+        self.setFixedSize(self.sizeHint())
 
-    # ================================================================
-    #  设置时间
-    # ================================================================
-    def _on_set_time(self) -> None:
-        """打开共享的 TimeWheelPicker 选择时间。"""
-        # 获取主题适配的颜色
-        if self._theme is not None:
-            if self._theme.theme == 'lightcolor':
-                bg: str = '#FFFFFF'
-                tc: str = '#212121'
-            elif self._theme.theme == 'darkcolor':
-                bg = '#252526'
-                tc = '#E0E0E0'
-            else:
-                bg = self._theme.back_color
-                tc = self._theme.font_color
-        else:
-            bg = '#FFFFFF'
-            tc = '#212121'
-
-        picker: TimeWheelPicker = TimeWheelPicker(
-            self._start_time, self._end_time, parent=self,
-            bg_color=bg, text_color=tc,
-        )
-        picker.time_confirmed.connect(self._on_time_confirmed)
-        picker.exec()
-
-    def _on_time_confirmed(self, start_time: str, finish_time: str) -> None:
-        """时间选择确认后更新显示。"""
-        self._start_time = start_time
-        self._end_time = finish_time
-        self._time_display.setText(
-            f"当前时间：{self._start_time} — {self._end_time}"
-        )
-        logger.info(f"条目时间已更新：{start_time} — {finish_time}")
-
-    # ================================================================
-    #  确认
-    # ================================================================
     def _on_confirm(self) -> None:
-        """确认编辑，接受对话框。"""
-        logger.info("TimetableEntryDialog 确认")
-        self.accept()
+        """确认编辑。
+
+        编辑模式：accept() 关闭对话框。
+        新建模式：发射 entry_confirmed 信号，不关闭对话框。
+        """
+        if self._lesson_radio.isChecked() and self._start_hour is not None:
+            st: str = (
+                f"{self._start_hour.current_index:02d}:"
+                f"{self._start_min.current_index:02d}" # type: ignore
+            )
+            ft: str = (
+                f"{self._end_hour.current_index:02d}:" # type: ignore
+                f"{self._end_min.current_index:02d}" # type: ignore
+            )
+            self._start_time = st
+            self._end_time = ft
+        else:
+            st = self._start_time
+            ft = self._end_time
+
+        if self._stay_open:
+            etype: str = (
+                'lesson' if self._lesson_radio.isChecked()
+                else 'dividerline'
+            )
+            logger.info(
+                f"TimetableEntryDialog 确认（新建模式）：{etype} {st} — {ft}"
+            )
+            self.entry_confirmed.emit(etype, st, ft)
+        else:
+            logger.info("TimetableEntryDialog 确认（编辑模式）")
+            self.accept()
 
     # ================================================================
-    #  获取结果
+    #  公开方法
     # ================================================================
-    def result(self) -> dict: # type: ignore
-        """返回编辑结果。"""
+    def show_result(self, lesson_label: str,
+                    start_time: str, end_time: str,
+                    next_start_time: str = '',
+                    next_end_time: str = '') -> None:
+        """显示新建结果并自动设置下一次的默认时间。
+
+        参数：
+            lesson_label    （str）：如 "第3节课" 或 "分隔线2"
+            start_time      （str）：本次开始时间 HH:MM
+            end_time        （str）：本次结束时间 HH:MM
+            next_start_time （str）：下一次默认开始时间 HH:MM
+            next_end_time   （str）：下一次默认结束时间 HH:MM
+        """
+        if self._result_label is not None:
+            self._result_label.setText(
+                f"✓ {lesson_label} {start_time}到{end_time}新建完成"
+            )
+            self._result_label.setVisible(True)
+
+        # 自动设置下一次的默认时间
+        if next_start_time and next_end_time:
+            try:
+                sh, sm = next_start_time.split(':')
+                eh, em = next_end_time.split(':')
+                if self._start_hour:
+                    self._start_hour.set_current_index(int(sh))
+                if self._start_min:
+                    self._start_min.set_current_index(int(sm))
+                if self._end_hour:
+                    self._end_hour.set_current_index(int(eh))
+                if self._end_min:
+                    self._end_min.set_current_index(int(em))
+            except (ValueError, IndexError):
+                pass
+
+    def result(self) -> dict:  # type: ignore
+        """返回编辑结果（编辑模式下使用）。"""
         return {
-            'type': 'lesson' if self._lesson_radio.isChecked() else 'dividerline',
+            'type': (
+                'lesson' if self._lesson_radio.isChecked()
+                else 'dividerline'
+            ),
             'start_time': self._start_time,
             'end_time': self._end_time,
         }
