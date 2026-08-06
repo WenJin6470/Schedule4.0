@@ -587,6 +587,107 @@ class ScheduleDataManager:
             logger.error(f"保存课程表失败：{e}")
             return False
 
+    # ================================================================
+    #  公开方法：保存时间表到文件
+    # ================================================================
+    def save_timetable(self) -> bool:
+        """
+        将当前内存中的 timetable_data 写回到 JSON 文件。
+        ------------------------------------------------
+        保持 JSON 键的插入顺序（Python 3.7+ dict 保证），
+        使用 UTF-8 编码，缩进 4 空格，ensure_ascii=False。
+
+        返回值：
+            bool：True 表示保存成功，False 表示保存失败
+        """
+        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        config_path: str = os.path.join(script_dir, self.timetable_path)
+
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+
+        try:
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(self.timetable_data, f, ensure_ascii=False, indent=4)
+            entry_count = len(self.timetable_data)
+            logger.info(f"时间表已保存至：{config_path}（共 {entry_count} 个条目）")
+            return True
+        except Exception as e:
+            logger.error(f"保存时间表失败：{e}")
+            return False
+
+    # ================================================================
+    #  公开方法：重新加载或切换时间表
+    # ================================================================
+    def reload_timetable(self, new_path: str = '') -> bool:
+        """
+        重新加载或切换到新的时间表文件。
+        -----------------------------
+        参数：
+            new_path（str）：新的时间表文件相对路径，为空则重新加载当前文件
+
+        返回值：
+            bool：True 表示加载成功，False 表示加载失败
+        """
+        if new_path:
+            self.timetable_path = new_path
+        self.timetable_data = {}
+        self._load_timetable()
+        return len(self.timetable_data) > 0
+
+    # ================================================================
+    #  静态方法：获取下一个可用的时间表名称
+    # ================================================================
+    @staticmethod
+    def get_next_timetable_name() -> str:
+        """
+        扫描 timetable 目录，返回下一个可用的 timetable_N.json 名称。
+        -----------------------------------------------------------
+        返回值：
+            str：形如 "timetable_2.json" 的文件名
+        """
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        timetable_dir = os.path.join(script_dir, 'Config', 'timetable')
+        os.makedirs(timetable_dir, exist_ok=True)
+
+        existing: List[int] = []
+        try:
+            for f in os.listdir(timetable_dir):
+                if f.startswith('timetable_') and f.endswith('.json'):
+                    try:
+                        num = int(f[len('timetable_'):-len('.json')])
+                        existing.append(num)
+                    except ValueError:
+                        pass
+        except OSError:
+            pass
+
+        return f"timetable_{max(existing) + 1 if existing else 1}.json"
+
+    # ================================================================
+    #  静态方法：获取时间表目录中的所有文件
+    # ================================================================
+    @staticmethod
+    def get_timetable_files() -> List[str]:
+        """
+        返回时间表目录中所有 JSON 文件的文件名列表。
+        -----------------------------------------
+        返回值：
+            List[str]：文件名列表（仅文件名不含路径）
+        """
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        timetable_dir = os.path.join(script_dir, 'Config', 'timetable')
+        os.makedirs(timetable_dir, exist_ok=True)
+
+        files: List[str] = []
+        try:
+            for f in sorted(os.listdir(timetable_dir)):
+                if f.endswith('.json'):
+                    files.append(f)
+        except OSError:
+            pass
+
+        return files
+
 
 # ==================== 换课记录管理器 ====================
 

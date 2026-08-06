@@ -415,9 +415,104 @@ class ScheduleMainWindow(ThemedWidget):
         self._settings_window = SettingsWindow(
             parent_signal=self.backend_signal,
             theme_manager=self._theme,
+            schedule_data=self._schedule_data,
+        )
+        # 时间表变更时重建主窗口标签
+        self._settings_window.timetable_changed.connect(
+            self._rebuild_period_labels
         )
         self._settings_window.showMaximized()  # type: ignore
         logger.info("设置窗口已显示")
+
+    # ================================================================
+    #  重建课时标签（时间表结构变更后调用）
+    # ================================================================
+    def _rebuild_period_labels(self) -> None:
+        """
+        时间表结构变更后重建所有课时标签和分隔线。
+
+        此方法由设置页面的 timetable_changed 信号触发，
+        用于同步主窗口的课时显示与新时间表结构。
+        """
+        logger.info("时间表结构变更，重建主窗口课时标签...")
+
+        # 停止光标闪烁
+        self.stop_cursor_blink()
+
+        # 删除所有课时和分隔线标签
+        for child in self.findChildren(QLabel):
+            objname: str = child.objectName() or ''
+            if objname.startswith('lesson_') or objname.startswith('dividerline_'):
+                child.deleteLater()
+
+        self.period_labels.clear()
+
+        # 重新计算布局参数
+        close_btn_height: int = 36
+        divider_height: int = 6
+        lesson_count: int = self._schedule_data.get_lesson_count()
+        divider_indices: List[int] = self._schedule_data.get_divider_indices()
+        divider_count: int = len(divider_indices)
+        available_height: int = self._win_height - close_btn_height
+        total_divider_height: int = divider_count * divider_height
+        label_height: int = (
+            (available_height - total_divider_height) // lesson_count
+            if lesson_count > 0 else available_height
+        )
+
+        # 获取当天课程表数据
+        debug_weekday: Optional[str] = self._debug_config.get_weekday_name()
+        today_name: str = (
+            debug_weekday if debug_weekday is not None
+            else datetime.now().strftime('%A')
+        )
+        today_curriculum: Dict[str, str] = (
+            self._schedule_data.get_curriculum_for_day(today_name)
+        )
+        self._current_display_day = today_name
+
+        # 分隔线颜色
+        if self._theme.theme == 'lightcolor':
+            divider_color: str = '#999999'
+        elif self._theme.theme == 'darkcolor':
+            divider_color: str = '#AAAAAA'
+        else:
+            divider_color = '#AAAAAA' if is_color_dark(self._theme.back_color) else '#999999'
+
+        # 按时间表 JSON 键顺序重新创建标签
+        y_offset: int = 0
+        for key in self._schedule_data.timetable_data:
+            if key.startswith('lesson_'):
+                subject: str = today_curriculum.get(key, '')
+                label: QLabel = QLabel(self)
+                label.setObjectName(key)
+                label.setFont(QFont("Arial", 16))
+                label.setStyleSheet(f"""
+                    color: {self._theme.font_color};
+                    background: transparent;
+                """)
+                label.setAlignment(Qt.AlignCenter)  # type: ignore
+                label.setGeometry(0, y_offset, self._win_width, label_height)
+                label.setText(subject)
+                self.period_labels.append(label)
+                y_offset += label_height
+            elif key.startswith('dividerline_'):
+                divider: QLabel = QLabel(self)
+                divider.setObjectName(key)
+                divider.setStyleSheet(
+                    f"background: transparent;"
+                    f"border-top: 2px solid {divider_color};"
+                )
+                divider.setGeometry(0, y_offset, self._win_width, divider_height)
+                y_offset += divider_height
+
+        # 重置光标索引
+        self._cursor_index = 0
+
+        logger.info(
+            f"课时标签重建完成：共 {len(self.period_labels)} 个标签，"
+            f"每个高度 {label_height}px"
+        )
 
     # ================================================================
     #  公开 API：课时标签操作
