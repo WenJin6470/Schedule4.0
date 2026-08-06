@@ -123,8 +123,7 @@ def main() -> None:
     # ================================================================
     logger.info("正在创建 ThemeManager...")
     theme_manager: ThemeManager = ThemeManager()
-    logger.info(f"ThemeManager 创建完成：theme={theme_manager.theme}, "
-                f"period_count={theme_manager.period_count}")
+    logger.info(f"ThemeManager 创建完成：theme={theme_manager.theme}")
 
     # ================================================================
     #  第3.5步：清理过期日志（在 ThemeManager 读取 log_retention_days 之后）

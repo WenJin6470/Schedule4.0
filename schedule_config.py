@@ -112,7 +112,6 @@ class ThemeManager:
       - window_opacity   — 窗口透明度
       - theme            — 主题名称
       - language         — 显示语言
-      - period_count     — 课时数量
       - subject_config   — 科目分类配置
       - curriculum_path  — 课程表 JSON 文件路径（由 INI 的 table 参数指定）
       - timetable_path   — 时间表 JSON 文件路径（由 INI 的 timetable 参数指定）
@@ -145,7 +144,6 @@ class ThemeManager:
         # ---- 默认值 ----
         self.theme: str = fallback_theme
         self.language: str = fallback_language
-        self.period_count: int = 7
 
         # ---- 颜色属性（兜底默认白色主题）----
         self.back_color: str = '#FFFFFF'
@@ -173,7 +171,6 @@ class ThemeManager:
         self._load_subject_config()
 
         logger.info(f"ThemeManager 初始化完成：theme={self.theme}, "
-                    f"period_count={self.period_count}, "
                     f"curriculum={self.curriculum_path}, "
                     f"timetable={self.timetable_path}, "
                     f"fullscreen_bg_folder={self.fullscreen_bg_folder}, "
@@ -187,7 +184,6 @@ class ThemeManager:
         script_dir: str = os.path.dirname(os.path.abspath(__file__))
         config_path: str = os.path.join(script_dir, 'Config', 'schedule_config.ini')
 
-        default_period_count: int = 7
         default_theme: str = 'lightcolor'
         default_language: str = 'Chinese'
         default_curriculum: str = 'Config/curriculum/table_1.json'
@@ -196,7 +192,6 @@ class ThemeManager:
         try:
             if not os.path.exists(config_path):
                 logger.warning(f"配置文件不存在：{config_path}，使用默认值")
-                self.period_count = default_period_count
                 self.theme = default_theme
                 self.language = default_language
                 self.curriculum_path = default_curriculum
@@ -209,16 +204,6 @@ class ThemeManager:
             logger.info(f"找到配置文件：{config_path}")
             parser: ConfigParser = ConfigParser()
             parser.read(config_path, encoding='utf-8')
-
-            # --- period_count ---
-            period_count_str: str = parser.get('Schedule', 'period_count',
-                                               fallback=str(default_period_count))
-            period_count: int = int(period_count_str)
-            if 1 <= period_count <= 15:
-                self.period_count = period_count
-            else:
-                logger.warning(f"period_count={period_count} 超出范围，使用默认值 {default_period_count}")
-                self.period_count = default_period_count
 
             # --- theme ---
             theme_str: str = parser.get('Schedule', 'theme', fallback=default_theme)
@@ -270,15 +255,13 @@ class ThemeManager:
 
             self._apply_theme()
 
-            logger.info(f"配置加载完成：period_count={self.period_count}, "
-                        f"theme={self.theme}, language={self.language}, "
+            logger.info(f"配置加载完成：theme={self.theme}, language={self.language}, "
                         f"curriculum={self.curriculum_path}, "
                         f"timetable={self.timetable_path}, "
                         f"log_retention_days={self.log_retention_days}")
 
         except (ValueError, TypeError) as e:
             logger.warning(f"配置文件参数格式错误：{e}，使用默认值")
-            self.period_count = default_period_count
             self.theme = default_theme
             self.language = default_language
             self.curriculum_path = default_curriculum
@@ -288,7 +271,6 @@ class ThemeManager:
             self._apply_theme()
         except Exception as e:
             logger.error(f"读取配置文件失败：{e}，使用默认值")
-            self.period_count = default_period_count
             self.theme = default_theme
             self.language = default_language
             self.curriculum_path = default_curriculum
