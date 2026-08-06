@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
     QTableWidget, QTableWidgetItem, QHeaderView, QDialog,
     QLineEdit, QComboBox, QRadioButton, QFileDialog, QAbstractItemView,
+    QScrollArea, QScroller,
 )
 from PySide6.QtCore import Qt, Signal, SignalInstance
 from PySide6.QtGui import QFont, QIcon, QCloseEvent, QColor
@@ -63,6 +64,8 @@ class SettingsWindow(ThemedWidget):
 
     # 信号：时间表发生变更，通知主窗口重建标签
     timetable_changed = Signal()
+    # 信号：特殊课表规则变更，通知主窗口应用
+    special_schedule_changed = Signal()
 
     def __init__(self, parent_signal: SignalInstance,
                  theme_manager: ThemeManager,
@@ -89,6 +92,13 @@ class SettingsWindow(ThemedWidget):
         self._status_card: Optional[QFrame] = None
         self._table_frame: Optional[QFrame] = None
         self._add_dialog: Optional[TimetableEntryDialog] = None
+
+        # 特殊课表规则控件引用
+        self._special_toggle_btn: Optional[QPushButton] = None
+        self._special_timetable_combo: Optional[QComboBox] = None
+        self._special_curriculum_combo: Optional[QComboBox] = None
+        self._special_cards_container: Optional[QWidget] = None
+        self._special_enabled: bool = False
 
         logger.info("SettingsWindow 初始化开始")
         self._setup_ui()
@@ -313,14 +323,11 @@ class SettingsWindow(ThemedWidget):
     # ================================================================
     def _create_timetable_editor_page(self) -> QWidget:
         """
-        构建"课表编辑 → 时间表"编辑页面。
-        -------------------------------
-        包含：
-          - 二级标题 "时间表"
-          - [加载时间表] [新建时间表] 按钮行
-          - 状态标签
-          - 条目表格（序号 / 类型 / 开始时间 / 结束时间）
-          - [新加条目] 按钮
+        构建"课表编辑"页面。
+        ------------------
+        一级标题：
+          - 基础（特殊课表规则开关 + 时间表/课程表选择卡片）
+          - 时间表（加载/新建按钮、状态标签、条目表格、新加条目按钮）
         """
         page: QWidget = QWidget()
         page.setStyleSheet("background: transparent;")
@@ -335,20 +342,127 @@ class SettingsWindow(ThemedWidget):
         page_title: QLabel = QLabel("课表编辑")
         page_title.setFont(QFont("Microsoft YaHei", 22, QFont.Bold))  # type: ignore
         page_title.setStyleSheet(f"color: {fc}; background: transparent;")
+        page_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
         layout.addWidget(page_title)
 
-        # ---- 缩进容器（时间表板块整体右移）----
+        # ════════════════════════════════════════════════════════════
+        #  基础：特殊课表规则
+        # ════════════════════════════════════════════════════════════
+        basic_section: QLabel = QLabel("基础")
+        basic_section.setFont(QFont("Microsoft YaHei", 18, QFont.Bold))  # type: ignore
+        basic_section.setStyleSheet(f"color: {fc}; background: transparent;")
+        basic_section.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
+        layout.addWidget(basic_section)
+
+        # ---- 缩进容器（基础控件统一缩进 28px）----
         indent: QWidget = QWidget()
         indent.setStyleSheet("background: transparent;")
         indent_layout: QVBoxLayout = QVBoxLayout(indent)
         indent_layout.setContentsMargins(28, 0, 0, 0)
         indent_layout.setSpacing(12)
 
-        # ---- 二级标题：时间表 ----
+        # ---- 开关按钮 ----
+        self._special_toggle_btn = QPushButton()
+        self._special_toggle_btn.setFont(QFont("Microsoft YaHei", 11))
+        self._special_toggle_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self._special_toggle_btn.setMinimumHeight(38)
+        self._special_toggle_btn.clicked.connect(self._on_special_schedule_toggle)
+        indent_layout.addWidget(self._special_toggle_btn)
+
+        # ---- 卡片容器（开关 OFF 时显示，供用户选择）----
+        self._special_cards_container = QWidget()
+        self._special_cards_container.setStyleSheet("background: transparent;")
+        cards_layout: QVBoxLayout = QVBoxLayout(self._special_cards_container)
+        cards_layout.setContentsMargins(0, 8, 0, 8)
+        cards_layout.setSpacing(10)
+
+        # 卡片 1：时间表选择
+        tt_card: QFrame = self._create_special_rule_card(
+            "时间表选择",
+            "选择启用特殊规则后主窗口固定使用的时间表",
+        )
+        tt_card_layout: QVBoxLayout = QVBoxLayout(tt_card)
+        tt_card_layout.setContentsMargins(16, 12, 16, 14)
+        tt_card_layout.setSpacing(6)
+        tt_title: QLabel = QLabel("📅 时间表")
+        tt_title.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))  # type: ignore
+        tt_title.setStyleSheet(f"color: {fc}; background: transparent; border: none;")
+        tt_card_layout.addWidget(tt_title)
+        tt_desc: QLabel = QLabel("选择启用特殊规则后主窗口固定使用的时间表")
+        tt_desc.setFont(QFont("Microsoft YaHei", 9))
+        desc_color: str = (
+            'rgba(255,255,255,0.45)' if self._theme.theme == 'darkcolor'
+            else 'rgba(0,0,0,0.45)'
+        )
+        tt_desc.setStyleSheet(f"color: {desc_color}; background: transparent; border: none;")
+        tt_desc.setWordWrap(True)
+        tt_card_layout.addWidget(tt_desc)
+        self._special_timetable_combo = QComboBox()
+        self._special_timetable_combo.setMinimumHeight(32)
+        self._special_timetable_combo.setFont(QFont("Microsoft YaHei", 10))
+        self._style_special_combo(self._special_timetable_combo)
+        self._special_timetable_combo.currentIndexChanged.connect(
+            self._on_special_timetable_changed
+        )
+        tt_card_layout.addWidget(self._special_timetable_combo)
+        cards_layout.addWidget(tt_card)
+
+        # 卡片 2：课程表选择
+        cv_card: QFrame = self._create_special_rule_card(
+            "课程表选择",
+            "选择启用特殊规则后主窗口固定使用的课程表",
+        )
+        cv_card_layout: QVBoxLayout = QVBoxLayout(cv_card)
+        cv_card_layout.setContentsMargins(16, 12, 16, 14)
+        cv_card_layout.setSpacing(6)
+        cv_title: QLabel = QLabel("📖 课程表")
+        cv_title.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))  # type: ignore
+        cv_title.setStyleSheet(f"color: {fc}; background: transparent; border: none;")
+        cv_card_layout.addWidget(cv_title)
+        cv_desc: QLabel = QLabel("选择启用特殊规则后主窗口固定使用的课程表")
+        cv_desc.setFont(QFont("Microsoft YaHei", 9))
+        cv_desc.setStyleSheet(f"color: {desc_color}; background: transparent; border: none;")
+        cv_desc.setWordWrap(True)
+        cv_card_layout.addWidget(cv_desc)
+        self._special_curriculum_combo = QComboBox()
+        self._special_curriculum_combo.setMinimumHeight(32)
+        self._special_curriculum_combo.setFont(QFont("Microsoft YaHei", 10))
+        self._style_special_combo(self._special_curriculum_combo)
+        self._special_curriculum_combo.currentIndexChanged.connect(
+            self._on_special_curriculum_changed
+        )
+        cv_card_layout.addWidget(self._special_curriculum_combo)
+        cards_layout.addWidget(cv_card)
+
+        indent_layout.addWidget(self._special_cards_container)
+
+        # 将"基础"缩进容器添加到主布局（仅包含特殊规则）
+        layout.addWidget(indent)
+
+        # ---- 分割线 ----
+        sep_line: QFrame = QFrame()
+        sep_line.setFrameShape(QFrame.HLine)  # type: ignore
+        sep_line.setStyleSheet(f"""
+            border: none;
+            border-top: 1px solid {self._theme.border_color};
+            background: transparent;
+        """)
+        layout.addWidget(sep_line)
+        layout.addSpacing(4)
+
+        # ---- 一级标题：时间表 ----
         section_title: QLabel = QLabel("时间表")
         section_title.setFont(QFont("Microsoft YaHei", 18, QFont.Bold))  # type: ignore
         section_title.setStyleSheet(f"color: {fc}; background: transparent;")
-        indent_layout.addWidget(section_title)
+        section_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
+        layout.addWidget(section_title)
+
+        # ---- 缩进容器（时间表控件统一缩进 28px）----
+        tt_indent: QWidget = QWidget()
+        tt_indent.setStyleSheet("background: transparent;")
+        tt_indent_layout: QVBoxLayout = QVBoxLayout(tt_indent)
+        tt_indent_layout.setContentsMargins(28, 0, 0, 0)
+        tt_indent_layout.setSpacing(12)
 
         # ---- 按钮行 ----
         btn_row: QHBoxLayout = QHBoxLayout()
@@ -373,7 +487,7 @@ class SettingsWindow(ThemedWidget):
         # 按钮样式
         self._style_timetable_buttons(load_btn, new_btn)
 
-        indent_layout.addLayout(btn_row)
+        tt_indent_layout.addLayout(btn_row)
 
         # ---- 状态标签（卡片式）----
         self._status_card = QFrame()
@@ -387,7 +501,7 @@ class SettingsWindow(ThemedWidget):
             f"color: {fc}; background: transparent; border: none;"
         )
         status_card_layout.addWidget(self._status_label)
-        indent_layout.addWidget(self._status_card)
+        tt_indent_layout.addWidget(self._status_card)
 
         # ---- 条目表格（带外框）----
         self._table_frame = QFrame()
@@ -413,7 +527,7 @@ class SettingsWindow(ThemedWidget):
         self._style_table()
 
         table_frame_layout.addWidget(self._timetable_table)
-        indent_layout.addWidget(self._table_frame, stretch=1)
+        tt_indent_layout.addWidget(self._table_frame)
 
         # ---- 新加条目按钮（实色强调）----
         add_btn: QPushButton = QPushButton("＋ 新加条目")
@@ -422,15 +536,60 @@ class SettingsWindow(ThemedWidget):
         add_btn.setMinimumHeight(38)
         add_btn.clicked.connect(self._on_add_entry)
         add_btn.setStyleSheet(self._get_add_btn_style())
-        indent_layout.addWidget(add_btn)
+        tt_indent_layout.addWidget(add_btn)
 
-        # 将缩进容器添加到主布局
-        layout.addWidget(indent, stretch=1)
+        # 将"时间表"缩进容器添加到主布局（无 stretch，高度自适应条目数量）
+        layout.addWidget(tt_indent)
+
+        # 底部弹簧：吸收多余空白区域，避免表格下方出现大片空白
+        layout.addStretch()
 
         # 初始加载数据
         self._refresh_table()
+        # 初始化特殊规则 UI 状态
+        self._refresh_special_schedule_ui()
 
-        return page
+        # ---- 将 page 包裹在 QScrollArea 中，防止表格被压缩 ----
+        scroll: QScrollArea = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(page)
+
+        # 启用鼠标拖拽滑动（手指/鼠标按住后拖动即可滚动）
+        QScroller.grabGesture(
+            scroll.viewport(),
+            QScroller.LeftMouseButtonGesture  # type: ignore
+        )
+
+        scroll.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background: transparent;
+                width: 8px;
+                margin: 0;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(128, 128, 128, 0.3);
+                border-radius: 4px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(128, 128, 128, 0.5);
+            }
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical,
+            QScrollBar::sub-page:vertical {
+                background: transparent;
+            }
+        """)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
+
+        return scroll
 
     # ================================================================
     #  状态文本
@@ -442,7 +601,285 @@ class SettingsWindow(ThemedWidget):
         path: str = self._schedule_data.timetable_path
         fname: str = os.path.basename(path) if path else "未知"
         count: int = len(self._schedule_data.timetable_data)
-        return f"状态：已加载 {fname}（共 {count} 条）"
+        special_note: str = (
+            " [特殊规则生效中]" if self._special_enabled else ""
+        )
+        return f"状态：已加载 {fname}（共 {count} 条）{special_note}"
+
+    # ================================================================
+    #  特殊课表规则 — UI 工厂方法
+    # ================================================================
+    def _create_special_rule_card(self, _title: str,
+                                  _description: str) -> QFrame:
+        """创建一个特殊规则选择卡片（仅外框样式）。"""
+        if self._theme.theme == 'darkcolor':
+            card_bg: str = 'rgba(255,255,255,0.04)'
+            card_border: str = 'rgba(255,255,255,0.10)'
+        else:
+            card_bg = 'rgba(0,0,0,0.02)'
+            card_border = 'rgba(0,0,0,0.08)'
+
+        card: QFrame = QFrame()
+        card.setStyleSheet(f"""
+            QFrame {{
+                background-color: {card_bg};
+                border: 1px solid {card_border};
+                border-radius: 8px;
+            }}
+        """)
+        return card
+
+    # ================================================================
+    #  特殊课表规则 — 样式方法
+    # ================================================================
+    def _style_special_toggle_btn(self) -> None:
+        """根据当前主题和启用状态刷新开关按钮样式。"""
+        btn: Optional[QPushButton] = self._special_toggle_btn
+        if btn is None:
+            return
+        fc: str = self._theme.font_color
+        enabled: bool = self._special_enabled
+
+        if self._theme.theme == 'darkcolor':
+            if enabled:
+                bg: str = 'rgba(76, 175, 80, 0.18)'
+                border: str = 'rgba(76, 175, 80, 0.35)'
+                hover_bg: str = 'rgba(76, 175, 80, 0.25)'
+            else:
+                bg = 'rgba(255,255,255,0.04)'
+                border = 'rgba(255,255,255,0.10)'
+                hover_bg = 'rgba(255,255,255,0.08)'
+        else:
+            if enabled:
+                bg = 'rgba(76, 175, 80, 0.12)'
+                border = 'rgba(76, 175, 80, 0.30)'
+                hover_bg = 'rgba(76, 175, 80, 0.18)'
+            else:
+                bg = 'rgba(0,0,0,0.03)'
+                border = 'rgba(0,0,0,0.08)'
+                hover_bg = 'rgba(0,0,0,0.05)'
+
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                color: {fc};
+                background-color: {bg};
+                border: 1px solid {border};
+                border-radius: 8px;
+                padding: 10px 18px;
+                text-align: left;
+            }}
+            QPushButton:hover {{
+                background-color: {hover_bg};
+            }}
+        """)
+
+    def _update_toggle_button_text(self) -> None:
+        """更新开关按钮的显示文字。"""
+        if self._special_toggle_btn is None:
+            return
+        status: str = "● 已启用" if self._special_enabled else "○ 已关闭"
+        self._special_toggle_btn.setText(
+            f"  {status}  启用特殊课表规则"
+        )
+
+    def _style_special_combo(self, combo: QComboBox) -> None:
+        """为特殊规则下拉框应用主题适配样式。"""
+        fc: str = self._theme.font_color
+
+        if self._theme.theme == 'darkcolor':
+            combo_bg: str = '#2D2D30'
+            combo_border: str = 'rgba(255,255,255,0.12)'
+            popup_bg: str = '#2D2D30'
+            popup_text: str = '#E0E0E0'
+            popup_hover: str = '#3E3E42'
+        else:
+            combo_bg = '#FFFFFF'
+            combo_border = 'rgba(0,0,0,0.12)'
+            popup_bg = '#FFFFFF'
+            popup_text = '#212121'
+            popup_hover = '#E8E8E8'
+
+        combo.setStyleSheet(f"""
+            QComboBox {{
+                color: {fc};
+                background-color: {combo_bg};
+                border: 1px solid {combo_border};
+                border-radius: 6px;
+                padding: 6px 12px;
+            }}
+            QComboBox:hover {{
+                border-color: {self._theme.border_color};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 24px;
+            }}
+            QComboBox QAbstractItemView {{
+                color: {popup_text};
+                background-color: {popup_bg};
+                selection-background-color: {popup_hover};
+                border: 1px solid {combo_border};
+                border-radius: 4px;
+                padding: 4px;
+            }}
+        """)
+
+    # ================================================================
+    #  特殊课表规则 — 事件处理
+    # ================================================================
+    def _on_special_schedule_toggle(self) -> None:
+        """切换特殊课表规则的启用/禁用状态。"""
+        self._special_enabled = not self._special_enabled
+        self._update_toggle_button_text()
+        self._style_special_toggle_btn()
+
+        # 显示/隐藏卡片
+        if self._special_cards_container is not None:
+            self._special_cards_container.setVisible(not self._special_enabled)
+
+        # 持久化到 INI
+        tt_file: str = (
+            self._special_timetable_combo.currentText()
+            if self._special_timetable_combo else ''
+        )
+        cv_file: str = (
+            self._special_curriculum_combo.currentText()
+            if self._special_curriculum_combo else ''
+        )
+        tt_path: str = f"Config/timetable/{tt_file}" if tt_file else ''
+        cv_path: str = f"Config/curriculum/{cv_file}" if cv_file else ''
+
+        if self._theme is not None:
+            self._theme.save_special_schedule_config(
+                self._special_enabled,
+                tt_path or self._theme.special_timetable,
+                cv_path or self._theme.special_curriculum,
+            )
+
+        # 重新加载数据并通知主窗口
+        self._apply_special_schedule_rules()
+        self._refresh_table()
+        self._refresh_status()
+        self.special_schedule_changed.emit()
+        self.timetable_changed.emit()
+
+    def _on_special_timetable_changed(self, _index: int) -> None:
+        """特殊规则时间表下拉选择变更。"""
+        if self._special_timetable_combo is None:
+            return
+        filename: str = self._special_timetable_combo.currentText()
+        if not filename:
+            return
+        rel_path: str = f"Config/timetable/{filename}"
+        if self._theme is not None:
+            self._theme.special_timetable = rel_path
+            self._theme.save_special_schedule_config(
+                self._special_enabled,
+                rel_path,
+                self._theme.special_curriculum,
+            )
+
+        if self._special_enabled:
+            self._apply_special_schedule_rules()
+            self._refresh_table()
+            self._refresh_status()
+            self.special_schedule_changed.emit()
+            self.timetable_changed.emit()
+
+    def _on_special_curriculum_changed(self, _index: int) -> None:
+        """特殊规则课程表下拉选择变更。"""
+        if self._special_curriculum_combo is None:
+            return
+        filename: str = self._special_curriculum_combo.currentText()
+        if not filename:
+            return
+        rel_path: str = f"Config/curriculum/{filename}"
+        if self._theme is not None:
+            self._theme.special_curriculum = rel_path
+            self._theme.save_special_schedule_config(
+                self._special_enabled,
+                self._theme.special_timetable,
+                rel_path,
+            )
+
+        if self._special_enabled:
+            # 课程表变更 → 主窗口需刷新内容
+            self.special_schedule_changed.emit()
+            self.timetable_changed.emit()
+
+    # ================================================================
+    #  特殊课表规则 — 数据与 UI 刷新
+    # ================================================================
+    def _apply_special_schedule_rules(self) -> None:
+        """根据当前特殊规则状态重新加载 ScheduleDataManager 的数据。"""
+        if self._schedule_data is None or self._theme is None:
+            return
+
+        if self._special_enabled:
+            tt_path: str = (
+                self._theme.special_timetable
+                or self._theme.timetable_path
+            )
+            cv_path: str = (
+                self._theme.special_curriculum
+                or self._theme.curriculum_path
+            )
+        else:
+            tt_path = self._theme.timetable_path
+            cv_path = self._theme.curriculum_path
+
+        self._schedule_data.reload_timetable(tt_path)
+        self._schedule_data.reload_curriculum(cv_path)
+        logger.info(
+            f"特殊课表规则已{'应用' if self._special_enabled else '取消'}："
+            f"timetable={tt_path}, curriculum={cv_path}"
+        )
+
+    def _refresh_special_schedule_ui(self) -> None:
+        """初始化加载：从 ThemeManager 读取当前状态并刷新 UI。"""
+        if self._theme is None:
+            return
+
+        self._special_enabled = self._theme.enable_special_schedule
+        self._update_toggle_button_text()
+        self._style_special_toggle_btn()
+
+        # 填充时间表下拉
+        if self._special_timetable_combo is not None:
+            self._special_timetable_combo.blockSignals(True)
+            self._special_timetable_combo.clear()
+            for f in ScheduleDataManager.get_timetable_files():
+                self._special_timetable_combo.addItem(f)
+            current_tt: str = self._theme.special_timetable
+            if current_tt:
+                basename: str = os.path.basename(current_tt)
+                idx: int = self._special_timetable_combo.findText(basename)
+                if idx >= 0:
+                    self._special_timetable_combo.setCurrentIndex(idx)
+            self._special_timetable_combo.blockSignals(False)
+
+        # 填充课程表下拉
+        if self._special_curriculum_combo is not None:
+            self._special_curriculum_combo.blockSignals(True)
+            self._special_curriculum_combo.clear()
+            for f in ScheduleDataManager.get_curriculum_files():
+                self._special_curriculum_combo.addItem(f)
+            current_cv: str = self._theme.special_curriculum
+            if current_cv:
+                basename = os.path.basename(current_cv)
+                idx = self._special_curriculum_combo.findText(basename)
+                if idx >= 0:
+                    self._special_curriculum_combo.setCurrentIndex(idx)
+            self._special_curriculum_combo.blockSignals(False)
+
+        # 显示/隐藏卡片
+        if self._special_cards_container is not None:
+            self._special_cards_container.setVisible(not self._special_enabled)
+
+    def _refresh_status(self) -> None:
+        """刷新状态标签文字（在特殊规则切换时调用）。"""
+        if self._status_label is not None:
+            self._status_label.setText(self._get_status_text())
 
     # ================================================================
     #  刷新表格
@@ -483,6 +920,19 @@ class SettingsWindow(ThemedWidget):
 
         if self._status_label:
             self._status_label.setText(self._get_status_text())
+
+        # 根据实际行高和表头高度精确计算表格高度，自适应内容不留空白
+        row_count: int = self._timetable_table.rowCount()
+        # 表头高度
+        h_header: int = self._timetable_table.horizontalHeader().height()
+        # 所有数据行高度（逐行累加，适配不同 DPI / 字体下的实际行高）
+        h_rows: int = 0
+        for r in range(row_count):
+            h_rows += self._timetable_table.rowHeight(r)
+        # 表格外框宽度（上下边框各 frameWidth px）
+        h_frame: int = self._timetable_table.frameWidth() * 2
+        exact_h: int = h_header + h_rows + h_frame
+        self._timetable_table.setFixedHeight(exact_h)
 
     def _set_table_row(self, row: int, seq: str, etype: str,
                        start: str, end: str, key: str) -> None:
@@ -933,6 +1383,9 @@ class SettingsWindow(ThemedWidget):
             self._table_frame.setStyleSheet(self._get_table_frame_style())
         if self._timetable_table is not None:
             self._style_table()
+        # 刷新特殊课表规则 UI
+        if self._special_toggle_btn is not None:
+            self._style_special_toggle_btn()
 
     # ================================================================
     #  导航按钮样式刷新

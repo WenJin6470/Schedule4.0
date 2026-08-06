@@ -166,6 +166,11 @@ class ThemeManager:
         # ---- 全屏时间创意模式背景图片文件夹 ----
         self.fullscreen_bg_folder: str = 'images/FullScreenBackgrounds/default'
 
+        # ---- 特殊课表规则 ----
+        self.enable_special_schedule: bool = False
+        self.special_timetable: str = 'Config/timetable/timetable_1.json'
+        self.special_curriculum: str = 'Config/curriculum/table_1.json'
+
         # ---- 加载配置 ----
         self._load_config()
         self._load_subject_config()
@@ -198,6 +203,9 @@ class ThemeManager:
                 self.timetable_path = default_timetable
                 self.fullscreen_bg_folder = 'images/FullScreenBackgrounds/default'
                 self.log_retention_days = 7
+                self.enable_special_schedule = False
+                self.special_timetable = 'Config/timetable/timetable_1.json'
+                self.special_curriculum = 'Config/curriculum/table_1.json'
                 self._apply_theme()
                 return
 
@@ -253,6 +261,21 @@ class ThemeManager:
                                              fallback=default_bg_folder)
             self.fullscreen_bg_folder = bg_folder_str.strip()
 
+            # --- enable_special_schedule（特殊课表规则开关）---
+            enable_str: str = parser.get('Schedule', 'enable_special_schedule',
+                                         fallback='false')
+            self.enable_special_schedule = (enable_str.strip().lower() == 'true')
+
+            # --- special_timetable（特殊规则使用的时间表）---
+            special_tt: str = parser.get('Schedule', 'special_timetable',
+                                         fallback='Config/timetable/timetable_1.json')
+            self.special_timetable = special_tt.strip()
+
+            # --- special_curriculum（特殊规则使用的课程表）---
+            special_cv: str = parser.get('Schedule', 'special_curriculum',
+                                         fallback='Config/curriculum/table_1.json')
+            self.special_curriculum = special_cv.strip()
+
             self._apply_theme()
 
             logger.info(f"配置加载完成：theme={self.theme}, language={self.language}, "
@@ -268,6 +291,9 @@ class ThemeManager:
             self.timetable_path = default_timetable
             self.fullscreen_bg_folder = 'images/FullScreenBackgrounds/default'
             self.log_retention_days = 7
+            self.enable_special_schedule = False
+            self.special_timetable = 'Config/timetable/timetable_1.json'
+            self.special_curriculum = 'Config/curriculum/table_1.json'
             self._apply_theme()
         except Exception as e:
             logger.error(f"读取配置文件失败：{e}，使用默认值")
@@ -277,6 +303,9 @@ class ThemeManager:
             self.timetable_path = default_timetable
             self.fullscreen_bg_folder = 'images/FullScreenBackgrounds/default'
             self.log_retention_days = 7
+            self.enable_special_schedule = False
+            self.special_timetable = 'Config/timetable/timetable_1.json'
+            self.special_curriculum = 'Config/curriculum/table_1.json'
             self._apply_theme()
 
     # ================================================================
@@ -386,6 +415,45 @@ class ThemeManager:
             else:
                 return ''
         return ''
+
+    # ================================================================
+    #  保存特殊课表规则到 INI
+    # ================================================================
+    def save_special_schedule_config(self, enabled: bool,
+                                     timetable: str,
+                                     curriculum: str) -> None:
+        """持久化特殊课表规则到 schedule_config.ini 并同步自身属性。"""
+        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        config_path: str = os.path.join(script_dir, 'Config',
+                                        'schedule_config.ini')
+
+        parser: ConfigParser = ConfigParser()
+        try:
+            if os.path.exists(config_path):
+                parser.read(config_path, encoding='utf-8')
+
+            if not parser.has_section('Schedule'):
+                parser.add_section('Schedule')
+
+            parser.set('Schedule', 'enable_special_schedule',
+                       str(enabled).lower())
+            parser.set('Schedule', 'special_timetable', timetable)
+            parser.set('Schedule', 'special_curriculum', curriculum)
+
+            with open(config_path, 'w', encoding='utf-8') as f:
+                parser.write(f)
+
+            # 同步自身属性
+            self.enable_special_schedule = enabled
+            self.special_timetable = timetable
+            self.special_curriculum = curriculum
+
+            logger.info(
+                f"特殊课表规则已保存：enabled={enabled}, "
+                f"timetable={timetable}, curriculum={curriculum}"
+            )
+        except Exception as e:
+            logger.error(f"保存特殊课表规则失败：{e}")
 
 
 # ==================== 课表数据管理器 ====================
@@ -635,6 +703,25 @@ class ScheduleDataManager:
         return len(self.timetable_data) > 0
 
     # ================================================================
+    #  公开方法：重新加载或切换课程表
+    # ================================================================
+    def reload_curriculum(self, new_path: str = '') -> bool:
+        """
+        重新加载或切换到新的课程表文件。
+        -----------------------------
+        参数：
+            new_path（str）：新的课程表文件相对路径，为空则重新加载当前文件
+
+        返回值：
+            bool：True 表示加载成功，False 表示加载失败
+        """
+        if new_path:
+            self.curriculum_path = new_path
+        self.curriculum_data = {}
+        self._load_curriculum()
+        return len(self.curriculum_data) > 0
+
+    # ================================================================
     #  静态方法：获取下一个可用的时间表名称
     # ================================================================
     @staticmethod
@@ -681,6 +768,31 @@ class ScheduleDataManager:
         files: List[str] = []
         try:
             for f in sorted(os.listdir(timetable_dir)):
+                if f.endswith('.json'):
+                    files.append(f)
+        except OSError:
+            pass
+
+        return files
+
+    # ================================================================
+    #  静态方法：获取课程表目录中的所有文件
+    # ================================================================
+    @staticmethod
+    def get_curriculum_files() -> List[str]:
+        """
+        返回课程表目录中所有 JSON 文件的文件名列表。
+        -----------------------------------------
+        返回值：
+            List[str]：文件名列表（仅文件名不含路径）
+        """
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        curriculum_dir = os.path.join(script_dir, 'Config', 'curriculum')
+        os.makedirs(curriculum_dir, exist_ok=True)
+
+        files: List[str] = []
+        try:
+            for f in sorted(os.listdir(curriculum_dir)):
                 if f.endswith('.json'):
                     files.append(f)
         except OSError:

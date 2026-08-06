@@ -421,8 +421,27 @@ class ScheduleMainWindow(ThemedWidget):
         self._settings_window.timetable_changed.connect(
             self._rebuild_period_labels
         )
+        # 特殊课表规则变更时重建主窗口标签
+        self._settings_window.special_schedule_changed.connect(
+            lambda: self.apply_special_schedule(True)
+        )
         self._settings_window.showMaximized()  # type: ignore
         logger.info("设置窗口已显示")
+
+    # ================================================================
+    #  应用 / 取消特殊课表规则
+    # ================================================================
+    def apply_special_schedule(self, enabled: bool) -> None:
+        """
+        根据特殊课表规则状态重新加载数据并重建标签。
+
+        当设置页面的 special_schedule_changed 信号触发时调用。
+        """
+        logger.info(
+            f"特殊课表规则状态变更：enabled={enabled}"
+        )
+        self.stop_cursor_blink()
+        self._rebuild_period_labels()
 
     # ================================================================
     #  重建课时标签（时间表结构变更后调用）
