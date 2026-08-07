@@ -19,19 +19,20 @@
 课表编辑页面已实现时间表编辑器。
 """
 
+import copy
 import json
 import logging
 import os
 from typing import Dict, List, Optional
 
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QPushButton, QButtonGroup,
+    QFrame, QHBoxLayout, QLabel, QPushButton,
     QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
     QTableWidget, QTableWidgetItem, QHeaderView, QDialog,
     QLineEdit, QComboBox, QRadioButton, QFileDialog, QAbstractItemView,
-    QScrollArea, QScroller,
+    QScrollArea, QScroller, QMessageBox,
 )
-from PySide6.QtCore import Qt, Signal, SignalInstance
+from PySide6.QtCore import Qt, Signal, SignalInstance, QTimer
 from PySide6.QtGui import QFont, QIcon, QCloseEvent, QColor
 
 from schedule_config import ThemeManager, ThemedWidget, ScheduleDataManager
@@ -96,6 +97,21 @@ class SettingsWindow(ThemedWidget):
         self._curriculum_status_label: Optional[QLabel] = None
         self._curriculum_status_card: Optional[QFrame] = None
         self._curriculum_table_frame: Optional[QFrame] = None
+
+        # 课程表内联编辑器
+        self._cv_editor_card: Optional[QFrame] = None
+        self._cv_cursor_row: int = -1
+        self._cv_cursor_col: int = -1
+        self._cv_cursor_day: str = ''
+        self._cv_cursor_lesson: str = ''
+        self._cv_blink_timer: QTimer = QTimer()
+        self._cv_blink_timer.setInterval(500)
+        self._cv_blink_timer.timeout.connect(self._toggle_cv_blink)
+        self._cv_blink_on: bool = False
+        self._pending_curriculum_data: Dict = {}
+        self._cv_status_label: Optional[QLabel] = None
+        self._cv_subject_buttons: List[QPushButton] = []
+        self._cv_subject_categories: Dict[str, List[str]] = {}
 
         logger.info("SettingsWindow 初始化开始")
         self._setup_ui()
@@ -526,6 +542,11 @@ class SettingsWindow(ThemedWidget):
 
         cv_table_frame_layout.addWidget(self._curriculum_table)
         cv_indent_layout.addWidget(self._curriculum_table_frame)
+
+        # ---- 课程表内联编辑器卡片（初始隐藏，点击单元格后显示）----
+        self._cv_editor_card = self._build_curriculum_editor_card()
+        self._cv_editor_card.setVisible(False)
+        cv_indent_layout.addWidget(self._cv_editor_card)
 
         # 将"课程表"缩进容器添加到主布局
         layout.addWidget(cv_indent)
@@ -1212,10 +1233,10 @@ class SettingsWindow(ThemedWidget):
         self._curriculum_table.setMinimumHeight(exact_h)
 
     # ================================================================
-    #  课程表 — 单元格点击 → 编辑
+    #  课程表 — 单元格点击 → 启动内联编辑器
     # ================================================================
     def _on_curriculum_cell_clicked(self, row: int, col: int) -> None:
-        """点击课程表单元格，打开科目编辑对话框。"""
+        """点击课程表单元格，启动光标闪烁并显示内联编辑器卡片。"""
         if self._curriculum_table is None:
             return
         # 忽略行标签列（col 0）和分隔线行
@@ -1231,54 +1252,688 @@ class SettingsWindow(ThemedWidget):
         day_name: str = cell_data['day']
         lesson_key: str = cell_data['lesson']
 
-        # 获取当前科目和课时信息
-        current_subject: str = ''
-        if self._schedule_data is not None:
-            day_data: Dict = self._schedule_data.curriculum_data.get(day_name, {})
-            current_subject = day_data.get(lesson_key, '')
+        # 如果已有编辑器在运行，先停止旧光标
+        self._stop_cv_blink()
 
-        # 获取课时时间信息
+        # 深拷贝当前课程表数据作为待编辑副本
+        if self._schedule_data is not None:
+            self._pending_curriculum_data = copy.deepcopy(
+                self._schedule_data.curriculum_data
+            )
+
+        # 记录光标位置
+        self._cv_cursor_row = row
+        self._cv_cursor_col = col
+        self._cv_cursor_day = day_name
+        self._cv_cursor_lesson = lesson_key
+
+        # 显示编辑器卡片
+        if self._cv_editor_card is not None:
+            self._cv_editor_card.setVisible(True)
+
+        # 启动闪烁光标
+        self._start_cv_blink()
+
+        # 刷新编辑器状态和高亮
+        self._refresh_cv_editor_status()
+
+    # ================================================================
+    #  课程表内联编辑器 — 构建卡片
+    # ================================================================
+    def _build_curriculum_editor_card(self) -> QFrame:
+        """构建课程表内联编辑器卡片控件（左7右3布局，参照快捷编辑窗口）。"""
+        fc: str = self._theme.font_color
+
+        card: QFrame = QFrame()
+        card.setStyleSheet(self._get_cv_card_style())
+        card_layout: QVBoxLayout = QVBoxLayout(card)
+        card_layout.setContentsMargins(16, 14, 16, 14)
+        card_layout.setSpacing(10)
+
+        # ════════════════════════════════════════════════════════
+        #  状态区（消息气泡样式，横跨整个卡片顶部）
+        # ════════════════════════════════════════════════════════
+        # 状态标签背景色（消息气泡质感）
+        if self._theme.theme == 'darkcolor':
+            bubble_bg: str = 'rgba(255,255,255,0.06)'
+            bubble_border: str = 'rgba(255,255,255,0.10)'
+        else:
+            bubble_bg = 'rgba(0,0,0,0.04)'
+            bubble_border = 'rgba(0,0,0,0.08)'
+
+        status_bubble: QFrame = QFrame()
+        status_bubble.setStyleSheet(f"""
+            QFrame {{
+                background-color: {bubble_bg};
+                border: 1px solid {bubble_border};
+                border-radius: 10px;
+            }}
+        """)
+        bubble_layout: QVBoxLayout = QVBoxLayout(status_bubble)
+        bubble_layout.setContentsMargins(14, 10, 14, 10)
+
+        self._cv_status_label = QLabel("")
+        self._cv_status_label.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))  # type: ignore
+        self._cv_status_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none;"
+        )
+        self._cv_status_label.setWordWrap(True)
+        bubble_layout.addWidget(self._cv_status_label)
+
+        card_layout.addWidget(status_bubble)
+
+        # ════════════════════════════════════════════════════════
+        #  主体区域：左7（科目按钮）+ 竖分割线 + 右3（方向键 + 操作按钮）
+        # ════════════════════════════════════════════════════════
+        body_row: QHBoxLayout = QHBoxLayout()
+        body_row.setSpacing(0)
+
+        # ---- 左侧：科目按钮区（滚动区域，占 70%）----
+        self._load_cv_subject_categories()
+        btn_style: str = self._get_cv_subject_btn_style()
+
+        subjects_scroll: QScrollArea = QScrollArea()
+        subjects_scroll.setWidgetResizable(True)
+        subjects_scroll.setMaximumHeight(200)
+        subjects_scroll.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background: transparent;
+                width: 6px;
+                margin: 0;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(128, 128, 128, 0.3);
+                border-radius: 3px;
+                min-height: 20px;
+            }
+        """)
+
+        subjects_widget: QWidget = QWidget()
+        subjects_widget.setStyleSheet("background: transparent;")
+        subjects_layout: QVBoxLayout = QVBoxLayout(subjects_widget)
+        subjects_layout.setContentsMargins(0, 0, 0, 0)
+        subjects_layout.setSpacing(6)
+
+        dim_color: str = (
+            'rgba(255,255,255,0.50)' if self._theme.theme == 'darkcolor'
+            else 'rgba(0,0,0,0.50)'
+        )
+
+        self._cv_subject_buttons.clear()
+        for cat_name, subjects in self._cv_subject_categories.items():
+            # 类别标题
+            cat_title: QLabel = QLabel(f"—— {cat_name} ——")
+            cat_title.setFont(QFont("Microsoft YaHei", 10))
+            cat_title.setStyleSheet(
+                f"color: {dim_color}; background: transparent;"
+            )
+            subjects_layout.addWidget(cat_title)
+
+            # 科目按钮流式布局（自动换行）
+            flow_widget: QWidget = QWidget()
+            flow_widget.setStyleSheet("background: transparent;")
+            flow_layout: QHBoxLayout = QHBoxLayout(flow_widget)
+            flow_layout.setContentsMargins(0, 0, 0, 0)
+            flow_layout.setSpacing(6)
+
+            for subject in subjects:
+                btn: QPushButton = QPushButton(subject)
+                btn.setFont(QFont("Microsoft YaHei", 11))
+                btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+                btn.setMinimumHeight(32)
+                btn.setMinimumWidth(44)
+                btn.setStyleSheet(btn_style)
+                btn.clicked.connect(
+                    lambda checked=False, s=subject: self._on_cv_subject_clicked(s)
+                )
+                self._cv_subject_buttons.append(btn)
+                flow_layout.addWidget(btn)
+
+            flow_layout.addStretch()
+            subjects_layout.addWidget(flow_widget)
+
+        subjects_layout.addStretch()
+        subjects_scroll.setWidget(subjects_widget)
+        body_row.addWidget(subjects_scroll, stretch=7)
+
+        # ---- 竖分割线（区分科目区与操作区）----
+        v_sep: QFrame = QFrame()
+        v_sep.setFrameShape(QFrame.VLine)  # type: ignore
+        v_sep.setStyleSheet(f"""
+            border: none;
+            border-left: 1px solid {self._theme.border_color};
+            background: transparent;
+        """)
+        body_row.addWidget(v_sep)
+        body_row.addSpacing(12)
+
+        # ---- 右侧：操作区（占 30%）----
+        right_panel: QWidget = QWidget()
+        right_panel.setStyleSheet("background: transparent;")
+        right_layout: QVBoxLayout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(8)
+
+        nav_style: str = self._get_cv_nav_btn_style()
+
+        # 计算导航按钮统一宽度（取最长文字所需宽度）
+        nav_btn_width: int = 130
+
+        # -- D-Pad 方向键 --
+        dpad: QWidget = QWidget()
+        dpad.setStyleSheet("background: transparent;")
+        dpad_layout: QVBoxLayout = QVBoxLayout(dpad)
+        dpad_layout.setContentsMargins(0, 0, 0, 0)
+        dpad_layout.setSpacing(4)
+
+        # 上
+        btn_up: QPushButton = QPushButton("▲ 上一节")
+        btn_up.setFont(QFont("Microsoft YaHei", 10))
+        btn_up.setCursor(Qt.PointingHandCursor)  # type: ignore
+        btn_up.setMinimumHeight(32)
+        btn_up.setFixedWidth(nav_btn_width)
+        btn_up.setStyleSheet(nav_style)
+        btn_up.clicked.connect(lambda: self._on_cv_navigate('up'))
+        dpad_layout.addWidget(btn_up, alignment=Qt.AlignCenter)  # type: ignore
+
+        # 左 右
+        lr_row: QHBoxLayout = QHBoxLayout()
+        lr_row.setSpacing(4)
+        lr_row.setAlignment(Qt.AlignCenter)  # type: ignore
+
+        btn_left: QPushButton = QPushButton("◀ 前一天")
+        btn_left.setFont(QFont("Microsoft YaHei", 10))
+        btn_left.setCursor(Qt.PointingHandCursor)  # type: ignore
+        btn_left.setMinimumHeight(32)
+        btn_left.setFixedWidth(nav_btn_width)
+        btn_left.setStyleSheet(nav_style)
+        btn_left.clicked.connect(lambda: self._on_cv_navigate('left'))
+        lr_row.addWidget(btn_left)
+
+        btn_right: QPushButton = QPushButton("后一天 ▶")
+        btn_right.setFont(QFont("Microsoft YaHei", 10))
+        btn_right.setCursor(Qt.PointingHandCursor)  # type: ignore
+        btn_right.setMinimumHeight(32)
+        btn_right.setFixedWidth(nav_btn_width)
+        btn_right.setStyleSheet(nav_style)
+        btn_right.clicked.connect(lambda: self._on_cv_navigate('right'))
+        lr_row.addWidget(btn_right)
+
+        dpad_layout.addLayout(lr_row)
+
+        # 下
+        btn_down: QPushButton = QPushButton("▼ 下一节")
+        btn_down.setFont(QFont("Microsoft YaHei", 10))
+        btn_down.setCursor(Qt.PointingHandCursor)  # type: ignore
+        btn_down.setMinimumHeight(32)
+        btn_down.setFixedWidth(nav_btn_width)
+        btn_down.setStyleSheet(nav_style)
+        btn_down.clicked.connect(lambda: self._on_cv_navigate('down'))
+        dpad_layout.addWidget(btn_down, alignment=Qt.AlignCenter)  # type: ignore
+
+        right_layout.addWidget(dpad)
+
+        # 分割线
+        sep: QFrame = QFrame()
+        sep.setFrameShape(QFrame.HLine)  # type: ignore
+        sep.setStyleSheet(f"""
+            border: none;
+            border-top: 1px solid {self._theme.border_color};
+            background: transparent;
+        """)
+        right_layout.addWidget(sep)
+
+        # -- 操作按钮（垂直排列）--
+        confirm_btn: QPushButton = QPushButton("确认保存")
+        confirm_btn.setFont(QFont("Microsoft YaHei", 10, QFont.Bold))  # type: ignore
+        confirm_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        confirm_btn.setMinimumHeight(34)
+        confirm_btn.clicked.connect(self._on_cv_confirm)
+        right_layout.addWidget(confirm_btn)
+
+        cancel_btn: QPushButton = QPushButton("取消")
+        cancel_btn.setFont(QFont("Microsoft YaHei", 10))
+        cancel_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        cancel_btn.setMinimumHeight(32)
+        cancel_btn.clicked.connect(self._on_cv_cancel)
+        right_layout.addWidget(cancel_btn)
+
+        clear_btn: QPushButton = QPushButton("清除")
+        clear_btn.setFont(QFont("Microsoft YaHei", 10))
+        clear_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        clear_btn.setMinimumHeight(32)
+        clear_btn.clicked.connect(self._on_cv_clear)
+        right_layout.addWidget(clear_btn)
+
+        right_layout.addStretch()
+
+        body_row.addWidget(right_panel, stretch=3)
+
+        card_layout.addLayout(body_row)
+
+        return card
+
+    # ================================================================
+    #  课程表内联编辑器 — 加载科目配置
+    # ================================================================
+    def _load_cv_subject_categories(self) -> None:
+        """从 subject_config.json 加载科目分类到缓存。"""
+        if self._cv_subject_categories:
+            return  # 已缓存
+
+        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        config_path: str = os.path.join(
+            script_dir, 'Config', 'subject_config.json'
+        )
+        try:
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config_data = json.load(f)
+                subject_types = config_data.get('Subject_Types', {})
+                for cat_name, subjects in subject_types.items():
+                    if isinstance(subjects, list):
+                        self._cv_subject_categories[cat_name] = subjects
+                    elif subjects == 'None' or subjects is None:
+                        self._cv_subject_categories[cat_name] = ['None']
+            else:
+                self._cv_subject_categories = {'Category_1': []}
+        except Exception as e:
+            logger.error(f"读取科目配置失败：{e}")
+            self._cv_subject_categories = {'Category_1': []}
+
+    # ================================================================
+    #  课程表内联编辑器 — 闪烁光标
+    # ================================================================
+    def _start_cv_blink(self) -> None:
+        """启动单元格闪烁光标。"""
+        if self._cv_blink_timer.isActive():
+            self._cv_blink_timer.stop()
+        self._cv_blink_on = False
+        # 禁用表格选中，防止 CSS :selected 样式覆盖光标背景
+        if self._curriculum_table is not None:
+            self._curriculum_table.setSelectionMode(
+                QAbstractItemView.NoSelection  # type: ignore
+            )
+            self._curriculum_table.clearSelection()
+        self._cv_blink_timer.start()
+
+    def _stop_cv_blink(self) -> None:
+        """停止闪烁光标，恢复单元格背景，隐藏编辑器卡片。"""
+        if self._cv_blink_timer.isActive():
+            self._cv_blink_timer.stop()
+        # 恢复当前光标单元格背景
+        self._restore_cv_cell_bg()
+        self._cv_blink_on = False
+        # 恢复表格选中模式
+        if self._curriculum_table is not None:
+            self._curriculum_table.setSelectionMode(
+                QAbstractItemView.SingleSelection  # type: ignore
+            )
+        # 隐藏编辑器卡片
+        if self._cv_editor_card is not None:
+            self._cv_editor_card.setVisible(False)
+        # 取消所有科目按钮高亮
+        for btn in self._cv_subject_buttons:
+            btn.setProperty('selected', 'false')  # type: ignore
+            btn.setStyleSheet(self._get_cv_subject_btn_style())
+            btn.style().unpolish(btn)  # type: ignore
+            btn.style().polish(btn)  # type: ignore
+
+    def _toggle_cv_blink(self) -> None:
+        """切换光标单元格的闪烁状态（由 QTimer 触发）。"""
+        if self._curriculum_table is None:
+            return
+        row: int = self._cv_cursor_row
+        col: int = self._cv_cursor_col
+        if row < 0 or col < 0:
+            return
+        item: Optional[QTableWidgetItem] = self._curriculum_table.item(row, col)
+        if item is None:
+            return
+
+        if self._cv_blink_on:
+            # 恢复常态
+            item.setBackground(QColor(0, 0, 0, 0))  # transparent
+        else:
+            # 蓝色高亮光标
+            if self._theme.theme == 'darkcolor':
+                item.setBackground(QColor(33, 150, 243, 77))   # ~30% alpha
+            else:
+                item.setBackground(QColor(33, 150, 243, 77))
+
+        self._cv_blink_on = not self._cv_blink_on
+
+    def _restore_cv_cell_bg(self) -> None:
+        """恢复当前光标单元格的背景为透明。"""
+        if self._curriculum_table is None:
+            return
+        row: int = self._cv_cursor_row
+        col: int = self._cv_cursor_col
+        if row < 0 or col < 0:
+            return
+        item: Optional[QTableWidgetItem] = self._curriculum_table.item(row, col)
+        if item is not None:
+            item.setBackground(QColor(0, 0, 0, 0))
+
+    # ================================================================
+    #  课程表内联编辑器 — 科目点击（直接修改，无需确认）
+    # ================================================================
+    def _on_cv_subject_clicked(self, subject: str) -> None:
+        """科目按钮点击：直接修改当前光标单元格的科目。"""
+        day: str = self._cv_cursor_day
+        lesson: str = self._cv_cursor_lesson
+        if not day or not lesson:
+            return
+
+        # "None" 科目等同于清空
+        new_subject: str = '' if subject == 'None' else subject
+
+        # 更新待编辑数据
+        if day not in self._pending_curriculum_data:
+            self._pending_curriculum_data[day] = {}
+        if new_subject:
+            self._pending_curriculum_data[day][lesson] = new_subject
+        else:
+            self._pending_curriculum_data[day].pop(lesson, None)
+
+        # 直接更新表格单元格显示
+        if self._curriculum_table is not None:
+            row: int = self._cv_cursor_row
+            col: int = self._cv_cursor_col
+            item: Optional[QTableWidgetItem] = self._curriculum_table.item(row, col)
+            if item is not None:
+                cell_text: str = new_subject if new_subject else '—'
+                item.setText(cell_text)
+                fc: str = self._theme.font_color
+                if new_subject:
+                    item.setForeground(QColor(fc))
+                else:
+                    dim_color: str = (
+                        'rgba(255,255,255,0.25)'
+                        if self._theme.theme == 'darkcolor'
+                        else 'rgba(0,0,0,0.25)'
+                    )
+                    item.setForeground(QColor(dim_color))
+
+        # 刷新编辑器状态和高亮按钮
+        self._refresh_cv_editor_status()
+
+        # 高亮当前科目按钮
+        self._highlight_cv_subject_btn(subject)
+
+        logger.info(
+            f"课程表内联编辑：{day} {lesson} → "
+            f"{new_subject or '（清除）'}"
+        )
+
+    # ================================================================
+    #  课程表内联编辑器 — 导航
+    # ================================================================
+    def _on_cv_navigate(self, direction: str) -> None:
+        """移动光标到相邻单元格。"""
+        if self._curriculum_table is None:
+            return
+
+        day_names: List[str] = [
+            'Monday', 'Tuesday', 'Wednesday', 'Thursday',
+            'Friday', 'Saturday', 'Sunday',
+        ]
+
+        # 获取当前天在列表中的索引
+        try:
+            day_idx: int = day_names.index(self._cv_cursor_day)
+        except ValueError:
+            return
+
+        # 获取所有课时行（跳过非 lesson 行）
+        lesson_rows: List[int] = []
+        lesson_keys: List[str] = []
+        for r in range(self._curriculum_table.rowCount()):
+            label_item: Optional[QTableWidgetItem] = (
+                self._curriculum_table.item(r, 0)
+            )
+            if label_item is None:
+                continue
+            key = label_item.data(Qt.UserRole)  # type: ignore
+            if isinstance(key, str) and key.startswith('lesson_'):
+                lesson_rows.append(r)
+                lesson_keys.append(key)
+
+        if not lesson_rows:
+            return
+
+        # 获取当前 lesson 在列表中的索引
+        try:
+            lesson_idx: int = lesson_keys.index(self._cv_cursor_lesson)
+        except ValueError:
+            return
+
+        new_day_idx: int = day_idx
+        new_lesson_idx: int = lesson_idx
+
+        if direction == 'left':
+            new_day_idx = (day_idx - 1) % 7
+        elif direction == 'right':
+            new_day_idx = (day_idx + 1) % 7
+        elif direction == 'up':
+            new_lesson_idx = (lesson_idx - 1) % len(lesson_keys)
+        elif direction == 'down':
+            new_lesson_idx = (lesson_idx + 1) % len(lesson_keys)
+
+        # 停止旧光标
+        self._restore_cv_cell_bg()
+        self._cv_blink_on = False
+
+        # 更新光标位置
+        new_row: int = lesson_rows[new_lesson_idx]
+        new_col: int = new_day_idx + 1  # col 0 是行标签
+        new_day: str = day_names[new_day_idx]
+        new_lesson: str = lesson_keys[new_lesson_idx]
+
+        self._cv_cursor_row = new_row
+        self._cv_cursor_col = new_col
+        self._cv_cursor_day = new_day
+        self._cv_cursor_lesson = new_lesson
+
+        # 刷新状态和按钮高亮
+        self._refresh_cv_editor_status()
+
+        # 重启发闪烁
+        self._start_cv_blink()
+
+        logger.info(f"课程表光标导航：{direction} → {new_day} {new_lesson}")
+
+    # ================================================================
+    #  课程表内联编辑器 — 清除
+    # ================================================================
+    def _on_cv_clear(self) -> None:
+        """清除当前光标单元格的科目。"""
+        self._on_cv_subject_clicked('None')
+
+    # ================================================================
+    #  课程表内联编辑器 — 确认保存
+    # ================================================================
+    def _on_cv_confirm(self) -> None:
+        """弹出二次确认对话框，确认后保存课程表并关闭编辑器。"""
+        reply: QMessageBox.StandardButton = QMessageBox.question(
+            self,
+            "确认保存",
+            "是否保存课程表修改？\n\n修改内容将写入课程表文件。",
+            QMessageBox.Yes | QMessageBox.No,  # type: ignore
+            QMessageBox.No,  # type: ignore
+        )
+
+        if reply == QMessageBox.Yes:  # type: ignore
+            # 应用待编辑数据
+            if self._schedule_data is not None:
+                self._schedule_data.curriculum_data = (
+                    self._pending_curriculum_data
+                )
+                self._schedule_data.save_curriculum()
+                logger.info("课程表修改已确认并保存")
+
+            # 停止光标并隐藏编辑器
+            self._stop_cv_blink()
+            # 刷新课程表状态
+            self._refresh_curriculum_status()
+        else:
+            logger.info("课程表修改：用户取消确认，保持编辑状态")
+
+    # ================================================================
+    #  课程表内联编辑器 — 取消
+    # ================================================================
+    def _on_cv_cancel(self) -> None:
+        """取消编辑：丢弃待编辑数据，恢复表格显示，关闭编辑器。"""
+        logger.info("课程表修改已取消，丢弃待编辑数据")
+        self._stop_cv_blink()
+        # 从原始数据刷新表格
+        self._refresh_curriculum_table()
+
+    # ================================================================
+    #  课程表内联编辑器 — 刷新状态显示
+    # ================================================================
+    def _refresh_cv_editor_status(self) -> None:
+        """刷新编辑器卡片中的状态标签和科目按钮高亮。"""
+        if self._cv_status_label is None:
+            return
+
+        day_labels: Dict[str, str] = {
+            'Monday': '周一', 'Tuesday': '周二', 'Wednesday': '周三',
+            'Thursday': '周四', 'Friday': '周五', 'Saturday': '周六',
+            'Sunday': '周日',
+        }
+        day_label: str = day_labels.get(self._cv_cursor_day,
+                                        self._cv_cursor_day)
+        lesson_num: str = self._cv_cursor_lesson.replace('lesson_', '')
+
+        # 获取时间信息
         time_info: str = ''
         if self._schedule_data is not None:
-            timetable_val = self._schedule_data.timetable_data.get(lesson_key)
+            timetable_val = self._schedule_data.timetable_data.get(
+                self._cv_cursor_lesson
+            )
             if isinstance(timetable_val, list) and len(timetable_val) >= 2:
                 time_info = (
                     f"{self._fmt_time(timetable_val[0])}–"
                     f"{self._fmt_time(timetable_val[1])}"
                 )
 
-        lesson_num: str = lesson_key.replace('lesson_', '')
-        day_labels: Dict[str, str] = {
-            'Monday': '周一', 'Tuesday': '周二', 'Wednesday': '周三',
-            'Thursday': '周四', 'Friday': '周五', 'Saturday': '周六',
-            'Sunday': '周日',
-        }
-        day_label: str = day_labels.get(day_name, day_name)
-
-        dialog: CurriculumCellEditDialog = CurriculumCellEditDialog(
-            day_label=day_label,
-            lesson_label=f"第{lesson_num}节",
-            time_info=time_info,
-            current_subject=current_subject,
-            theme_manager=self._theme,
-            parent=self,
+        # 获取当前科目（从待编辑数据中读取）
+        current_subject: str = ''
+        day_data: Dict = self._pending_curriculum_data.get(
+            self._cv_cursor_day, {}
         )
-        if dialog.exec() == QDialog.Accepted:  # type: ignore
-            new_subject: str = dialog.result_subject()
-            if self._schedule_data is not None:
-                if day_name not in self._schedule_data.curriculum_data:
-                    self._schedule_data.curriculum_data[day_name] = {}
-                if new_subject:
-                    self._schedule_data.curriculum_data[day_name][lesson_key] = (
-                        new_subject
-                    )
-                else:
-                    # 空字符串 → 删除该科目
-                    self._schedule_data.curriculum_data[day_name].pop(
-                        lesson_key, None
-                    )
-                self._schedule_data.save_curriculum()
-            self._refresh_curriculum_table()
+        if isinstance(day_data, dict):
+            current_subject = day_data.get(self._cv_cursor_lesson, '')
+
+        status_text: str = (
+            f"📍 {day_label} · 第{lesson_num}节"
+        )
+        if time_info:
+            status_text += f" ({time_info})"
+        if current_subject:
+            status_text += f"\n当前科目：{current_subject}"
+        else:
+            status_text += "\n当前科目：（未设置）"
+
+        self._cv_status_label.setText(status_text)
+
+        # 高亮当前科目对应的按钮
+        self._highlight_cv_subject_btn(current_subject)
+
+    def _highlight_cv_subject_btn(self, subject: str) -> None:
+        """高亮指定科目的按钮（取消其他按钮高亮）。"""
+        target: str = subject if subject else 'None'
+        for btn in self._cv_subject_buttons:
+            if btn.text() == target:
+                btn.setProperty('selected', 'true')  # type: ignore
+            else:
+                btn.setProperty('selected', 'false')  # type: ignore
+            btn.setStyleSheet(self._get_cv_subject_btn_style())
+            btn.style().unpolish(btn)  # type: ignore
+            btn.style().polish(btn)  # type: ignore
+
+    # ================================================================
+    #  课程表内联编辑器 — 样式方法
+    # ================================================================
+    def _get_cv_card_style(self) -> str:
+        """返回编辑器卡片的 QSS 样式。"""
+        if self._theme.theme == 'darkcolor':
+            card_bg: str = 'rgba(255,255,255,0.05)'
+            card_border: str = 'rgba(33, 150, 243, 0.25)'
+        else:
+            card_bg = 'rgba(33, 150, 243, 0.03)'
+            card_border = 'rgba(33, 150, 243, 0.20)'
+
+        return f"""
+            QFrame {{
+                background-color: {card_bg};
+                border: 1px solid {card_border};
+                border-radius: 10px;
+            }}
+        """
+
+    def _get_cv_nav_btn_style(self) -> str:
+        """返回导航按钮的 QSS 样式。"""
+        fc: str = self._theme.font_color
+        if self._theme.theme == 'darkcolor':
+            bg: str = 'rgba(255,255,255,0.06)'
+            hover_bg: str = 'rgba(255,255,255,0.14)'
+            border: str = 'rgba(255,255,255,0.10)'
+        else:
+            bg = 'rgba(0,0,0,0.04)'
+            hover_bg = 'rgba(0,0,0,0.08)'
+            border = 'rgba(0,0,0,0.10)'
+
+        return f"""
+            QPushButton {{
+                color: {fc};
+                background-color: {bg};
+                border: 1px solid {border};
+                border-radius: 6px;
+                padding: 6px 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {hover_bg};
+            }}
+        """
+
+    def _get_cv_subject_btn_style(self) -> str:
+        """返回科目按钮的 QSS 样式。"""
+        fc: str = self._theme.font_color
+        if self._theme.theme == 'darkcolor':
+            bg: str = 'rgba(255,255,255,0.06)'
+            hover_bg: str = 'rgba(255,255,255,0.14)'
+            sel_bg: str = 'rgba(76, 175, 80, 0.25)'
+            sel_border: str = 'rgba(76, 175, 80, 0.50)'
+            border: str = 'rgba(255,255,255,0.10)'
+        else:
+            bg = 'rgba(0,0,0,0.04)'
+            hover_bg = 'rgba(0,0,0,0.08)'
+            sel_bg = 'rgba(76, 175, 80, 0.15)'
+            sel_border = 'rgba(76, 175, 80, 0.40)'
+            border = 'rgba(0,0,0,0.10)'
+
+        return f"""
+            QPushButton {{
+                color: {fc};
+                background-color: {bg};
+                border: 1px solid {border};
+                border-radius: 6px;
+                padding: 6px 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {hover_bg};
+            }}
+            QPushButton[selected="true"] {{
+                background-color: {sel_bg};
+                border-color: {sel_border};
+            }}
+        """
 
     # ================================================================
     #  课程表 — 加载
@@ -1465,6 +2120,19 @@ class SettingsWindow(ThemedWidget):
             )
         if self._curriculum_table is not None:
             self._style_curriculum_table()
+        # 刷新课程表内联编辑器
+        if self._cv_editor_card is not None:
+            self._cv_editor_card.setStyleSheet(self._get_cv_card_style())
+        if self._cv_status_label is not None:
+            self._cv_status_label.setStyleSheet(
+                f"color: {self._theme.font_color}; background: transparent; border: none;"
+            )
+        # 重刷科目按钮样式
+        btn_style: str = self._get_cv_subject_btn_style()
+        for btn in self._cv_subject_buttons:
+            btn.setStyleSheet(btn_style)
+            btn.style().unpolish(btn)  # type: ignore
+            btn.style().polish(btn)  # type: ignore
 
     # ================================================================
     #  导航按钮样式刷新
@@ -2184,348 +2852,3 @@ class NewCurriculumDialog(QDialog):
     def result_copy_from(self) -> str:
         """返回选择的复制来源（空字符串表示空白）。"""
         return getattr(self, '_result_copy_from', '')
-
-
-# ==================== 课程表单元格编辑对话框 ====================
-
-
-class CurriculumCellEditDialog(QDialog):
-    """
-    # CurriculumCellEditDialog — 课程表单元格编辑子窗口
-
-    点击课程表表格中的单元格后弹出，提供科目选择功能。
-    布局类似快捷编辑窗口的左侧面板，按类别分组显示科目按钮。
-    ---
-    """
-
-    def __init__(self, day_label: str,
-                 lesson_label: str,
-                 time_info: str,
-                 current_subject: str,
-                 theme_manager: ThemeManager,
-                 parent: Optional[QWidget] = None) -> None:
-        """
-        初始化课程表单元格编辑对话框。
-
-        参数：
-            day_label       （str）：星期标签，如 "周一"
-            lesson_label    （str）：课时标签，如 "第1节"
-            time_info       （str）：时间范围，如 "08:00–08:40"
-            current_subject （str）：当前设置的科目（可为空）
-            theme_manager   （ThemeManager）：主题管理器
-            parent          （QWidget | None）：父窗口
-        """
-        super().__init__(parent)
-        self._theme: ThemeManager = theme_manager
-        self._day_label: str = day_label
-        self._lesson_label: str = lesson_label
-        self._time_info: str = time_info
-        self._current_subject: str = current_subject
-        self._selected_subject: str = ''
-
-        self._subject_buttons: List[QPushButton] = []
-        self._selection_label: Optional[QLabel] = None
-
-        self.setWindowTitle('编辑课程')
-        self.setWindowFlags(
-            Qt.Window                         # type: ignore
-            | Qt.WindowCloseButtonHint        # type: ignore
-        )
-        self.setModal(True)
-        self.setMinimumWidth(420)
-
-        self._load_subject_config()
-        self._setup_ui()
-        logger.info(
-            f"CurriculumCellEditDialog 初始化完成"
-            f"（{day_label} {lesson_label}）"
-        )
-
-    # ================================================================
-    #  加载科目配置
-    # ================================================================
-    def _load_subject_config(self) -> None:
-        """从 subject_config.json 加载科目分类。"""
-        self._categories: Dict[str, List[str]] = {}
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
-        config_path: str = os.path.join(
-            script_dir, 'Config', 'subject_config.json'
-        )
-        try:
-            if os.path.exists(config_path):
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    config_data = json.load(f)
-                subject_types = config_data.get('Subject_Types', {})
-                for cat_name, subjects in subject_types.items():
-                    if isinstance(subjects, list):
-                        self._categories[cat_name] = subjects
-                    elif subjects == 'None' or subjects is None:
-                        self._categories[cat_name] = ['None']
-            else:
-                logger.warning(f"科目配置文件不存在：{config_path}")
-                self._categories = {
-                    'Category_1': [],
-                }
-        except Exception as e:
-            logger.error(f"读取科目配置失败：{e}")
-            self._categories = {
-                'Category_1': [],
-            }
-
-    # ================================================================
-    #  UI 构建
-    # ================================================================
-    def _setup_ui(self) -> None:
-        """构造对话框布局。"""
-        layout: QVBoxLayout = QVBoxLayout(self)
-        layout.setSpacing(10)
-        layout.setContentsMargins(16, 14, 16, 14)
-
-        fc: str = self._theme.font_color
-
-        # ---- 标题信息 ----
-        title_text: str = (
-            f"{self._day_label} · {self._lesson_label}"
-        )
-        if self._time_info:
-            title_text += f"  ({self._time_info})"
-        title_label: QLabel = QLabel(title_text)
-        title_label.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))  # type: ignore
-        title_label.setStyleSheet(f"color: {fc}; background: transparent;")
-        layout.addWidget(title_label)
-
-        # ---- 当前科目 ----
-        current_text: str = (
-            f"当前科目：{self._current_subject}"
-            if self._current_subject else "当前科目：（未设置）"
-        )
-        current_label: QLabel = QLabel(current_text)
-        current_label.setFont(QFont("Microsoft YaHei", 11))
-        dim_color: str = (
-            'rgba(255,255,255,0.50)' if self._theme.theme == 'darkcolor'
-            else 'rgba(0,0,0,0.50)'
-        )
-        current_label.setStyleSheet(
-            f"color: {dim_color}; background: transparent;"
-        )
-        layout.addWidget(current_label)
-
-        # ---- 分割线 ----
-        sep: QFrame = QFrame()
-        sep.setFrameShape(QFrame.HLine)  # type: ignore
-        sep.setStyleSheet(f"""
-            border: none;
-            border-top: 1px solid {self._theme.border_color};
-            background: transparent;
-        """)
-        layout.addWidget(sep)
-
-        # ---- 选中提示 ----
-        self._selection_label = QLabel("")
-        self._selection_label.setFont(
-            QFont("Microsoft YaHei", 11, QFont.Bold)  # type: ignore
-        )
-        self._selection_label.setStyleSheet(
-            "color: #4CAF50; background: transparent; padding: 4px 0;"
-        )
-        self._selection_label.setVisible(False)
-        layout.addWidget(self._selection_label)
-
-        # ---- 科目分类按钮区 ----
-        # 使用滚动区域以便类别较多时仍可操作
-        scroll: QScrollArea = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("""
-            QScrollArea {
-                background: transparent;
-                border: none;
-            }
-            QScrollBar:vertical {
-                background: transparent;
-                width: 6px;
-                margin: 0;
-            }
-            QScrollBar::handle:vertical {
-                background: rgba(128, 128, 128, 0.3);
-                border-radius: 3px;
-                min-height: 20px;
-            }
-        """)
-
-        categories_widget: QWidget = QWidget()
-        categories_widget.setStyleSheet("background: transparent;")
-        cat_layout: QVBoxLayout = QVBoxLayout(categories_widget)
-        cat_layout.setContentsMargins(0, 0, 0, 0)
-        cat_layout.setSpacing(8)
-
-        # 按钮样式
-        btn_style: str = self._get_subject_btn_style()
-
-        for cat_name, subjects in self._categories.items():
-            # 类别标题
-            cat_title: QLabel = QLabel(f"—— {cat_name} ——")
-            cat_title.setFont(QFont("Microsoft YaHei", 10))
-            cat_title.setStyleSheet(
-                f"color: {dim_color}; background: transparent;"
-            )
-            cat_layout.addWidget(cat_title)
-
-            # 科目按钮流式布局
-            flow_widget: QWidget = QWidget()
-            flow_widget.setStyleSheet("background: transparent;")
-            flow_layout = QHBoxLayout(flow_widget)
-            flow_layout.setContentsMargins(0, 0, 0, 0)
-            flow_layout.setSpacing(6)
-
-            for subject in subjects:
-                btn: QPushButton = QPushButton(subject)
-                btn.setFont(QFont("Microsoft YaHei", 11))
-                btn.setCursor(Qt.PointingHandCursor)  # type: ignore
-                btn.setMinimumHeight(34)
-                btn.setMinimumWidth(50)
-                btn.setStyleSheet(btn_style)
-                btn.clicked.connect(
-                    lambda checked=False, s=subject: self._on_subject_selected(s)
-                )
-                self._subject_buttons.append(btn)
-                flow_layout.addWidget(btn)
-
-            flow_layout.addStretch()
-            cat_layout.addWidget(flow_widget)
-
-        cat_layout.addStretch()
-        scroll.setWidget(categories_widget)
-        layout.addWidget(scroll, stretch=1)
-
-        # ---- 按钮行 ----
-        btn_row: QHBoxLayout = QHBoxLayout()
-        btn_row.setSpacing(10)
-
-        # 清除按钮
-        clear_btn: QPushButton = QPushButton("清除")
-        clear_btn.setFont(QFont("Microsoft YaHei", 11))
-        clear_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
-        clear_btn.setMinimumHeight(34)
-        clear_btn.clicked.connect(self._on_clear)
-        btn_row.addWidget(clear_btn)
-
-        btn_row.addStretch()
-
-        cancel_btn: QPushButton = QPushButton("取消")
-        cancel_btn.setFont(QFont("Microsoft YaHei", 11))
-        cancel_btn.setMinimumHeight(34)
-        cancel_btn.clicked.connect(self.reject)
-        btn_row.addWidget(cancel_btn)
-
-        confirm_btn: QPushButton = QPushButton("确认")
-        confirm_btn.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))  # type: ignore
-        confirm_btn.setMinimumHeight(34)
-        confirm_btn.clicked.connect(self._on_confirm)
-        btn_row.addWidget(confirm_btn)
-
-        layout.addLayout(btn_row)
-
-        self.setLayout(layout)
-
-    # ================================================================
-    #  按钮样式
-    # ================================================================
-    def _get_subject_btn_style(self) -> str:
-        """返回科目按钮的 QSS 样式。"""
-        fc: str = self._theme.font_color
-        if self._theme.theme == 'darkcolor':
-            bg: str = 'rgba(255,255,255,0.06)'
-            hover_bg: str = 'rgba(255,255,255,0.14)'
-            sel_bg: str = 'rgba(76, 175, 80, 0.25)'
-            sel_border: str = 'rgba(76, 175, 80, 0.50)'
-            border: str = 'rgba(255,255,255,0.10)'
-        else:
-            bg = 'rgba(0,0,0,0.04)'
-            hover_bg = 'rgba(0,0,0,0.08)'
-            sel_bg = 'rgba(76, 175, 80, 0.15)'
-            sel_border = 'rgba(76, 175, 80, 0.40)'
-            border = 'rgba(0,0,0,0.10)'
-
-        return f"""
-            QPushButton {{
-                color: {fc};
-                background-color: {bg};
-                border: 1px solid {border};
-                border-radius: 6px;
-                padding: 6px 12px;
-            }}
-            QPushButton:hover {{
-                background-color: {hover_bg};
-            }}
-            QPushButton[selected="true"] {{
-                background-color: {sel_bg};
-                border-color: {sel_border};
-            }}
-        """
-
-    # ================================================================
-    #  事件处理
-    # ================================================================
-    def _on_subject_selected(self, subject: str) -> None:
-        """选择/切换科目。"""
-        # "None" 等同于清除
-        if subject == 'None':
-            self._selected_subject = ''
-        else:
-            self._selected_subject = subject
-
-        # 更新按钮选中状态
-        for btn in self._subject_buttons:
-            if btn.text() == subject and subject != 'None':
-                btn.setProperty('selected', 'true')  # type: ignore
-                btn.setStyleSheet(self._get_subject_btn_style())
-            else:
-                btn.setProperty('selected', 'false')  # type: ignore
-                btn.setStyleSheet(self._get_subject_btn_style())
-
-            # 强制刷新样式
-            btn.style().unpolish(btn)  # type: ignore
-            btn.style().polish(btn)  # type: ignore
-
-        # 更新选中提示
-        if self._selection_label is not None:
-            if self._selected_subject:
-                self._selection_label.setText(
-                    f"✓ 已选择：{self._selected_subject}"
-                )
-                self._selection_label.setVisible(True)
-            else:
-                self._selection_label.setText("已清除选择")
-                self._selection_label.setStyleSheet(
-                    "color: #FF9800; background: transparent; padding: 4px 0;"
-                )
-                self._selection_label.setVisible(True)
-
-    def _on_clear(self) -> None:
-        """清除选择的科目。"""
-        self._selected_subject = ''
-        # 取消所有按钮选中状态
-        for btn in self._subject_buttons:
-            btn.setProperty('selected', 'false')  # type: ignore
-            btn.setStyleSheet(self._get_subject_btn_style())
-            btn.style().unpolish(btn)  # type: ignore
-            btn.style().polish(btn)  # type: ignore
-        if self._selection_label is not None:
-            self._selection_label.setText("已清除选择")
-            self._selection_label.setStyleSheet(
-                "color: #FF9800; background: transparent; padding: 4px 0;"
-            )
-            self._selection_label.setVisible(True)
-
-    def _on_confirm(self) -> None:
-        """确认编辑（直接接受，result_subject 返回选中的科目）。"""
-        logger.info(
-            f"CurriculumCellEditDialog 确认："
-            f"{self._day_label} {self._lesson_label}"
-            f" → {self._selected_subject or '（清除）'}"
-        )
-        self.accept()
-
-    def result_subject(self) -> str:
-        """返回选中的科目（空字符串表示清除）。"""
-        return getattr(self, '_selected_subject', '')
