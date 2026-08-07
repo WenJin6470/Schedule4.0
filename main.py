@@ -131,24 +131,9 @@ def main() -> None:
     LogManager.cleanup_old_logs(log_dir, theme_manager.log_retention_days, logger)
 
     #  3b. 创建 ScheduleDataManager（读取课程表和时间表 JSON）
-    #  ★ 如果 INI 中启用了特殊课表规则，则使用特殊路径
     logger.info("正在创建 ScheduleDataManager...")
-    if theme_manager.enable_special_schedule:
-        curriculum_path: str = (
-            theme_manager.special_curriculum
-            or theme_manager.curriculum_path
-        )
-        timetable_path: str = (
-            theme_manager.special_timetable
-            or theme_manager.timetable_path
-        )
-        logger.info(
-            f"特殊课表规则已启用："
-            f"timetable={timetable_path}, curriculum={curriculum_path}"
-        )
-    else:
-        curriculum_path = theme_manager.curriculum_path
-        timetable_path = theme_manager.timetable_path
+    curriculum_path: str = theme_manager.curriculum_path
+    timetable_path: str = theme_manager.timetable_path
 
     schedule_data: ScheduleDataManager = ScheduleDataManager(
         curriculum_path=curriculum_path,

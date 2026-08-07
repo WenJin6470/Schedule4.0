@@ -166,11 +166,6 @@ class ThemeManager:
         # ---- 全屏时间创意模式背景图片文件夹 ----
         self.fullscreen_bg_folder: str = 'images/FullScreenBackgrounds/default'
 
-        # ---- 特殊课表规则 ----
-        self.enable_special_schedule: bool = False
-        self.special_timetable: str = 'Config/timetable/timetable_1.json'
-        self.special_curriculum: str = 'Config/curriculum/table_1.json'
-
         # ---- 加载配置 ----
         self._load_config()
         self._load_subject_config()
@@ -203,9 +198,6 @@ class ThemeManager:
                 self.timetable_path = default_timetable
                 self.fullscreen_bg_folder = 'images/FullScreenBackgrounds/default'
                 self.log_retention_days = 7
-                self.enable_special_schedule = False
-                self.special_timetable = 'Config/timetable/timetable_1.json'
-                self.special_curriculum = 'Config/curriculum/table_1.json'
                 self._apply_theme()
                 return
 
@@ -261,21 +253,6 @@ class ThemeManager:
                                              fallback=default_bg_folder)
             self.fullscreen_bg_folder = bg_folder_str.strip()
 
-            # --- enable_special_schedule（特殊课表规则开关）---
-            enable_str: str = parser.get('Schedule', 'enable_special_schedule',
-                                         fallback='false')
-            self.enable_special_schedule = (enable_str.strip().lower() == 'true')
-
-            # --- special_timetable（特殊规则使用的时间表）---
-            special_tt: str = parser.get('Schedule', 'special_timetable',
-                                         fallback='Config/timetable/timetable_1.json')
-            self.special_timetable = special_tt.strip()
-
-            # --- special_curriculum（特殊规则使用的课程表）---
-            special_cv: str = parser.get('Schedule', 'special_curriculum',
-                                         fallback='Config/curriculum/table_1.json')
-            self.special_curriculum = special_cv.strip()
-
             self._apply_theme()
 
             logger.info(f"配置加载完成：theme={self.theme}, language={self.language}, "
@@ -291,9 +268,6 @@ class ThemeManager:
             self.timetable_path = default_timetable
             self.fullscreen_bg_folder = 'images/FullScreenBackgrounds/default'
             self.log_retention_days = 7
-            self.enable_special_schedule = False
-            self.special_timetable = 'Config/timetable/timetable_1.json'
-            self.special_curriculum = 'Config/curriculum/table_1.json'
             self._apply_theme()
         except Exception as e:
             logger.error(f"读取配置文件失败：{e}，使用默认值")
@@ -303,9 +277,6 @@ class ThemeManager:
             self.timetable_path = default_timetable
             self.fullscreen_bg_folder = 'images/FullScreenBackgrounds/default'
             self.log_retention_days = 7
-            self.enable_special_schedule = False
-            self.special_timetable = 'Config/timetable/timetable_1.json'
-            self.special_curriculum = 'Config/curriculum/table_1.json'
             self._apply_theme()
 
     # ================================================================
@@ -415,46 +386,6 @@ class ThemeManager:
             else:
                 return ''
         return ''
-
-    # ================================================================
-    #  保存特殊课表规则到 INI
-    # ================================================================
-    def save_special_schedule_config(self, enabled: bool,
-                                     timetable: str,
-                                     curriculum: str) -> None:
-        """持久化特殊课表规则到 schedule_config.ini 并同步自身属性。"""
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
-        config_path: str = os.path.join(script_dir, 'Config',
-                                        'schedule_config.ini')
-
-        parser: ConfigParser = ConfigParser()
-        try:
-            if os.path.exists(config_path):
-                parser.read(config_path, encoding='utf-8')
-
-            if not parser.has_section('Schedule'):
-                parser.add_section('Schedule')
-
-            parser.set('Schedule', 'enable_special_schedule',
-                       str(enabled).lower())
-            parser.set('Schedule', 'special_timetable', timetable)
-            parser.set('Schedule', 'special_curriculum', curriculum)
-
-            with open(config_path, 'w', encoding='utf-8') as f:
-                parser.write(f)
-
-            # 同步自身属性
-            self.enable_special_schedule = enabled
-            self.special_timetable = timetable
-            self.special_curriculum = curriculum
-
-            logger.info(
-                f"特殊课表规则已保存：enabled={enabled}, "
-                f"timetable={timetable}, curriculum={curriculum}"
-            )
-        except Exception as e:
-            logger.error(f"保存特殊课表规则失败：{e}")
-
 
 # ==================== 课表数据管理器 ====================
 
@@ -799,6 +730,35 @@ class ScheduleDataManager:
             pass
 
         return files
+
+    # ================================================================
+    #  静态方法：获取下一个可用的课程表名称
+    # ================================================================
+    @staticmethod
+    def get_next_curriculum_name() -> str:
+        """
+        扫描 curriculum 目录，返回下一个可用的 table_N.json 名称。
+        -------------------------------------------------------
+        返回值：
+            str：形如 "table_2.json" 的文件名
+        """
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        curriculum_dir = os.path.join(script_dir, 'Config', 'curriculum')
+        os.makedirs(curriculum_dir, exist_ok=True)
+
+        existing: List[int] = []
+        try:
+            for f in os.listdir(curriculum_dir):
+                if f.startswith('table_') and f.endswith('.json'):
+                    try:
+                        num = int(f[len('table_'):-len('.json')])
+                        existing.append(num)
+                    except ValueError:
+                        pass
+        except OSError:
+            pass
+
+        return f"table_{max(existing) + 1 if existing else 1}.json"
 
 
 # ==================== 换课记录管理器 ====================
