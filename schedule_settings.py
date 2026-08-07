@@ -1420,36 +1420,35 @@ class SettingsWindow(ThemedWidget):
 
         nav_style: str = self._get_cv_nav_btn_style()
 
-        # 计算导航按钮统一宽度（取最长文字所需宽度）
-        nav_btn_width: int = 130
-
-        # -- D-Pad 方向键 --
+        # -- D-Pad 方向键（紧凑布局）--
         dpad: QWidget = QWidget()
         dpad.setStyleSheet("background: transparent;")
         dpad_layout: QVBoxLayout = QVBoxLayout(dpad)
         dpad_layout.setContentsMargins(0, 0, 0, 0)
         dpad_layout.setSpacing(4)
 
+        nav_btn_w: int = 120
+
         # 上
         btn_up: QPushButton = QPushButton("▲ 上一节")
         btn_up.setFont(QFont("Microsoft YaHei", 10))
         btn_up.setCursor(Qt.PointingHandCursor)  # type: ignore
-        btn_up.setMinimumHeight(32)
-        btn_up.setFixedWidth(nav_btn_width)
+        btn_up.setMinimumHeight(36)
+        btn_up.setFixedWidth(nav_btn_w)
         btn_up.setStyleSheet(nav_style)
         btn_up.clicked.connect(lambda: self._on_cv_navigate('up'))
         dpad_layout.addWidget(btn_up, alignment=Qt.AlignCenter)  # type: ignore
 
-        # 左 右
+        # 左 右（紧挨在一起）
         lr_row: QHBoxLayout = QHBoxLayout()
-        lr_row.setSpacing(4)
+        lr_row.setSpacing(0)
         lr_row.setAlignment(Qt.AlignCenter)  # type: ignore
 
         btn_left: QPushButton = QPushButton("◀ 前一天")
         btn_left.setFont(QFont("Microsoft YaHei", 10))
         btn_left.setCursor(Qt.PointingHandCursor)  # type: ignore
-        btn_left.setMinimumHeight(32)
-        btn_left.setFixedWidth(nav_btn_width)
+        btn_left.setMinimumHeight(36)
+        btn_left.setFixedWidth(nav_btn_w)
         btn_left.setStyleSheet(nav_style)
         btn_left.clicked.connect(lambda: self._on_cv_navigate('left'))
         lr_row.addWidget(btn_left)
@@ -1457,8 +1456,8 @@ class SettingsWindow(ThemedWidget):
         btn_right: QPushButton = QPushButton("后一天 ▶")
         btn_right.setFont(QFont("Microsoft YaHei", 10))
         btn_right.setCursor(Qt.PointingHandCursor)  # type: ignore
-        btn_right.setMinimumHeight(32)
-        btn_right.setFixedWidth(nav_btn_width)
+        btn_right.setMinimumHeight(36)
+        btn_right.setFixedWidth(nav_btn_w)
         btn_right.setStyleSheet(nav_style)
         btn_right.clicked.connect(lambda: self._on_cv_navigate('right'))
         lr_row.addWidget(btn_right)
@@ -1469,8 +1468,8 @@ class SettingsWindow(ThemedWidget):
         btn_down: QPushButton = QPushButton("▼ 下一节")
         btn_down.setFont(QFont("Microsoft YaHei", 10))
         btn_down.setCursor(Qt.PointingHandCursor)  # type: ignore
-        btn_down.setMinimumHeight(32)
-        btn_down.setFixedWidth(nav_btn_width)
+        btn_down.setMinimumHeight(36)
+        btn_down.setFixedWidth(nav_btn_w)
         btn_down.setStyleSheet(nav_style)
         btn_down.clicked.connect(lambda: self._on_cv_navigate('down'))
         dpad_layout.addWidget(btn_down, alignment=Qt.AlignCenter)  # type: ignore
@@ -1553,12 +1552,15 @@ class SettingsWindow(ThemedWidget):
         if self._cv_blink_timer.isActive():
             self._cv_blink_timer.stop()
         self._cv_blink_on = False
-        # 禁用表格选中，防止 CSS :selected 样式覆盖光标背景
+        # 禁用交替行颜色和选中，防止 CSS 样式覆盖光标背景
         if self._curriculum_table is not None:
+            self._curriculum_table.setAlternatingRowColors(False)
             self._curriculum_table.setSelectionMode(
                 QAbstractItemView.NoSelection  # type: ignore
             )
             self._curriculum_table.clearSelection()
+        # 立即显示光标（不等定时器首触发），然后由定时器接管闪烁
+        self._toggle_cv_blink()
         self._cv_blink_timer.start()
 
     def _stop_cv_blink(self) -> None:
@@ -1568,8 +1570,9 @@ class SettingsWindow(ThemedWidget):
         # 恢复当前光标单元格背景
         self._restore_cv_cell_bg()
         self._cv_blink_on = False
-        # 恢复表格选中模式
+        # 恢复交替行颜色和选中模式
         if self._curriculum_table is not None:
+            self._curriculum_table.setAlternatingRowColors(True)
             self._curriculum_table.setSelectionMode(
                 QAbstractItemView.SingleSelection  # type: ignore
             )
@@ -1604,6 +1607,9 @@ class SettingsWindow(ThemedWidget):
                 item.setBackground(QColor(33, 150, 243, 77))   # ~30% alpha
             else:
                 item.setBackground(QColor(33, 150, 243, 77))
+
+        # 强制重绘，确保背景变化立即可见
+        self._curriculum_table.viewport().update()  # type: ignore
 
         self._cv_blink_on = not self._cv_blink_on
 
@@ -1763,8 +1769,8 @@ class SettingsWindow(ThemedWidget):
             self,
             "确认保存",
             "是否保存课程表修改？\n\n修改内容将写入课程表文件。",
-            QMessageBox.Yes | QMessageBox.No,  # type: ignore
-            QMessageBox.No,  # type: ignore
+            QMessageBox.No | QMessageBox.Yes,  # type: ignore
+            QMessageBox.Yes,  # type: ignore
         )
 
         if reply == QMessageBox.Yes:  # type: ignore
