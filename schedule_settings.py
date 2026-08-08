@@ -65,6 +65,8 @@ class SettingsWindow(ThemedWidget):
 
     # 信号：时间表发生变更，通知主窗口重建标签
     timetable_changed = Signal()
+    # 信号：用户显式应用更改后通知主窗口刷新
+    changes_applied = Signal()
 
     def __init__(self, parent_signal: SignalInstance,
                  theme_manager: ThemeManager,
@@ -112,6 +114,13 @@ class SettingsWindow(ThemedWidget):
         self._cv_status_label: Optional[QLabel] = None
         self._cv_subject_buttons: List[QPushButton] = []
         self._cv_subject_categories: Dict[str, List[str]] = {}
+
+        # 编辑副本：隔离设置页面编辑操作与主窗口共享数据
+        self._editing_timetable_data: Dict = {}
+        self._editing_curriculum_data: Dict = {}
+        self._editing_timetable_path: str = ''   # 当前编辑的时间表文件路径
+        self._editing_curriculum_path: str = ''  # 当前编辑的课程表文件路径
+        self._has_unsaved_changes: bool = False  # 是否有未保存的更改
 
         logger.info("SettingsWindow 初始化开始")
         self._setup_ui()
@@ -548,6 +557,31 @@ class SettingsWindow(ThemedWidget):
         self._cv_editor_card.setVisible(False)
         cv_indent_layout.addWidget(self._cv_editor_card)
 
+        # ---- 应用/放弃按钮行 ----
+        apply_btn_row: QHBoxLayout = QHBoxLayout()
+        apply_btn_row.setSpacing(12)
+
+        self._apply_btn = QPushButton("应用更改")
+        self._apply_btn.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))  # type: ignore
+        self._apply_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self._apply_btn.setMinimumHeight(40)
+        self._apply_btn.setMinimumWidth(140)
+        self._apply_btn.setEnabled(False)  # 初始无更改时禁用
+        self._apply_btn.clicked.connect(self._on_apply_changes)
+        apply_btn_row.addWidget(self._apply_btn)
+
+        self._discard_btn = QPushButton("放弃更改")
+        self._discard_btn.setFont(QFont("Microsoft YaHei", 11))
+        self._discard_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self._discard_btn.setMinimumHeight(40)
+        self._discard_btn.setMinimumWidth(140)
+        self._discard_btn.setEnabled(False)
+        self._discard_btn.clicked.connect(self._on_discard_changes)
+        apply_btn_row.addWidget(self._discard_btn)
+
+        apply_btn_row.addStretch()
+        cv_indent_layout.addLayout(apply_btn_row)
+
         # 将"课程表"缩进容器添加到主布局
         layout.addWidget(cv_indent)
 
@@ -606,10 +640,160 @@ class SettingsWindow(ThemedWidget):
         """生成当前状态标签文字。"""
         if self._schedule_data is None:
             return "状态：未加载数据"
-        path: str = self._schedule_data.timetable_path
+        path: str = self._editing_timetable_path or self._schedule_data.timetable_path
         fname: str = os.path.basename(path) if path else "未知"
-        count: int = len(self._schedule_data.timetable_data)
-        return f"状态：已加载 {fname}（共 {count} 条）"
+        count: int = (
+            len(self._editing_timetable_data)
+            if self._editing_timetable_data
+            else len(self._schedule_data.timetable_data)
+        )
+        prefix: str = "[编辑中] " if self._has_unsaved_changes else ""
+        return f"{prefix}状态：已加载 {fname}（共 {count} 条）"
+
+    # ================================================================
+    #  编辑副本管理
+    # ================================================================
+    def _init_editing_copies(self) -> None:
+        """从共享数据管理器深拷贝数据到编辑副本。"""
+        if self._schedule_data is not None:
+            self._editing_timetable_data = copy.deepcopy(
+                self._schedule_data.timetable_data
+            )
+            self._editing_curriculum_data = copy.deepcopy(
+                self._schedule_data.curriculum_data
+            )
+            self._editing_timetable_path = self._schedule_data.timetable_path
+            self._editing_curriculum_path = self._schedule_data.curriculum_path
+            self._has_unsaved_changes = False
+            self._refresh_apply_button()
+            logger.info("编辑副本已从共享数据初始化")
+        else:
+            self._editing_timetable_data = {}
+            self._editing_curriculum_data = {}
+            self._editing_timetable_path = ''
+            self._editing_curriculum_path = ''
+            self._has_unsaved_changes = False
+
+    def _refresh_apply_button(self) -> None:
+        """根据是否有未保存更改，刷新应用/放弃按钮状态和样式。"""
+        if not hasattr(self, '_apply_btn') or self._apply_btn is None:
+            return
+
+        enabled: bool = self._has_unsaved_changes
+        self._apply_btn.setEnabled(enabled)
+        if hasattr(self, '_discard_btn') and self._discard_btn is not None:
+            self._discard_btn.setEnabled(enabled)
+
+        fc: str = self._theme.font_color
+        if self._theme.theme == 'darkcolor':
+            apply_primary: str = '#4CAF50'
+            apply_hover: str = '#66BB6A'
+            discard_color: str = '#EF5350'
+            discard_hover: str = '#E57373'
+            disabled_bg: str = 'rgba(255,255,255,0.05)'
+            disabled_fg: str = 'rgba(255,255,255,0.25)'
+        else:
+            apply_primary = '#43A047'
+            apply_hover = '#66BB6A'
+            discard_color = '#E53935'
+            discard_hover = '#EF5350'
+            disabled_bg = 'rgba(0,0,0,0.04)'
+            disabled_fg = 'rgba(0,0,0,0.25)'
+
+        if enabled:
+            self._apply_btn.setStyleSheet(f"""
+                QPushButton {{
+                    color: white; background-color: {apply_primary};
+                    border: none; border-radius: 6px;
+                    padding: 8px 24px;
+                }}
+                QPushButton:hover {{
+                    background-color: {apply_hover};
+                }}
+            """)
+            if hasattr(self, '_discard_btn') and self._discard_btn is not None:
+                self._discard_btn.setStyleSheet(f"""
+                    QPushButton {{
+                        color: {discard_color}; background: transparent;
+                        border: 1px solid {discard_color}; border-radius: 6px;
+                        padding: 8px 24px;
+                    }}
+                    QPushButton:hover {{
+                        background-color: rgba(244,67,54,0.08);
+                    }}
+                """)
+        else:
+            style: str = f"""
+                QPushButton {{
+                    color: {disabled_fg}; background-color: {disabled_bg};
+                    border: none; border-radius: 6px;
+                    padding: 8px 24px;
+                }}
+            """
+            self._apply_btn.setStyleSheet(style)
+            if hasattr(self, '_discard_btn') and self._discard_btn is not None:
+                self._discard_btn.setStyleSheet(style)
+
+    def _on_apply_changes(self) -> None:
+        """将编辑副本的更改应用到共享数据管理器，保存到磁盘，并通知主窗口刷新。"""
+        if self._schedule_data is None:
+            logger.warning("无法应用更改：schedule_data 为 None")
+            return
+
+        # 1. 应用时间表编辑副本 → 共享数据
+        if self._editing_timetable_data:
+            self._schedule_data.timetable_data = copy.deepcopy(
+                self._editing_timetable_data
+            )
+            self._schedule_data.timetable_path = self._editing_timetable_path
+            self._schedule_data.save_timetable()
+            logger.info(f"时间表已应用并保存：{self._editing_timetable_path}")
+
+        # 2. 应用课程表编辑副本 → 共享数据
+        if self._editing_curriculum_data:
+            self._schedule_data.curriculum_data = copy.deepcopy(
+                self._editing_curriculum_data
+            )
+            self._schedule_data.curriculum_path = self._editing_curriculum_path
+            self._schedule_data.save_curriculum()
+            logger.info(f"课程表已应用并保存：{self._editing_curriculum_path}")
+
+        # 3. 重置未保存变更标志
+        self._has_unsaved_changes = False
+        self._refresh_apply_button()
+
+        # 4. 刷新状态标签和表格
+        self._refresh_status_label()
+        self._refresh_curriculum_status()
+
+        # 5. ★ 通知主窗口重建课时标签
+        self.changes_applied.emit()
+
+        logger.info("所有更改已应用到主窗口")
+
+    def _on_discard_changes(self) -> None:
+        """放弃编辑副本中的所有更改，从共享数据重新初始化。"""
+        reply: QMessageBox.StandardButton = QMessageBox.question(
+            self,
+            "放弃更改",
+            "确定要放弃所有未应用更改吗？\n\n"
+            "时间表和课程表的所有编辑都将被撤销，恢复为上次应用的状态。",
+            QMessageBox.No | QMessageBox.Yes,  # type: ignore
+            QMessageBox.No,  # type: ignore
+        )
+        if reply != QMessageBox.Yes:  # type: ignore
+            return
+
+        # 停止课程表内联编辑器（如果打开）
+        self._stop_cv_blink()
+        self._init_editing_copies()
+        self._refresh_table()  # 同时刷新时间表和课程表
+        logger.info("已放弃所有未应用更改")
+
+    def _refresh_status_label(self) -> None:
+        """刷新时间表状态标签文字。"""
+        if self._status_label is not None:
+            self._status_label.setText(self._get_status_text())
 
     # ================================================================
     #  刷新表格
@@ -628,7 +812,11 @@ class SettingsWindow(ThemedWidget):
             self._refresh_curriculum_table()
             return
 
-        data: Dict = self._schedule_data.timetable_data
+        data: Dict = (
+            self._editing_timetable_data
+            if self._editing_timetable_data
+            else self._schedule_data.timetable_data
+        )
         row: int = 0
 
         for key, value in data.items():
@@ -879,10 +1067,19 @@ class SettingsWindow(ThemedWidget):
 
         logger.info(f"加载时间表：{rel_path}")
 
-        if self._schedule_data is not None:
-            self._schedule_data.reload_timetable(rel_path)
+        # 直接读取文件到编辑副本，不影响共享数据
+        try:
+            load_path: str = os.path.join(script_dir, rel_path)
+            with open(load_path, 'r', encoding='utf-8') as f:
+                self._editing_timetable_data = json.load(f)
+            self._editing_timetable_path = rel_path
+            self._has_unsaved_changes = True
             self._refresh_table()
-            self.timetable_changed.emit()
+            self._refresh_status_label()
+            self._refresh_apply_button()
+            logger.info(f"时间表已加载至编辑副本：{rel_path}")
+        except Exception as e:
+            logger.error(f"加载时间表到编辑副本失败：{e}")
 
     # ================================================================
     #  事件：新建时间表
@@ -928,12 +1125,18 @@ class SettingsWindow(ThemedWidget):
 
         logger.info(f"已创建新时间表：{name}（模板={'复制 ' + copy_from if copy_from else '空白'}）")
 
-        # 加载新文件
+        # 加载新文件到编辑副本
         rel_path: str = f"Config/timetable/{name}"
-        if self._schedule_data is not None:
-            self._schedule_data.reload_timetable(rel_path)
+        try:
+            with open(new_path, 'r', encoding='utf-8') as f:
+                self._editing_timetable_data = json.load(f)
+            self._editing_timetable_path = rel_path
+            self._has_unsaved_changes = True
             self._refresh_table()
-            self.timetable_changed.emit()
+            self._refresh_status_label()
+            self._refresh_apply_button()
+        except Exception as e:
+            logger.error(f"加载新时间表到编辑副本失败：{e}")
 
     # ================================================================
     #  事件：双击条目 → 编辑
@@ -945,7 +1148,11 @@ class SettingsWindow(ThemedWidget):
             return
 
         key: str = item.data(Qt.UserRole)  # type: ignore
-        data: Dict = self._schedule_data.timetable_data # type: ignore
+        data: Dict = (
+            self._editing_timetable_data
+            if self._editing_timetable_data
+            else self._schedule_data.timetable_data  # type: ignore
+        )
 
         if key not in data:
             return
@@ -978,10 +1185,10 @@ class SettingsWindow(ThemedWidget):
             else:
                 data[key] = "-"
 
-            if self._schedule_data is not None:
-                self._schedule_data.save_timetable()
+            self._has_unsaved_changes = True
             self._refresh_table()
-            self.timetable_changed.emit()
+            self._refresh_status_label()
+            self._refresh_apply_button()
 
     # ================================================================
     #  事件：新加条目
@@ -994,9 +1201,11 @@ class SettingsWindow(ThemedWidget):
           - 结束时间 = 开始时间 + 40 分钟
           - 若无现有课时，默认 7:00–7:40
         """
-        data: Dict = self._schedule_data.timetable_data  # type: ignore
-
-        # 收集所有课时的结束时间，按 lesson_N 序号排序
+        data: Dict = (
+            self._editing_timetable_data
+            if self._editing_timetable_data
+            else self._schedule_data.timetable_data  # type: ignore
+        )
         last_end_minutes: Optional[int] = None
         for key in data:
             if key.startswith('lesson_'):
@@ -1053,7 +1262,11 @@ class SettingsWindow(ThemedWidget):
     def _on_entry_confirmed(self, etype: str,
                             start_time: str, end_time: str) -> None:
         """处理新建条目对话框的确认信号（不关闭对话框）。"""
-        data: Dict = self._schedule_data.timetable_data  # type: ignore
+        data: Dict = (
+            self._editing_timetable_data
+            if self._editing_timetable_data
+            else self._schedule_data.timetable_data  # type: ignore
+        )
 
         if etype == 'lesson':
             lesson_nums: List[int] = []
@@ -1081,10 +1294,10 @@ class SettingsWindow(ThemedWidget):
             new_key = f"dividerline_{next_num}"
             data[new_key] = "-"
 
-        if self._schedule_data is not None:
-            self._schedule_data.save_timetable()
+        self._has_unsaved_changes = True
         self._refresh_table()
-        self.timetable_changed.emit()
+        self._refresh_status_label()
+        self._refresh_apply_button()
 
         # 计算下一次默认时间（结束时间 + 10 分钟开始，+ 40 分钟结束）
         next_start_time, next_end_time = self._calculate_default_times()
@@ -1107,17 +1320,23 @@ class SettingsWindow(ThemedWidget):
         """生成课程表状态标签文字。"""
         if self._schedule_data is None:
             return "状态：未加载数据"
-        path: str = self._schedule_data.curriculum_path
+        path: str = self._editing_curriculum_path or self._schedule_data.curriculum_path
         fname: str = os.path.basename(path) if path else "未知"
         # 统计总科目数（所有天的非空科目之和）
+        src = (
+            self._editing_curriculum_data
+            if self._editing_curriculum_data
+            else self._schedule_data.curriculum_data
+        )
         total_subjects: int = 0
-        for day_data in self._schedule_data.curriculum_data.values():
+        for day_data in src.values():
             if isinstance(day_data, dict):
                 total_subjects += len([
                     v for v in day_data.values()
                     if v and isinstance(v, str) and v.strip()
                 ])
-        return f"状态：已加载 {fname}（共 {total_subjects} 个科目设置）"
+        prefix: str = "[编辑中] " if self._has_unsaved_changes else ""
+        return f"{prefix}状态：已加载 {fname}（共 {total_subjects} 个科目设置）"
 
     # ================================================================
     #  课程表 — 刷新表格
@@ -1136,8 +1355,16 @@ class SettingsWindow(ThemedWidget):
                 )
             return
 
-        timetable: Dict = self._schedule_data.timetable_data
-        curriculum: Dict = self._schedule_data.curriculum_data
+        timetable: Dict = (
+            self._editing_timetable_data
+            if self._editing_timetable_data
+            else self._schedule_data.timetable_data
+        )
+        curriculum: Dict = (
+            self._editing_curriculum_data
+            if self._editing_curriculum_data
+            else self._schedule_data.curriculum_data
+        )
         day_names: List[str] = [
             'Monday', 'Tuesday', 'Wednesday', 'Thursday',
             'Friday', 'Saturday', 'Sunday'
@@ -1255,8 +1482,12 @@ class SettingsWindow(ThemedWidget):
         # 如果已有编辑器在运行，先停止旧光标
         self._stop_cv_blink()
 
-        # 深拷贝当前课程表数据作为待编辑副本
-        if self._schedule_data is not None:
+        # 深拷贝当前课程表数据作为待编辑副本（优先使用编辑副本）
+        if self._editing_curriculum_data:
+            self._pending_curriculum_data = copy.deepcopy(
+                self._editing_curriculum_data
+            )
+        elif self._schedule_data is not None:
             self._pending_curriculum_data = copy.deepcopy(
                 self._schedule_data.curriculum_data
             )
@@ -1768,23 +1999,25 @@ class SettingsWindow(ThemedWidget):
         reply: QMessageBox.StandardButton = QMessageBox.question(
             self,
             "确认保存",
-            "是否保存课程表修改？\n\n修改内容将写入课程表文件。",
+            "是否保存课程表修改？\n\n"
+            "修改将写入编辑缓冲区，需点击「应用更改」才会同步到主窗口。",
             QMessageBox.No | QMessageBox.Yes,  # type: ignore
             QMessageBox.Yes,  # type: ignore
         )
 
         if reply == QMessageBox.Yes:  # type: ignore
-            # 应用待编辑数据
-            if self._schedule_data is not None:
-                self._schedule_data.curriculum_data = (
-                    self._pending_curriculum_data
-                )
-                self._schedule_data.save_curriculum()
-                logger.info("课程表修改已确认并保存")
+            # 将待编辑数据写回课程表编辑副本（不直接修改共享数据）
+            self._editing_curriculum_data = copy.deepcopy(
+                self._pending_curriculum_data
+            )
+            self._has_unsaved_changes = True
+            self._refresh_apply_button()
+            logger.info("课程表修改已确认（保存至编辑副本，尚未应用到主窗口）")
 
             # 停止光标并隐藏编辑器
             self._stop_cv_blink()
-            # 刷新课程表状态
+            # 刷新课程表 UI
+            self._refresh_curriculum_table()
             self._refresh_curriculum_status()
         else:
             logger.info("课程表修改：用户取消确认，保持编辑状态")
@@ -1816,13 +2049,15 @@ class SettingsWindow(ThemedWidget):
                                         self._cv_cursor_day)
         lesson_num: str = self._cv_cursor_lesson.replace('lesson_', '')
 
-        # 获取时间信息
+        # 获取时间信息（优先使用编辑副本）
         time_info: str = ''
-        if self._schedule_data is not None:
-            timetable_val = self._schedule_data.timetable_data.get(
-                self._cv_cursor_lesson
-            )
-            if isinstance(timetable_val, list) and len(timetable_val) >= 2:
+        timetable_src = (
+            self._editing_timetable_data
+            if self._editing_timetable_data
+            else (self._schedule_data.timetable_data if self._schedule_data else {})
+        )
+        timetable_val = timetable_src.get(self._cv_cursor_lesson)
+        if isinstance(timetable_val, list) and len(timetable_val) >= 2:
                 time_info = (
                     f"{self._fmt_time(timetable_val[0])}–"
                     f"{self._fmt_time(timetable_val[1])}"
@@ -1964,9 +2199,19 @@ class SettingsWindow(ThemedWidget):
 
         logger.info(f"加载课程表：{rel_path}")
 
-        if self._schedule_data is not None:
-            self._schedule_data.reload_curriculum(rel_path)
+        # 直接读取文件到课程表编辑副本
+        try:
+            load_path: str = os.path.join(script_dir, rel_path)
+            with open(load_path, 'r', encoding='utf-8') as f:
+                self._editing_curriculum_data = json.load(f)
+            self._editing_curriculum_path = rel_path
+            self._has_unsaved_changes = True
             self._refresh_curriculum_table()
+            self._refresh_curriculum_status()
+            self._refresh_apply_button()
+            logger.info(f"课程表已加载至编辑副本：{rel_path}")
+        except Exception as e:
+            logger.error(f"加载课程表到编辑副本失败：{e}")
 
     # ================================================================
     #  课程表 — 新建
@@ -2023,9 +2268,17 @@ class SettingsWindow(ThemedWidget):
         )
 
         rel_path: str = f"Config/curriculum/{name}"
-        if self._schedule_data is not None:
-            self._schedule_data.reload_curriculum(rel_path)
+        # 加载到课程表编辑副本
+        try:
+            with open(new_path, 'r', encoding='utf-8') as f:
+                self._editing_curriculum_data = json.load(f)
+            self._editing_curriculum_path = rel_path
+            self._has_unsaved_changes = True
             self._refresh_curriculum_table()
+            self._refresh_curriculum_status()
+            self._refresh_apply_button()
+        except Exception as e:
+            logger.error(f"加载新课程表到编辑副本失败：{e}")
 
     # ================================================================
     #  课程表 — 表格样式
@@ -2139,6 +2392,8 @@ class SettingsWindow(ThemedWidget):
             btn.setStyleSheet(btn_style)
             btn.style().unpolish(btn)  # type: ignore
             btn.style().polish(btn)  # type: ignore
+        # 刷新应用/放弃按钮样式
+        self._refresh_apply_button()
 
     # ================================================================
     #  导航按钮样式刷新
@@ -2202,6 +2457,26 @@ class SettingsWindow(ThemedWidget):
         参数：
             index（int）：目标页面索引（0-3）
         """
+        # 如果从课表编辑页面切换出去且有未保存更改，提示用户
+        if self._current_index == 2 and index != 2 and self._has_unsaved_changes:
+            reply: QMessageBox.StandardButton = QMessageBox.question(
+                self,
+                "未保存更改",
+                "您在课表编辑页面有未应用的更改。\n\n"
+                "是否在切换页面前应用更改？",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,  # type: ignore
+                QMessageBox.Yes,  # type: ignore
+            )
+            if reply == QMessageBox.Cancel:  # type: ignore
+                return  # 取消导航
+            elif reply == QMessageBox.Yes:  # type: ignore
+                self._on_apply_changes()
+
+        # 如果切换到课表编辑页面，初始化编辑副本并刷新表格
+        if index == 2 and self._schedule_data is not None:
+            self._init_editing_copies()
+            self._refresh_table()
+
         logger.info(f"[SettingsWindow] 导航切换至页面 {index}：{self.NAV_ITEMS[index][1]}")
         self._current_index = index
         self._stack.setCurrentIndex(index)
@@ -2211,7 +2486,20 @@ class SettingsWindow(ThemedWidget):
     #  退出按钮
     # ================================================================
     def _on_exit_clicked(self) -> None:
-        """点击退出按钮：隐藏设置窗口。"""
+        """点击退出按钮：隐藏设置窗口（如有未保存更改则提示）。"""
+        if self._has_unsaved_changes:
+            reply: QMessageBox.StandardButton = QMessageBox.question(
+                self,
+                "未保存更改",
+                "您在课表编辑页面有未应用的更改。\n\n"
+                "是否在退出前应用更改？",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,  # type: ignore
+                QMessageBox.Yes,  # type: ignore
+            )
+            if reply == QMessageBox.Cancel:  # type: ignore
+                return
+            elif reply == QMessageBox.Yes:  # type: ignore
+                self._on_apply_changes()
         logger.info("[SettingsWindow] 退出按钮被点击 → 隐藏窗口")
         self.hide()
 
@@ -2252,7 +2540,22 @@ class SettingsWindow(ThemedWidget):
         """
         重写关闭事件：点击标题栏 ✕ 或按 Alt+F4 时隐藏窗口，
         不触发销毁，以便再次打开时复用。
+        如有未保存更改则提示用户。
         """
+        if self._has_unsaved_changes:
+            reply: QMessageBox.StandardButton = QMessageBox.question(
+                self,
+                "未保存更改",
+                "您在课表编辑页面有未应用的更改。\n\n"
+                "是否在关闭前应用更改？",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,  # type: ignore
+                QMessageBox.Yes,  # type: ignore
+            )
+            if reply == QMessageBox.Cancel:  # type: ignore
+                event.ignore()
+                return
+            elif reply == QMessageBox.Yes:  # type: ignore
+                self._on_apply_changes()
         logger.info("[SettingsWindow] 关闭事件 → 隐藏窗口")
         event.ignore()
         self.hide()

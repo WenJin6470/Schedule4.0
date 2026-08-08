@@ -417,22 +417,22 @@ class ScheduleMainWindow(ThemedWidget):
             theme_manager=self._theme,
             schedule_data=self._schedule_data,
         )
-        # 时间表变更时重建主窗口标签
-        self._settings_window.timetable_changed.connect(
+        # 用户应用更改后重建主窗口标签
+        self._settings_window.changes_applied.connect(
             self._rebuild_period_labels
         )
         self._settings_window.showMaximized()  # type: ignore
         logger.info("设置窗口已显示")
 
     # ================================================================
-    #  重建课时标签（时间表结构变更后调用）
+    #  重建课时标签（用户应用更改后调用）
     # ================================================================
     def _rebuild_period_labels(self) -> None:
         """
-        时间表结构变更后重建所有课时标签和分隔线。
+        时间表或课程表变更后重建所有课时标签和分隔线。
 
-        此方法由设置页面的 timetable_changed 信号触发，
-        用于同步主窗口的课时显示与新时间表结构。
+        此方法由设置页面的 changes_applied 信号触发，
+        用于同步主窗口的课时显示与新数据。
         """
         logger.info("时间表结构变更，重建主窗口课时标签...")
 
