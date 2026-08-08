@@ -1,0 +1,201 @@
+{
+  "appName": "Schedule 4.0",
+  "specVersion": "1.0",
+  "manifestVersion": "1.0.0",
+  "openSocket": {
+    "get-lesson-state": {
+      "appID": "com.github.wenjin6470.schedule4",
+      "openSocketID": "schedule",
+      "description": "查询当前实时上课状态，包括当前科目、剩余时间、下一节课、是否上课中/课间/放学",
+      "args": {
+        "action": {
+          "type": "static",
+          "value": "get-lesson-state",
+          "description": "命令类型（固定为 get-lesson-state）"
+        }
+      },
+      "returns": [
+        ["请求状态（ok/err）", "status"],
+        ["是否正在上课（true/false）", "isInClass"],
+        ["是否课间休息（true/false）", "isBreak"],
+        ["是否已放学（true/false）", "isAfterSchool"],
+        ["当前课时序号（从1开始，无则为-1）", "currentPeriod"],
+        ["当前科目名称", "currentSubject"],
+        ["当前课时开始时间（HH:MM:SS）", "currentStartTime"],
+        ["当前课时结束时间（HH:MM:SS）", "currentEndTime"],
+        ["当前课时剩余时间（HH:MM:SS）", "remainingTime"],
+        ["下一节课时序号（无则为-1）", "nextPeriod"],
+        ["下一节科目名称", "nextSubject"],
+        ["下一节课开始时间（HH:MM:SS）", "nextStartTime"],
+        ["错误信息（status=err时返回）", "message"]
+      ]
+    },
+    "get-today-schedule": {
+      "appID": "com.github.wenjin6470.schedule4",
+      "openSocketID": "schedule",
+      "description": "获取当天或指定星期全部课时的科目与时间安排，含分隔线位置",
+      "args": {
+        "action": {
+          "type": "static",
+          "value": "get-today-schedule",
+          "description": "命令类型（固定为 get-today-schedule）"
+        },
+        "day": {
+          "type": "input",
+          "defaultVal": "",
+          "description": "目标星期（Monday~Sunday），留空则取当天"
+        }
+      },
+      "returns": [
+        ["请求状态（ok/err）", "status"],
+        ["实际返回的星期名称", "day"],
+        ["课表数据（JSON数组，每项含period/key/subject/startTime/endTime）", "lessons"],
+        ["分隔线位置（JSON数组，值为分隔线前的课时索引0-based）", "dividerIndices"],
+        ["总课时数", "totalPeriods"],
+        ["错误信息（status=err时返回）", "message"]
+      ]
+    },
+    "swap-course": {
+      "appID": "com.github.wenjin6470.schedule4",
+      "openSocketID": "schedule",
+      "description": "临时换课：记录换课信息到swap_schedule.json，在指定日期当天自动将对应课时的科目替换为新科目，过期自动清理",
+      "args": {
+        "action": {
+          "type": "static",
+          "value": "swap-course",
+          "description": "命令类型（固定为 swap-course）"
+        },
+        "day_name": {
+          "type": "input",
+          "defaultVal": "",
+          "description": "星期名称（Monday~Sunday）"
+        },
+        "lesson_key": {
+          "type": "input",
+          "defaultVal": "",
+          "description": "课时键名（如lesson_2）"
+        },
+        "old_subject": {
+          "type": "input",
+          "defaultVal": "",
+          "description": "换课前的原始科目名称"
+        },
+        "new_subject": {
+          "type": "input",
+          "defaultVal": "",
+          "description": "换课后的新科目名称"
+        },
+        "swap_date": {
+          "type": "input",
+          "defaultVal": "",
+          "description": "换课生效日期（YYYY-MM-DD），留空则自动取该星期的下一个匹配日期"
+        }
+      },
+      "returns": [
+        ["请求状态（ok/err）", "status"],
+        ["实际生效日期（YYYY-MM-DD）", "swap_date"],
+        ["错误信息（status=err时返回）", "message"]
+      ]
+    },
+    "enter-fullscreen": {
+      "appID": "com.github.wenjin6470.schedule4",
+      "openSocketID": "schedule",
+      "description": "隐藏浮动课表窗口，进入全屏时间显示模式（考试模式墨绿背景或创意模式随机壁纸）",
+      "args": {
+        "action": {
+          "type": "static",
+          "value": "enter-fullscreen",
+          "description": "命令类型（固定为 enter-fullscreen）"
+        },
+        "mode": {
+          "type": "optional",
+          "options": [
+            ["考试模式（墨绿色背景+可编辑起止时间）", "exam"],
+            ["创意模式（随机壁纸背景+红色实时时钟）", "creative"]
+          ],
+          "description": "全屏模式类型"
+        }
+      },
+      "returns": [
+        ["请求状态（ok/err）", "status"],
+        ["实际进入的模式", "mode"],
+        ["错误信息（status=err时返回）", "message"]
+      ]
+    },
+    "exit-fullscreen": {
+      "appID": "com.github.wenjin6470.schedule4",
+      "openSocketID": "schedule",
+      "description": "退出全屏模式，恢复浮动课表窗口和时间窗口的置顶显示",
+      "args": {
+        "action": {
+          "type": "static",
+          "value": "exit-fullscreen",
+          "description": "命令类型（固定为 exit-fullscreen）"
+        }
+      },
+      "returns": [
+        ["请求状态（ok/err）", "status"],
+        ["错误信息（status=err时返回）", "message"]
+      ]
+    }
+  },
+  "signal": {
+    "onClassStart": {
+      "appID": "com.github.wenjin6470.schedule4",
+      "signalID": "events",
+      "description": "上课事件，新一节课开始时触发推送",
+      "returns": {
+        "event": {
+          "description": "事件标识（固定值onClassStart），用于鉴别信号类型",
+          "verification": "onClassStart"
+        },
+        "period": {
+          "description": "课时序号（从1开始）"
+        },
+        "subject": {
+          "description": "当前科目名称"
+        },
+        "startTime": {
+          "description": "课时开始时间（HH:MM:SS）"
+        },
+        "endTime": {
+          "description": "课时结束时间（HH:MM:SS）"
+        }
+      }
+    },
+    "onClassEnd": {
+      "appID": "com.github.wenjin6470.schedule4",
+      "signalID": "events",
+      "description": "下课事件，一节课结束时触发推送，含下一节课预告信息",
+      "returns": {
+        "event": {
+          "description": "事件标识（固定值onClassEnd），用于鉴别信号类型",
+          "verification": "onClassEnd"
+        },
+        "nextPeriod": {
+          "description": "下一节课时序号（无则为-1）"
+        },
+        "nextSubject": {
+          "description": "下一节科目名称（无则为空字符串）"
+        },
+        "nextStartTime": {
+          "description": "下一节课开始时间（HH:MM:SS）"
+        },
+        "leftTime": {
+          "description": "课间剩余时间（HH:MM:SS格式，距下一节课还有多久）"
+        }
+      }
+    },
+    "onDayEnd": {
+      "appID": "com.github.wenjin6470.schedule4",
+      "signalID": "events",
+      "description": "放学事件，当天最后一节课结束后触发推送",
+      "returns": {
+        "event": {
+          "description": "事件标识（固定值onDayEnd），用于鉴别信号类型",
+          "verification": "onDayEnd"
+        }
+      }
+    }
+  }
+}

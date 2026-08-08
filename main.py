@@ -37,6 +37,7 @@ from schedule_config import ThemeManager, ScheduleDataManager, DebugConfig, Swap
 from schedule_time import TimeWindow, FullscreenTimeWindow, ExamFullscreenWindow
 from schedule_frontend import ScheduleMainWindow
 from schedule_backend import TimeManager, ScheduleBackend, WindowHelper, LogManager
+from knotlink_bridge import KnotLinkBridge
 
 
 # ================================================================
@@ -246,6 +247,21 @@ def main() -> None:
         )
     )
     logger.info("统一后端信号已连接")
+
+    # ================================================================
+    #  第6.5步：初始化 KnotLink 桥接
+    # ================================================================
+    logger.info("正在初始化 KnotLink 桥接...")
+    KnotLinkBridge.setup(
+        time_manager=time_manager,
+        schedule_data=schedule_data,
+        main_window=main_window,
+        time_window=time_window,
+        fullscreen_window=fullscreen_window,
+        exam_window=exam_window,
+        debug_config=debug_config,
+    )
+    logger.info("KnotLink 桥接初始化完成")
 
     # ================================================================
     #  第7步：显示窗口

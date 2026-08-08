@@ -1,0 +1,8 @@
+{
+  "app_id": "com.github.wenjin6470.schedule4",
+  "app_name": "Schedule 4.0",
+  "author": "WenJin",
+  "version": "v1.0.0",
+  "description": "桌面浮动电子课表系统 — 半透明置顶窗口实时显示课时科目与当前时间，支持快捷编辑、临时换课、考试/创意全屏模式",
+  "download_url": "https://github.com/WenJin6470/Schedule4.0/releases/latest"
+}
