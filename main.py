@@ -28,6 +28,7 @@ import os
 import sys
 from datetime import datetime
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 # ================================================================
@@ -267,28 +268,36 @@ def main() -> None:
     logger.info("统一后端信号已连接")
 
     # ================================================================
-    #  第6.5步：初始化 KnotLink 桥接
-    # ================================================================
-    logger.info("正在初始化 KnotLink 桥接...")
-    KnotLinkBridge.setup(
-        time_manager=time_manager,
-        schedule_data=schedule_data,
-        main_window=main_window,
-        time_window=time_window,
-        fullscreen_window=fullscreen_window,
-        exam_window=exam_window,
-        debug_config=debug_config,
-    )
-    logger.info("KnotLink 桥接初始化完成")
-
-    # ================================================================
     #  第7步：显示窗口
     #  ★ 注意：TimeWindow 已在第4步提前显示，这里只需显示主窗口
     # ================================================================
     logger.info("正在显示主窗口...")
     main_window.show()
     # fullscreen_window 默认隐藏，通过全屏时间按钮触发显示
-    logger.info("窗口已显示，进入事件循环")
+    logger.info("窗口已显示")
+
+    # ================================================================
+    #  第6.5步：延迟初始化 KnotLink 桥接（软件完全启动后再进行）
+    # ================================================================
+    logger.info("KnotLink 桥接已安排，将在软件完全启动后初始化...")
+
+    def _init_knotlink() -> None:
+        """软件完全启动后初始化 KnotLink 桥接，避免阻塞启动流程。"""
+        logger.info("正在初始化 KnotLink 桥接...")
+        KnotLinkBridge.setup(
+            time_manager=time_manager,
+            schedule_data=schedule_data,
+            main_window=main_window,
+            time_window=time_window,
+            fullscreen_window=fullscreen_window,
+            exam_window=exam_window,
+            debug_config=debug_config,
+        )
+        logger.info("KnotLink 桥接初始化完成")
+
+    QTimer.singleShot(0, _init_knotlink)
+
+    logger.info("进入事件循环")
 
     # ================================================================
     #  第8步：启动事件循环
