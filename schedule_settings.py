@@ -37,6 +37,7 @@ from PySide6.QtGui import QFont, QIcon, QCloseEvent, QColor
 
 from schedule_config import ThemeManager, ThemedWidget, ScheduleDataManager
 from schedule_backend import TimeWheelPicker, WheelColumn
+from schedule_display_rules import DisplayRuleListWidget
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -121,6 +122,11 @@ class SettingsWindow(ThemedWidget):
         self._editing_timetable_path: str = ''   # 当前编辑的时间表文件路径
         self._editing_curriculum_path: str = ''  # 当前编辑的课程表文件路径
         self._has_unsaved_changes: bool = False  # 是否有未保存的更改
+
+        # 显示规则引用
+        self._rule_list: Optional[DisplayRuleListWidget] = None
+        self._rule_add_btn: Optional[QPushButton] = None
+        self._rule_delete_btn: Optional[QPushButton] = None
 
         logger.info("SettingsWindow 初始化开始")
         self._setup_ui()
@@ -585,6 +591,81 @@ class SettingsWindow(ThemedWidget):
         # 将"课程表"缩进容器添加到主布局
         layout.addWidget(cv_indent)
 
+        # ════════════════════════════════════════════════════════════
+        #  显示规则
+        # ════════════════════════════════════════════════════════════
+        # ---- 分割线 ----
+        dr_sep_line: QFrame = QFrame()
+        dr_sep_line.setFrameShape(QFrame.HLine)  # type: ignore
+        dr_sep_line.setStyleSheet(f"""
+            border: none;
+            border-top: 1px solid {self._theme.border_color};
+            background: transparent;
+        """)
+        layout.addWidget(dr_sep_line)
+        layout.addSpacing(4)
+
+        # ---- 一级标题：显示规则 ----
+        dr_section_title: QLabel = QLabel("显示规则")
+        dr_section_title.setFont(QFont("Microsoft YaHei", 18, QFont.Bold))  # type: ignore
+        dr_section_title.setStyleSheet(f"color: {fc}; background: transparent;")
+        dr_section_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
+        layout.addWidget(dr_section_title)
+
+        # ---- 缩进容器（显示规则控件统一缩进 28px）----
+        dr_indent: QWidget = QWidget()
+        dr_indent.setStyleSheet("background: transparent;")
+        dr_indent_layout: QVBoxLayout = QVBoxLayout(dr_indent)
+        dr_indent_layout.setContentsMargins(28, 0, 0, 0)
+        dr_indent_layout.setSpacing(12)
+
+        # ---- 按钮行 ----
+        dr_btn_row: QHBoxLayout = QHBoxLayout()
+        dr_btn_row.setSpacing(12)
+
+        self._rule_add_btn = QPushButton("新建规则")
+        self._rule_add_btn.setFont(QFont("Microsoft YaHei", 11))
+        self._rule_add_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self._rule_add_btn.setMinimumHeight(36)
+        self._rule_add_btn.clicked.connect(self._on_add_rule)
+        dr_btn_row.addWidget(self._rule_add_btn)
+
+        self._rule_delete_btn = QPushButton("删除规则")
+        self._rule_delete_btn.setFont(QFont("Microsoft YaHei", 11))
+        self._rule_delete_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self._rule_delete_btn.setMinimumHeight(36)
+        self._rule_delete_btn.setEnabled(False)
+        self._rule_delete_btn.clicked.connect(self._on_delete_rule)
+        dr_btn_row.addWidget(self._rule_delete_btn)
+
+        dr_btn_row.addStretch()
+
+        # 按钮样式（与时间表/课程表按钮相同）
+        self._style_timetable_buttons(self._rule_add_btn, self._rule_delete_btn)
+
+        dr_indent_layout.addLayout(dr_btn_row)
+
+        # ---- 规则列表（拖拽排序 + 点击编辑）----
+        self._rule_list = DisplayRuleListWidget(self._theme)
+        self._rule_list.setMinimumHeight(120)
+        self._rule_list.itemSelectionChanged.connect(
+            self._on_rule_selection_changed
+        )
+        dr_indent_layout.addWidget(self._rule_list)
+
+        # ---- 提示 ----
+        dr_hint: QLabel = QLabel(
+            "提示：从上到下优先级依次降低；拖动规则可调整优先级，点击规则可编辑。"
+        )
+        dr_hint.setFont(QFont("Microsoft YaHei", 10))
+        dr_hint.setStyleSheet(
+            f"color: {fc}; background: transparent; opacity: 0.6;"
+        )
+        dr_hint.setWordWrap(True)
+        dr_indent_layout.addWidget(dr_hint)
+
+        layout.addWidget(dr_indent)
+
         # 底部弹簧：吸收多余空白区域，避免表格下方出现大片空白
         layout.addStretch()
 
@@ -789,6 +870,38 @@ class SettingsWindow(ThemedWidget):
         self._init_editing_copies()
         self._refresh_table()  # 同时刷新时间表和课程表
         logger.info("已放弃所有未应用更改")
+
+    # ================================================================
+    #  显示规则事件处理
+    # ================================================================
+    def _on_add_rule(self) -> None:
+        """新建一条显示规则。"""
+        if self._rule_list is not None:
+            self._rule_list.add_rule_dialog()
+
+    def _on_delete_rule(self) -> None:
+        """删除当前选中的显示规则（带确认）。"""
+        if self._rule_list is None:
+            return
+        if self._rule_list.currentItem() is None:
+            return
+        reply: QMessageBox.StandardButton = QMessageBox.question(
+            self,
+            "删除规则",
+            "确定要删除选中的这条显示规则吗？",
+            QMessageBox.No | QMessageBox.Yes,  # type: ignore
+            QMessageBox.No,  # type: ignore
+        )
+        if reply != QMessageBox.Yes:  # type: ignore
+            return
+        self._rule_list.delete_selected()
+
+    def _on_rule_selection_changed(self) -> None:
+        """规则列表选中状态变化时，更新删除按钮可用状态。"""
+        if self._rule_delete_btn is not None and self._rule_list is not None:
+            self._rule_delete_btn.setEnabled(
+                self._rule_list.currentItem() is not None
+            )
 
     def _refresh_status_label(self) -> None:
         """刷新时间表状态标签文字。"""
@@ -2394,6 +2507,13 @@ class SettingsWindow(ThemedWidget):
             btn.style().polish(btn)  # type: ignore
         # 刷新应用/放弃按钮样式
         self._refresh_apply_button()
+        # 刷新显示规则控件
+        if self._rule_list is not None:
+            self._rule_list.refresh_theme()
+        if self._rule_add_btn is not None and self._rule_delete_btn is not None:
+            self._style_timetable_buttons(
+                self._rule_add_btn, self._rule_delete_btn
+            )
 
     # ================================================================
     #  导航按钮样式刷新

@@ -19,8 +19,9 @@ ThemeManager 获取主题颜色，确保全局一致性。
 import json
 import logging
 import os
+import re
 from configparser import ConfigParser
-from datetime import datetime
+from datetime import datetime, date
 from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtWidgets import QApplication, QWidget
@@ -1261,6 +1262,388 @@ class DebugConfig:
         # 否则由流动的当前时间推算
         dt: Optional[datetime] = self.get_current_datetime()
         return dt.strftime('%A') if dt else None
+
+
+# ==================== 显示规则管理器 ====================
+
+
+# 「每」类显示规则的合法取值（始终可用，作为 recurring 默认规则）
+_EVERY_RULES: Tuple[str, ...] = ('每周', '每月', '每年')
+
+# 中文日期片段正则：YYYY年M月D日
+_DATE_PATTERN: str = r'(\d{4})年(\d{1,2})月(\d{1,2})日'
+
+
+def parse_display_rule(text: str) -> Optional[Tuple]:
+    """
+    解析显示规则文本，返回结构化结果。
+    --------------------------------
+    参数：
+        text（str）：规则文本，如 '每周' 或 '2026年8月17日到2026年9月17日'
+
+    返回值：
+        ('every', '每周')          — 「每」类规则（始终可用）
+        ('range', start, end)      — 时间段规则（date 对象，单日时 start == end）
+        None                       — 无法解析
+    """
+    if not text:
+        return None
+
+    text = text.strip()
+    if text in _EVERY_RULES:
+        return ('every', text)
+
+    def _parse_date(s: str) -> Optional[date]:
+        """解析 'YYYY年M月D日' 为 date，失败返回 None。"""
+        m = re.fullmatch(_DATE_PATTERN, s.strip())
+        if not m:
+            return None
+        try:
+            return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            return None
+
+    parts: List[str] = [p.strip() for p in text.split('到')]
+    if not parts or len(parts) > 2:
+        return None
+
+    if len(parts) == 2:
+        start: Optional[date] = _parse_date(parts[0])
+        end: Optional[date] = _parse_date(parts[1])
+        if start is None or end is None:
+            return None
+        return ('range', start, end)
+
+    # 单日
+    d: Optional[date] = _parse_date(parts[0])
+    if d is None:
+        return None
+    return ('range', d, d)
+
+
+class DisplayRulesManager:
+    """
+    # DisplayRulesManager — 显示规则管理器
+
+    负责显示规则的持久化、优先级维护与当天规则解析。
+    ---
+
+    文件路径：
+      Config/Display_Rules.json
+
+    数据格式（dict，键 = 系统分配标签，值 = 4 项列表）：
+      {
+        "rule_1": [1, "每周",
+                   "Config/timetable/timetable_1.json",
+                   "Config/curriculum/table_1.json"],
+        "rule_2": [2, "2026年8月17日到2026年9月17日",
+                   "Config/timetable/timetable_2.json",
+                   "Config/curriculum/table_2.json"]
+      }
+      value[0] 优先级（数字越小越优先）
+      value[1] 显示规则文本（每周/每月/每年，或时间段）
+      value[2] 时间表路径
+      value[3] 课程表路径
+    ---
+
+    对外接口：
+      - load_rules()                    → 读取所有规则
+      - add_rule(rule_text, tt, cv)     → 新增规则，返回标签
+      - update_rule(tag, rule_text, tt, cv)
+      - delete_rule(tag)
+      - reorder(ordered_tags)           → 按新顺序重编优先级
+      - resolve_for_today(debug_config) → 解析当天应使用的规则
+      - persist_resolved_paths(cv, tt)  → 把解析路径写回 schedule_config.ini
+    """
+
+    FILE_PATH: str = 'Config/Display_Rules.json'
+    INI_PATH: str = 'Config/schedule_config.ini'
+
+    def __init__(self) -> None:
+        """初始化显示规则管理器。"""
+        self._script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        self._file_path: str = os.path.join(self._script_dir, self.FILE_PATH)
+        self._ini_path: str = os.path.join(self._script_dir, self.INI_PATH)
+        logger.info("DisplayRulesManager 初始化完成")
+
+    # ================================================================
+    #  读取 / 保存
+    # ================================================================
+    def load_rules(self) -> Dict[str, list]:
+        """
+        读取所有显示规则。
+        ----------------
+        返回值：
+            Dict[str, list]：{标签: [优先级, 规则文本, 时间表, 课程表]}，
+                            文件缺失 / 为空 / 非法时返回空字典
+        """
+        try:
+            if not os.path.exists(self._file_path):
+                logger.info("显示规则文件不存在，返回空字典")
+                return {}
+            with open(self._file_path, 'r', encoding='utf-8') as f:
+                content: str = f.read()
+            if not content.strip():
+                logger.info("显示规则文件为空，返回空字典")
+                return {}
+            data = json.loads(content)
+            if isinstance(data, dict):
+                logger.debug(f"已加载 {len(data)} 条显示规则")
+                return data
+            logger.warning("显示规则文件格式异常（非对象），返回空字典")
+            return {}
+        except json.JSONDecodeError as e:
+            logger.error(f"显示规则 JSON 解析失败：{e}")
+            return {}
+        except Exception as e:
+            logger.error(f"读取显示规则文件失败：{e}")
+            return {}
+
+    def _save_rules(self, rules: Dict[str, list]) -> bool:
+        """将规则完整写入文件（内部方法，全量覆盖）。"""
+        try:
+            os.makedirs(os.path.dirname(self._file_path), exist_ok=True)
+            with open(self._file_path, 'w', encoding='utf-8') as f:
+                json.dump(rules, f, ensure_ascii=False, indent=4)
+            logger.info(f"显示规则已保存：{len(rules)} 条")
+            return True
+        except Exception as e:
+            logger.error(f"保存显示规则失败：{e}")
+            return False
+
+    @staticmethod
+    def _next_tag(rules: Dict[str, list]) -> str:
+        """生成下一个标签 rule_<n>，n = 1 + max(现有编号)。"""
+        max_n: int = 0
+        for key in rules:
+            if key.startswith('rule_'):
+                try:
+                    max_n = max(max_n, int(key[len('rule_'):]))
+                except ValueError:
+                    continue
+        return f"rule_{max_n + 1}"
+
+    @staticmethod
+    def _normalize_priorities(rules: Dict[str, list]) -> Dict[str, list]:
+        """按 value[0] 升序重编优先级为 1..N，返回有序新字典。"""
+        items = sorted(rules.items(), key=lambda kv: kv[1][0])
+        new_rules: Dict[str, list] = {}
+        for idx, (tag, rule) in enumerate(items, start=1):
+            new_rule = list(rule)
+            new_rule[0] = idx
+            new_rules[tag] = new_rule
+        return new_rules
+
+    # ================================================================
+    #  增删改
+    # ================================================================
+    def add_rule(self, rule_text: str, timetable_path: str,
+                 curriculum_path: str) -> str:
+        """
+        新增一条显示规则（优先级自动追加到末尾）。
+        --------------------------------------
+        参数：
+            rule_text（str）：显示规则文本
+            timetable_path（str）：时间表路径
+            curriculum_path（str）：课程表路径
+
+        返回值：
+            str：系统分配的新标签
+        """
+        rules: Dict[str, list] = self._normalize_priorities(self.load_rules())
+        tag: str = self._next_tag(rules)
+        rules[tag] = [len(rules) + 1, rule_text, timetable_path, curriculum_path]
+        if self._save_rules(rules):
+            logger.info(f"新增显示规则：{tag} '{rule_text}'")
+            return tag
+        return ''
+
+    def update_rule(self, tag: str, rule_text: str, timetable_path: str,
+                    curriculum_path: str) -> bool:
+        """更新指定标签的规则（优先级保持不变）。"""
+        rules: Dict[str, list] = self.load_rules()
+        if tag not in rules:
+            logger.warning(f"显示规则标签不存在：{tag}")
+            return False
+        rule: list = list(rules[tag])
+        rule[1] = rule_text
+        rule[2] = timetable_path
+        rule[3] = curriculum_path
+        rules[tag] = rule
+        return self._save_rules(rules)
+
+    def delete_rule(self, tag: str) -> bool:
+        """删除指定标签的规则，并重编剩余优先级保持连续。"""
+        rules: Dict[str, list] = self.load_rules()
+        if tag not in rules:
+            logger.warning(f"显示规则标签不存在：{tag}")
+            return False
+        del rules[tag]
+        normalized: Dict[str, list] = self._normalize_priorities(rules)
+        return self._save_rules(normalized)
+
+    def reorder(self, ordered_tags: List[str]) -> bool:
+        """按给定标签顺序重排，并重编优先级 1..N。"""
+        rules: Dict[str, list] = self.load_rules()
+        new_rules: Dict[str, list] = {}
+        idx: int = 1
+        for tag in ordered_tags:
+            if tag in rules:
+                rule: list = list(rules[tag])
+                rule[0] = idx
+                new_rules[tag] = rule
+                idx += 1
+        # 防御：不在 ordered_tags 中的规则追加到末尾
+        for tag, rule in rules.items():
+            if tag not in new_rules:
+                rule = list(rule)
+                rule[0] = idx
+                new_rules[tag] = rule
+                idx += 1
+        return self._save_rules(new_rules)
+
+    # ================================================================
+    #  当天规则解析
+    # ================================================================
+    @staticmethod
+    def _get_effective_today(debug_config=None) -> date:
+        """获取生效的「今天」日期，优先调试模拟日期。"""
+        if debug_config is not None and debug_config.enabled:
+            debug_dt = debug_config.get_current_datetime()
+            if debug_dt is not None:
+                return debug_dt.date()
+        return datetime.now().date()
+
+    def resolve_for_today(self, debug_config=None) -> Optional[Tuple[str, str]]:
+        """
+        解析当天应使用的显示规则。
+        -----------------------
+        规则：
+          1. 「每」类规则始终可用；时间段规则 start <= today <= end 视为可用。
+          2. 多条可用 → 取优先级数字最小者。
+          3. 无可用 → 向过去查找，取「最近一条已结束」的时间段规则。
+          4. 仍无 → 返回 None（沿用默认配置，不写回 INI）。
+
+        参数：
+            debug_config（DebugConfig | None）：调试配置
+
+        返回值：
+            Optional[Tuple[str, str]]：(timetable_path, curriculum_path)，
+                                       无结果时返回 None
+        """
+        rules: Dict[str, list] = self.load_rules()
+        if not rules:
+            logger.info("无显示规则，沿用默认配置")
+            return None
+
+        today: date = self._get_effective_today(debug_config)
+        available: List[Tuple[int, str, list]] = []
+        past: List[Tuple[date, int, str, list]] = []
+
+        for tag, rule in rules.items():
+            if not isinstance(rule, list) or len(rule) < 4:
+                logger.warning(f"显示规则 {tag} 格式非法，已跳过：{rule}")
+                continue
+            try:
+                priority: int = int(rule[0])
+            except (ValueError, TypeError):
+                logger.warning(f"显示规则 {tag} 优先级非法，已跳过：{rule[0]}")
+                continue
+            parsed: Optional[Tuple] = parse_display_rule(
+                rule[1] if isinstance(rule[1], str) else ''
+            )
+            if parsed is None:
+                logger.warning(f"显示规则 {tag} 文本无法解析：{rule[1]}")
+                continue
+
+            if parsed[0] == 'every':
+                available.append((priority, tag, rule))
+            else:  # 'range'
+                start: date = parsed[1]
+                end: date = parsed[2]
+                if start <= today <= end:
+                    available.append((priority, tag, rule))
+                elif end < today:
+                    past.append((end, priority, tag, rule))
+                # start > today → 未来规则，本次不参与
+
+        if available:
+            available.sort(key=lambda x: x[0])
+            _, tag, rule = available[0]
+            logger.info(
+                f"命中当天可用显示规则：{tag}（优先级 {rule[0]}）"
+            )
+            return (rule[2], rule[3])
+
+        if past:
+            past.sort(key=lambda x: (x[0], x[1]))
+            end, _, tag, rule = past[-1]
+            logger.info(
+                f"当天无可用规则，向过去查找命中：{tag}（结束于 {end.isoformat()}）"
+            )
+            return (rule[2], rule[3])
+
+        logger.info("无任何可用显示规则（含向过去查找），沿用默认配置")
+        return None
+
+    # ================================================================
+    #  写回 schedule_config.ini
+    # ================================================================
+    def persist_resolved_paths(self, curriculum_path: str,
+                               timetable_path: str) -> bool:
+        """
+        把解析出的课程表 / 时间表路径写回 schedule_config.ini。
+        ---------------------------------------------------
+        采用逐行替换（非 ConfigParser.write），以保留 INI 中原有的注释。
+
+        参数：
+            curriculum_path（str）：课程表路径（写入 table 键）
+            timetable_path（str）：时间表路径（写入 timetable 键）
+
+        返回值：
+            bool：True 表示写回成功
+        """
+        try:
+            if not os.path.exists(self._ini_path):
+                logger.warning(f"配置文件不存在，无法写回：{self._ini_path}")
+                return False
+            with open(self._ini_path, 'r', encoding='utf-8') as f:
+                lines: List[str] = f.readlines()
+
+            updated: Dict[str, bool] = {'table': False, 'timetable': False}
+            out: List[str] = []
+            for line in lines:
+                stripped: str = line.lstrip()
+                if stripped.startswith(';') or stripped.startswith('#'):
+                    out.append(line)
+                    continue
+                if '=' in line:
+                    key: str = line.split('=', 1)[0].strip()
+                    if key == 'table' and not updated['table']:
+                        out.append(f"table = {curriculum_path}\n")
+                        updated['table'] = True
+                        continue
+                    if key == 'timetable' and not updated['timetable']:
+                        out.append(f"timetable = {timetable_path}\n")
+                        updated['timetable'] = True
+                        continue
+                out.append(line)
+
+            if not updated['table']:
+                out.append(f"table = {curriculum_path}\n")
+            if not updated['timetable']:
+                out.append(f"timetable = {timetable_path}\n")
+
+            with open(self._ini_path, 'w', encoding='utf-8') as f:
+                f.writelines(out)
+            logger.info(
+                f"已将解析路径写回 schedule_config.ini："
+                f"table={curriculum_path}, timetable={timetable_path}"
+            )
+            return True
+        except Exception as e:
+            logger.error(f"写回 schedule_config.ini 失败：{e}")
+            return False
 
 
 # ==================== 带主题的基础窗口控件 ====================

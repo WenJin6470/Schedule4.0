@@ -33,7 +33,10 @@ from PySide6.QtWidgets import QApplication
 # ================================================================
 # ★ 导入主题、前端口、后端逻辑 ★
 # ================================================================
-from schedule_config import ThemeManager, ScheduleDataManager, DebugConfig, SwapManager
+from schedule_config import (
+    ThemeManager, ScheduleDataManager, DebugConfig, SwapManager,
+    DisplayRulesManager,
+)
 from schedule_time import TimeWindow, FullscreenTimeWindow, ExamFullscreenWindow
 from schedule_frontend import ScheduleMainWindow
 from schedule_backend import TimeManager, ScheduleBackend, WindowHelper, LogManager
@@ -131,23 +134,38 @@ def main() -> None:
     # ================================================================
     LogManager.cleanup_old_logs(log_dir, theme_manager.log_retention_days, logger)
 
+    #  3c. 创建 DebugConfig（读取调试配置，提前创建供显示规则解析使用）
+    logger.info("正在创建 DebugConfig...")
+    debug_config: DebugConfig = DebugConfig()
+    logger.info(f"DebugConfig 创建完成：enabled={debug_config.enabled}")
+
+    #  3d. 解析显示规则：命中则覆盖时间表/课程表路径并写回 INI
+    logger.info("正在解析显示规则...")
+    display_rules: DisplayRulesManager = DisplayRulesManager()
+    resolved = display_rules.resolve_for_today(debug_config)
+    if resolved is not None:
+        resolved_timetable, resolved_curriculum = resolved
+        curriculum_path: str = resolved_curriculum
+        timetable_path: str = resolved_timetable
+        theme_manager.curriculum_path = curriculum_path
+        theme_manager.timetable_path = timetable_path
+        display_rules.persist_resolved_paths(curriculum_path, timetable_path)
+        logger.info("显示规则解析命中，已切换到对应时间表/课程表")
+    else:
+        curriculum_path = theme_manager.curriculum_path
+        timetable_path = theme_manager.timetable_path
+        logger.info("显示规则未命中，沿用默认时间表/课程表")
+    logger.info("显示规则解析完成")
+
     #  3b. 创建 ScheduleDataManager（读取课程表和时间表 JSON）
     logger.info("正在创建 ScheduleDataManager...")
-    curriculum_path: str = theme_manager.curriculum_path
-    timetable_path: str = theme_manager.timetable_path
-
     schedule_data: ScheduleDataManager = ScheduleDataManager(
         curriculum_path=curriculum_path,
         timetable_path=timetable_path,
     )
     logger.info("ScheduleDataManager 创建完成")
 
-    #  3c. 创建 DebugConfig（读取调试配置）
-    logger.info("正在创建 DebugConfig...")
-    debug_config: DebugConfig = DebugConfig()
-    logger.info(f"DebugConfig 创建完成：enabled={debug_config.enabled}")
-
-    #  3d. 处理换课记录：应用今日换课、清理过期记录
+    #  3e. 处理换课记录：应用今日换课、清理过期记录
     logger.info("正在处理换课记录...")
     swap_manager: SwapManager = SwapManager()
     swap_manager.process_on_startup(schedule_data.curriculum_data, debug_config)
