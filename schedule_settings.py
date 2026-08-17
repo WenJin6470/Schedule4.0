@@ -3490,7 +3490,7 @@ class DisplayRuleListWidget(QFrame):
         """按优先级升序重建规则行列表。"""
         while self._list_layout.count():
             item = self._list_layout.takeAt(0)
-            w = item.widget()
+            w = item.widget() # type: ignore
             if w is not None:
                 w.deleteLater()
         self._rows = []
@@ -3570,7 +3570,7 @@ class DisplayRuleListWidget(QFrame):
         dialog: RuleEditDialog = RuleEditDialog(
             self._theme, tag=tag, rule=rule, parent=self
         )
-        if dialog.exec() == QDialog.Accepted:
+        if dialog.exec() == QDialog.Accepted: # type: ignore
             if dialog.deleted():
                 self._manager.delete_rule(tag)
             else:
@@ -3592,7 +3592,7 @@ class DisplayRuleListWidget(QFrame):
     def add_rule_dialog(self) -> None:
         """弹出「新建规则」子窗口。"""
         dialog: RuleEditDialog = RuleEditDialog(self._theme, parent=self)
-        if dialog.exec() == QDialog.Accepted:
+        if dialog.exec() == QDialog.Accepted: # type: ignore
             result: dict = dialog.result()
             self._manager.add_rule(
                 result['rule_text'],
