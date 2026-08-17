@@ -143,6 +143,13 @@ def main() -> None:
     #  3d. 解析显示规则：命中则覆盖时间表/课程表路径并写回 INI
     logger.info("正在解析显示规则...")
     display_rules: DisplayRulesManager = DisplayRulesManager()
+
+    #  3d-0. 若没有任何显示规则，自动创建一条默认规则（当天到未来十年同一天）
+    display_rules.ensure_default_rule(
+        curriculum_path=theme_manager.curriculum_path,
+        timetable_path=theme_manager.timetable_path,
+    )
+
     resolved = display_rules.resolve_for_today(debug_config)
     if resolved is not None:
         resolved_timetable, resolved_curriculum = resolved

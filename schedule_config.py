@@ -1527,6 +1527,37 @@ class DisplayRulesManager:
                 idx += 1
         return self._save_rules(new_rules)
 
+    def ensure_default_rule(self, curriculum_path: str,
+                            timetable_path: str) -> bool:
+        """
+        若没有任何显示规则，自动创建一条默认规则：
+        从启动当天到未来十年的同一天，使用当前配置的时间表/课程表。
+        ---------------------------------------------------------
+        参数：
+            curriculum_path（str）：当前课程表路径
+            timetable_path（str）：当前时间表路径
+
+        返回值：
+            bool：True 表示已创建默认规则，False 表示已有规则无需创建
+        """
+        rules: Dict[str, list] = self.load_rules()
+        if rules:
+            return False
+
+        today: date = date.today()
+        end_year: int = today.year + 10
+        end_day: int = min(today.day, self._days_in_month(end_year, today.month))
+        end: date = date(end_year, today.month, end_day)
+        rule_text: str = (
+            f"{today.year}年{today.month}月{today.day}日到"
+            f"{end.year}年{end.month}月{end.day}日"
+        )
+        tag: str = self.add_rule(rule_text, timetable_path, curriculum_path)
+        if tag:
+            logger.info(f"未检测到显示规则，已自动创建默认规则 {tag}：{rule_text}")
+            return True
+        return False
+
     # ================================================================
     #  当天规则解析
     # ================================================================
