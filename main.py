@@ -273,16 +273,18 @@ def main() -> None:
     # ================================================================
     logger.info("正在显示主窗口...")
     main_window.show()
+    # 强制处理事件：确保置顶时间窗口和主窗口的内容都真正渲染出来
+    app.processEvents()
     # fullscreen_window 默认隐藏，通过全屏时间按钮触发显示
-    logger.info("窗口已显示")
+    logger.info("窗口内容已显示")
 
     # ================================================================
-    #  第6.5步：延迟初始化 KnotLink 桥接（软件完全启动后再进行）
+    #  第6.5步：延迟初始化 KnotLink 桥接（窗口内容显示后再进行）
     # ================================================================
-    logger.info("KnotLink 桥接已安排，将在软件完全启动后初始化...")
+    logger.info("KnotLink 桥接已安排，将在窗口内容显示后初始化...")
 
     def _init_knotlink() -> None:
-        """软件完全启动后初始化 KnotLink 桥接，避免阻塞启动流程。"""
+        """窗口内容显示后初始化 KnotLink 桥接，避免阻塞启动流程。"""
         logger.info("正在初始化 KnotLink 桥接...")
         KnotLinkBridge.setup(
             time_manager=time_manager,
