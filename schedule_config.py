@@ -21,7 +21,7 @@ import logging
 import os
 import re
 from configparser import ConfigParser
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtWidgets import QApplication, QWidget
@@ -1267,8 +1267,10 @@ class DebugConfig:
 # ==================== 显示规则管理器 ====================
 
 
-# 「每」类显示规则的合法取值（始终可用，作为 recurring 默认规则）
-_EVERY_RULES: Tuple[str, ...] = ('每周', '每月', '每年')
+# 中文星期（一~日）到 ISO 星期（0=周一 .. 6=周日）的映射
+_WEEKDAY_CN_TO_INT: Dict[str, int] = {
+    '一': 0, '二': 1, '三': 2, '四': 3, '五': 4, '六': 5, '日': 6,
+}
 
 # 中文日期片段正则：YYYY年M月D日
 _DATE_PATTERN: str = r'(\d{4})年(\d{1,2})月(\d{1,2})日'
@@ -1279,27 +1281,48 @@ def parse_display_rule(text: str) -> Optional[Tuple]:
     解析显示规则文本，返回结构化结果。
     --------------------------------
     参数：
-        text（str）：规则文本，如 '每周' 或 '2026年8月17日到2026年9月17日'
+        text（str）：规则文本，例如 '每周一'、'每月15日'、
+                     '每年8月17日'、'2026年8月17日到2026年9月17日'
 
     返回值：
-        ('every', '每周')          — 「每」类规则（始终可用）
-        ('range', start, end)      — 时间段规则（date 对象，单日时 start == end）
+        ('weekly', weekday)        — 每周X，weekday 0=周一..6=周日
+        ('monthly', day)           — 每月X日，day 1..31
+        ('yearly', month, day)     — 每年X月X日
+        ('range', start, end)      — 时间段（date 对象，start != end）
         None                       — 无法解析
     """
     if not text:
         return None
-
     text = text.strip()
-    if text in _EVERY_RULES:
-        return ('every', text)
 
+    # 每周X
+    m = re.fullmatch(r'每周([一二三四五六日])', text)
+    if m:
+        return ('weekly', _WEEKDAY_CN_TO_INT[m.group(1)])
+
+    # 每月X日
+    m = re.fullmatch(r'每月(\d{1,2})日', text)
+    if m:
+        day: int = int(m.group(1))
+        if 1 <= day <= 31:
+            return ('monthly', day)
+
+    # 每年X月X日
+    m = re.fullmatch(r'每年(\d{1,2})月(\d{1,2})日', text)
+    if m:
+        month: int = int(m.group(1))
+        day = int(m.group(2))
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            return ('yearly', month, day)
+
+    # 时间段（含单日 → 单日视作每年）
     def _parse_date(s: str) -> Optional[date]:
         """解析 'YYYY年M月D日' 为 date，失败返回 None。"""
-        m = re.fullmatch(_DATE_PATTERN, s.strip())
-        if not m:
+        mm = re.fullmatch(_DATE_PATTERN, s.strip())
+        if not mm:
             return None
         try:
-            return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            return date(int(mm.group(1)), int(mm.group(2)), int(mm.group(3)))
         except ValueError:
             return None
 
@@ -1312,13 +1335,15 @@ def parse_display_rule(text: str) -> Optional[Tuple]:
         end: Optional[date] = _parse_date(parts[1])
         if start is None or end is None:
             return None
+        if start == end:
+            return ('yearly', start.month, start.day)
         return ('range', start, end)
 
-    # 单日
+    # 单日 → 每年
     d: Optional[date] = _parse_date(parts[0])
     if d is None:
         return None
-    return ('range', d, d)
+    return ('yearly', d.month, d.day)
 
 
 class DisplayRulesManager:
@@ -1514,14 +1539,74 @@ class DisplayRulesManager:
                 return debug_dt.date()
         return datetime.now().date()
 
+    @staticmethod
+    def _days_in_month(year: int, month: int) -> int:
+        """返回指定年月的天数。"""
+        if month == 12:
+            nxt = date(year + 1, 1, 1)
+        else:
+            nxt = date(year, month + 1, 1)
+        return (nxt - date(year, month, 1)).days
+
+    @staticmethod
+    def _last_monthly_date(day_of_month: int, today: date) -> date:
+        """返回 today 当天或之前最近的一个「每月X日」日期。"""
+        ld = DisplayRulesManager._days_in_month(today.year, today.month)
+        d = min(day_of_month, ld)
+        candidate = date(today.year, today.month, d)
+        if candidate <= today:
+            return candidate
+        if today.month == 1:
+            y, m = today.year - 1, 12
+        else:
+            y, m = today.year, today.month - 1
+        ld = DisplayRulesManager._days_in_month(y, m)
+        d = min(day_of_month, ld)
+        return date(y, m, d)
+
+    @staticmethod
+    def _last_yearly_date(month: int, day_of_month: int, today: date) -> date:
+        """返回 today 当天或之前最近的一个「每年X月X日」日期。"""
+        ld = DisplayRulesManager._days_in_month(today.year, month)
+        d = min(day_of_month, ld)
+        candidate = date(today.year, month, d)
+        if candidate <= today:
+            return candidate
+        ld = DisplayRulesManager._days_in_month(today.year - 1, month)
+        d = min(day_of_month, ld)
+        return date(today.year - 1, month, d)
+
+    @staticmethod
+    def _last_active_date(parsed: Tuple, today: date) -> Optional[date]:
+        """返回某规则在 today 当天或之前最近的生效日期（未来规则返回 None）。"""
+        kind = parsed[0]
+        if kind == 'weekly':
+            weekday: int = parsed[1]
+            delta: int = (today.weekday() - weekday) % 7
+            return today - timedelta(days=delta)
+        if kind == 'monthly':
+            return DisplayRulesManager._last_monthly_date(parsed[1], today)
+        if kind == 'yearly':
+            return DisplayRulesManager._last_yearly_date(parsed[1], parsed[2], today)
+        if kind == 'range':
+            start: date = parsed[1]
+            end: date = parsed[2]
+            if start > today:
+                return None  # 未来规则
+            if end < today:
+                return end
+            return today  # 在区间内
+        return None
+
     def resolve_for_today(self, debug_config=None) -> Optional[Tuple[str, str]]:
         """
         解析当天应使用的显示规则。
         -----------------------
         规则：
-          1. 「每」类规则始终可用；时间段规则 start <= today <= end 视为可用。
+          1. 每周X / 每月X日 / 每年X月X日 在匹配当天时可用；
+             时间段规则 start <= today <= end 时可用。
           2. 多条可用 → 取优先级数字最小者。
-          3. 无可用 → 向过去查找，取「最近一条已结束」的时间段规则。
+          3. 无可用 → 向过去查找，取「最近一条刚生效过」的规则。
           4. 仍无 → 返回 None（沿用默认配置，不写回 INI）。
 
         参数：
@@ -1556,16 +1641,13 @@ class DisplayRulesManager:
                 logger.warning(f"显示规则 {tag} 文本无法解析：{rule[1]}")
                 continue
 
-            if parsed[0] == 'every':
+            last: Optional[date] = self._last_active_date(parsed, today)
+            if last is None:
+                continue  # 未来规则
+            if last == today:
                 available.append((priority, tag, rule))
-            else:  # 'range'
-                start: date = parsed[1]
-                end: date = parsed[2]
-                if start <= today <= end:
-                    available.append((priority, tag, rule))
-                elif end < today:
-                    past.append((end, priority, tag, rule))
-                # start > today → 未来规则，本次不参与
+            else:
+                past.append((last, priority, tag, rule))
 
         if available:
             available.sort(key=lambda x: x[0])
@@ -1576,10 +1658,13 @@ class DisplayRulesManager:
             return (rule[2], rule[3])
 
         if past:
-            past.sort(key=lambda x: (x[0], x[1]))
-            end, _, tag, rule = past[-1]
+            # 取最近生效日期，并列时取优先级数字最小（更高优先级）
+            last_date, _, tag, rule = max(
+                past, key=lambda x: (x[0].toordinal(), -x[1])
+            )
             logger.info(
-                f"当天无可用规则，向过去查找命中：{tag}（结束于 {end.isoformat()}）"
+                f"当天无可用规则，向过去查找命中：{tag}"
+                f"（最近生效于 {last_date.isoformat()}）"
             )
             return (rule[2], rule[3])
 
