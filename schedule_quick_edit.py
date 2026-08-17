@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (QComboBox, QFrame, QHBoxLayout, QLabel, QPushButt
 from PySide6.QtCore import Qt, QTimer, Signal, SignalInstance
 from PySide6.QtGui import QFont, QCloseEvent
 
-from schedule_config import ThemeManager, ThemedWidget
+from schedule_config import ThemeManager, ThemedWidget, parse_subject_entry
 from schedule_actions import ActionMessage
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -553,9 +553,14 @@ class SubjectSelectWindow(ThemedWidget):
             elif isinstance(subjects, list):
                 buttons_per_row: int = 4
                 current_row: Optional[QHBoxLayout] = None
+                placed: int = 0
 
-                for i, subject_name in enumerate(subjects):
-                    if i % buttons_per_row == 0:
+                for entry in subjects:
+                    # 兼容新旧格式：字符串或 {"name":..., "english_name":...}
+                    subject_name, _english = parse_subject_entry(entry)
+                    if not subject_name:
+                        continue
+                    if placed % buttons_per_row == 0:
                         current_row = QHBoxLayout()
                         current_row.setSpacing(4)
                         current_row.setContentsMargins(0, 0, 0, 0)
@@ -564,8 +569,9 @@ class SubjectSelectWindow(ThemedWidget):
                     btn = self._create_subject_button(subject_name, btn_style)
                     if current_row is not None:
                         current_row.addWidget(btn, stretch=1)
+                    placed += 1
 
-                remaining: int = len(subjects) % buttons_per_row
+                remaining: int = placed % buttons_per_row
                 if remaining > 0 and current_row is not None:
                     for _ in range(buttons_per_row - remaining):
                         spacer: QWidget = QWidget()

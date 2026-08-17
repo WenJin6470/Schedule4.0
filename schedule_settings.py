@@ -26,7 +26,7 @@ import os
 import subprocess
 import sys
 from datetime import date
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from PySide6.QtWidgets import (
     QApplication, QFrame, QHBoxLayout, QLabel, QPushButton,
@@ -41,10 +41,25 @@ from PySide6.QtGui import QFont, QIcon, QCloseEvent, QColor
 from schedule_config import (
     ThemeManager, ThemedWidget, ScheduleDataManager,
     DisplayRulesManager, parse_display_rule,
+    SubjectConfigManager, parse_subject_entry,
 )
 from schedule_backend import TimeWheelPicker, WheelColumn
+from schedule_translate import TranslateWorker, load_sites, get_default_site
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+# 已关闭对话框遗留的翻译线程池：持有引用直到线程自然结束，
+# 防止 QThread 对象在后台线程仍在运行时被销毁导致 Qt 崩溃。
+_ORPHAN_WORKERS: List = []
+
+
+def _cleanup_orphan_worker(worker: Optional[TranslateWorker]) -> None:
+    """翻译线程结束后从孤儿池移除并释放对象。"""
+    if worker is None:
+        return
+    if worker in _ORPHAN_WORKERS:
+        _ORPHAN_WORKERS.remove(worker)
+    worker.deleteLater()
 
 
 class SettingsWindow(ThemedWidget):
@@ -136,6 +151,15 @@ class SettingsWindow(ThemedWidget):
         # 显示规则引用
         self._rule_list: Optional[DisplayRuleListWidget] = None
         self._rule_add_btn: Optional[QPushButton] = None
+
+        # 科目编辑引用
+        self._subject_config_manager: SubjectConfigManager = SubjectConfigManager()
+        self._subject_config_data: Dict = {}
+        self._subject_card: Optional[QFrame] = None
+        self._subject_scroll_layout: Optional[QVBoxLayout] = None
+        self._subject_buttons: List[QPushButton] = []
+        # 课程表内联编辑器的科目按钮区布局（重建时使用）
+        self._cv_subject_layout: Optional[QVBoxLayout] = None
 
         logger.info("SettingsWindow 初始化开始")
         self._setup_ui()
@@ -640,6 +664,114 @@ class SettingsWindow(ThemedWidget):
 
         layout.addWidget(dr_indent)
 
+        # ════════════════════════════════════════════════════════════
+        #  科目编辑
+        # ════════════════════════════════════════════════════════════
+        # ---- 分割线 ----
+        sj_sep_line: QFrame = QFrame()
+        sj_sep_line.setFrameShape(QFrame.HLine)  # type: ignore
+        sj_sep_line.setStyleSheet(f"""
+            border: none;
+            border-top: 1px solid {self._theme.border_color};
+            background: transparent;
+        """)
+        layout.addWidget(sj_sep_line)
+        layout.addSpacing(4)
+
+        # ---- 一级标题：科目编辑 ----
+        sj_section_title: QLabel = QLabel("科目编辑")
+        sj_section_title.setFont(QFont("Microsoft YaHei", 18, QFont.Bold))  # type: ignore
+        sj_section_title.setStyleSheet(f"color: {fc}; background: transparent;")
+        sj_section_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
+        layout.addWidget(sj_section_title)
+
+        # ---- 缩进容器（科目编辑控件统一缩进 28px）----
+        sj_indent: QWidget = QWidget()
+        sj_indent.setStyleSheet("background: transparent;")
+        sj_indent_layout: QVBoxLayout = QVBoxLayout(sj_indent)
+        sj_indent_layout.setContentsMargins(28, 0, 0, 0)
+        sj_indent_layout.setSpacing(12)
+
+        # ---- 科目按钮卡片（参照快捷编辑窗口左侧科目按钮区）----
+        self._subject_card = QFrame()
+        self._subject_card.setStyleSheet(self._get_status_card_style())
+        sj_card_layout: QVBoxLayout = QVBoxLayout(self._subject_card)
+        sj_card_layout.setContentsMargins(12, 10, 12, 10)
+
+        sj_subjects_scroll: QScrollArea = QScrollArea()
+        sj_subjects_scroll.setWidgetResizable(True)
+        sj_subjects_scroll.setMaximumHeight(220)
+        sj_subjects_scroll.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background: transparent;
+                width: 6px;
+                margin: 0;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(128, 128, 128, 0.3);
+                border-radius: 3px;
+                min-height: 20px;
+            }
+        """)
+
+        sj_subjects_widget: QWidget = QWidget()
+        sj_subjects_widget.setStyleSheet("background: transparent;")
+        self._subject_scroll_layout = QVBoxLayout(sj_subjects_widget)
+        self._subject_scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self._subject_scroll_layout.setSpacing(6)
+
+        sj_subjects_scroll.setWidget(sj_subjects_widget)
+        sj_card_layout.addWidget(sj_subjects_scroll)
+        sj_indent_layout.addWidget(self._subject_card)
+
+        # ---- 新建科目 / 新建类别按钮行 ----
+        sj_btn_row: QHBoxLayout = QHBoxLayout()
+        sj_btn_row.setSpacing(12)
+
+        new_subject_btn: QPushButton = QPushButton("＋ 新建科目")
+        new_subject_btn.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))  # type: ignore
+        new_subject_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        new_subject_btn.setMinimumHeight(38)
+        new_subject_btn.setStyleSheet(self._get_add_btn_style())
+        new_subject_btn.clicked.connect(self._on_new_subject)
+        sj_btn_row.addWidget(new_subject_btn)
+
+        new_category_btn: QPushButton = QPushButton("＋ 新建类别")
+        new_category_btn.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))  # type: ignore
+        new_category_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        new_category_btn.setMinimumHeight(38)
+        new_category_btn.setStyleSheet(self._get_add_btn_style())
+        new_category_btn.clicked.connect(self._on_new_category)
+        sj_btn_row.addWidget(new_category_btn)
+
+        sj_btn_row.addStretch()
+        sj_indent_layout.addLayout(sj_btn_row)
+
+        # ---- 提示（斜体小字）----
+        sj_hint: QLabel = QLabel(
+            "提示：第一类别为系统保护类别，不能新建科目到其中，"
+            "其中的科目也不能移动到其他类别；"
+            "未输入科目英文名时可使用窗口内的翻译功能自动翻译。"
+        )
+        sj_hint_font: QFont = QFont("Microsoft YaHei", 9)
+        sj_hint_font.setItalic(True)
+        sj_hint.setFont(sj_hint_font)
+        sj_hint.setStyleSheet(
+            f"color: {fc}; background: transparent; opacity: 0.6;"
+        )
+        sj_hint.setWordWrap(True)
+        sj_indent_layout.addWidget(sj_hint)
+
+        layout.addWidget(sj_indent)
+
+        # 初始加载科目配置并渲染科目按钮
+        self._load_subject_config_data()
+        self._refresh_subject_buttons()
+
         # 底部弹簧：把「应用修改 / 暂不应用」按钮推至页面最底部
         layout.addStretch()
 
@@ -984,6 +1116,228 @@ class SettingsWindow(ThemedWidget):
         """刷新时间表状态标签文字。"""
         if self._status_label is not None:
             self._status_label.setText(self._get_status_text())
+
+    # ================================================================
+    #  科目编辑 — 数据加载与渲染
+    # ================================================================
+    def _load_subject_config_data(self) -> None:
+        """从 subject_config.json 加载科目配置到工作副本。"""
+        self._subject_config_data = self._subject_config_manager.load()
+
+    def _refresh_subject_buttons(self) -> None:
+        """按类别重建科目按钮（参照快捷编辑窗口左侧科目按钮区）。"""
+        if self._subject_scroll_layout is None:
+            return
+        # 清空旧按钮
+        while self._subject_scroll_layout.count():
+            item = self._subject_scroll_layout.takeAt(0)
+            w = item.widget()  # type: ignore
+            if w is not None:
+                w.deleteLater()
+        self._subject_buttons.clear()
+
+        data: Dict = self._subject_config_data or {}
+        subject_types: Any = data.get('Subject_Types', {})
+        if not isinstance(subject_types, dict):
+            subject_types = {}
+
+        btn_style: str = self._get_cv_subject_btn_style()
+        dim_color: str = (
+            'rgba(255,255,255,0.50)' if self._theme.theme == 'darkcolor'
+            else 'rgba(0,0,0,0.50)'
+        )
+
+        for cat_name, subjects in subject_types.items():
+            if not isinstance(subjects, list):
+                continue
+            # 类别标题
+            cat_title: QLabel = QLabel(f"—— {cat_name} ——")
+            cat_title.setFont(QFont("Microsoft YaHei", 10))
+            cat_title.setStyleSheet(
+                f"color: {dim_color}; background: transparent;"
+            )
+            self._subject_scroll_layout.addWidget(cat_title)
+
+            # 科目按钮流式布局（每行 4 个，自动补齐空位）
+            buttons_per_row: int = 4
+            current_row: Optional[QHBoxLayout] = None
+            placed: int = 0
+            for entry in subjects:
+                name, english = parse_subject_entry(entry)
+                if not name:
+                    continue
+                if placed % buttons_per_row == 0:
+                    current_row = QHBoxLayout()
+                    current_row.setSpacing(6)
+                    current_row.setContentsMargins(0, 0, 0, 0)
+                    self._subject_scroll_layout.addLayout(current_row)
+                assert current_row is not None
+                btn: QPushButton = QPushButton(name)
+                btn.setFont(QFont("Microsoft YaHei", 11))
+                btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+                btn.setMinimumHeight(32)
+                btn.setMinimumWidth(44)
+                btn.setToolTip(
+                    f"英文名：{english}" if english else "英文名：（未设置）"
+                )
+                btn.setStyleSheet(btn_style)
+                btn.clicked.connect(
+                    lambda checked=False, c=cat_name, n=name:
+                        self._on_subject_clicked(c, n)
+                )
+                self._subject_buttons.append(btn)
+                current_row.addWidget(btn, stretch=1)
+                placed += 1
+
+            if current_row is not None:
+                remaining: int = placed % buttons_per_row
+                if remaining > 0:
+                    for _ in range(buttons_per_row - remaining):
+                        spacer: QWidget = QWidget()
+                        spacer.setStyleSheet("background: transparent;")
+                        current_row.addWidget(spacer, stretch=1)
+
+        self._subject_scroll_layout.addStretch()
+
+    # ================================================================
+    #  科目编辑 — 事件处理
+    # ================================================================
+    def _on_subject_clicked(self, category: str, name: str) -> None:
+        """点击科目按钮 → 打开科目编辑子窗口（编辑模式）。"""
+        found = self._subject_config_manager.find_subject(
+            self._subject_config_data, name
+        )
+        english: str = found[1] if found is not None else ''
+
+        dialog: SubjectEditDialog = SubjectEditDialog(
+            theme_manager=self._theme,
+            manager=self._subject_config_manager,
+            mode='edit',
+            category=category,
+            name=name,
+            english_name=english,
+            parent=self,
+        )
+        if dialog.exec() == QDialog.Accepted:  # type: ignore
+            result: dict = dialog.result()
+            self._apply_subject_change(category, name, result)
+
+    def _on_new_subject(self) -> None:
+        """点击「新建科目」→ 打开科目编辑子窗口（新建模式）。"""
+        dialog: SubjectEditDialog = SubjectEditDialog(
+            theme_manager=self._theme,
+            manager=self._subject_config_manager,
+            mode='create',
+            parent=self,
+        )
+        if dialog.exec() == QDialog.Accepted:  # type: ignore
+            result = dialog.result()
+            subject_types = self._subject_config_data.setdefault(
+                'Subject_Types', {}
+            )
+            cat: str = result['category']
+            # 防御：目标类别必须是列表类别（"None" 等字符串类别不可加入）
+            if cat in subject_types and \
+                    not isinstance(subject_types[cat], list):
+                logger.warning(f"无法加入科目到非列表类别：{cat}")
+                return
+            if cat not in subject_types:
+                subject_types[cat] = []
+            subject_types[cat].append({
+                'name': result['name'],
+                'english_name': result['english_name'],
+            })
+            self._save_subject_config()
+            self._refresh_subject_buttons()
+            logger.info(
+                f"已新建科目：{result['name']} → {cat}（英文名："
+                f"{result['english_name'] or '未设置'}）"
+            )
+
+    def _on_new_category(self) -> None:
+        """点击「新建类别」→ 打开新建类别子窗口。"""
+        dialog: NewCategoryDialog = NewCategoryDialog(
+            theme_manager=self._theme,
+            existing=self._subject_config_manager.category_names(
+                self._subject_config_data
+            ),
+            parent=self,
+        )
+        if dialog.exec() == QDialog.Accepted:  # type: ignore
+            cat: str = dialog.result_name()
+            subject_types = self._subject_config_data.setdefault(
+                'Subject_Types', {}
+            )
+            if cat not in subject_types:
+                subject_types[cat] = []
+                self._save_subject_config()
+                self._refresh_subject_buttons()
+                logger.info(f"已新建类别：{cat}")
+
+    def _apply_subject_change(self, old_category: str, old_name: str,
+                              result: dict) -> None:
+        """把科目编辑结果写回工作副本（同类别更新 / 跨类别移动）。"""
+        subject_types: Any = self._subject_config_data.get(
+            'Subject_Types', {}
+        )
+        if not isinstance(subject_types, dict):
+            return
+        old_list: Any = subject_types.get(old_category)
+        if not isinstance(old_list, list):
+            return
+
+        target_cat: str = result['category']
+        new_entry: Dict = {
+            'name': result['name'],
+            'english_name': result['english_name'],
+        }
+
+        if target_cat == old_category:
+            # 同类别内更新
+            for i, entry in enumerate(old_list):
+                ename, _e = parse_subject_entry(entry)
+                if ename == old_name:
+                    old_list[i] = new_entry
+                    break
+        else:
+            # 移动到其他类别（旧类别中移除，新类别中追加）
+            # 防御：目标类别必须是列表类别（"None" 等字符串类别不可移入）
+            if target_cat in subject_types and \
+                    not isinstance(subject_types[target_cat], list):
+                logger.warning(f"无法移动科目到非列表类别：{target_cat}")
+                return
+            old_list[:] = [
+                e for e in old_list
+                if parse_subject_entry(e)[0] != old_name
+            ]
+            new_list: Any = subject_types.get(target_cat)
+            if not isinstance(new_list, list):
+                subject_types[target_cat] = new_list = []
+            new_list.append(new_entry)
+
+        self._save_subject_config()
+        self._refresh_subject_buttons()
+        logger.info(
+            f"科目已更新：{old_name}（{old_category}）→ "
+            f"{result['name']}（{target_cat}，英文名："
+            f"{result['english_name'] or '未设置'}）"
+        )
+
+    def _save_subject_config(self) -> bool:
+        """保存科目配置：写文件、同步内存主题配置、刷新关联控件。"""
+        if not self._subject_config_manager.save(self._subject_config_data):
+            return False
+        # 同步内存中的主题科目配置（快捷编辑窗口下次打开即生效）
+        self._theme.subject_config = copy.deepcopy(self._subject_config_data)
+        # 使课程表内联编辑器的科目缓存失效，重新加载后重建按钮
+        self._cv_subject_categories = {}
+        self._load_cv_subject_categories()
+        self._rebuild_cv_subject_buttons()
+        # 进入"有未应用修改"状态（与页面内其他编辑策略一致）
+        self._has_unsaved_changes = True
+        self._refresh_apply_button()
+        logger.info("科目配置已保存并同步内存")
+        return True
 
     # ================================================================
     #  刷新表格
@@ -1753,7 +2107,6 @@ class SettingsWindow(ThemedWidget):
 
         # ---- 左侧：科目按钮区（滚动区域，占 70%）----
         self._load_cv_subject_categories()
-        btn_style: str = self._get_cv_subject_btn_style()
 
         subjects_scroll: QScrollArea = QScrollArea()
         subjects_scroll.setWidgetResizable(True)
@@ -1777,49 +2130,12 @@ class SettingsWindow(ThemedWidget):
 
         subjects_widget: QWidget = QWidget()
         subjects_widget.setStyleSheet("background: transparent;")
-        subjects_layout: QVBoxLayout = QVBoxLayout(subjects_widget)
-        subjects_layout.setContentsMargins(0, 0, 0, 0)
-        subjects_layout.setSpacing(6)
+        self._cv_subject_layout = QVBoxLayout(subjects_widget)
+        self._cv_subject_layout.setContentsMargins(0, 0, 0, 0)
+        self._cv_subject_layout.setSpacing(6)
 
-        dim_color: str = (
-            'rgba(255,255,255,0.50)' if self._theme.theme == 'darkcolor'
-            else 'rgba(0,0,0,0.50)'
-        )
+        self._populate_cv_subject_buttons()
 
-        self._cv_subject_buttons.clear()
-        for cat_name, subjects in self._cv_subject_categories.items():
-            # 类别标题
-            cat_title: QLabel = QLabel(f"—— {cat_name} ——")
-            cat_title.setFont(QFont("Microsoft YaHei", 10))
-            cat_title.setStyleSheet(
-                f"color: {dim_color}; background: transparent;"
-            )
-            subjects_layout.addWidget(cat_title)
-
-            # 科目按钮流式布局（自动换行）
-            flow_widget: QWidget = QWidget()
-            flow_widget.setStyleSheet("background: transparent;")
-            flow_layout: QHBoxLayout = QHBoxLayout(flow_widget)
-            flow_layout.setContentsMargins(0, 0, 0, 0)
-            flow_layout.setSpacing(6)
-
-            for subject in subjects:
-                btn: QPushButton = QPushButton(subject)
-                btn.setFont(QFont("Microsoft YaHei", 11))
-                btn.setCursor(Qt.PointingHandCursor)  # type: ignore
-                btn.setMinimumHeight(32)
-                btn.setMinimumWidth(44)
-                btn.setStyleSheet(btn_style)
-                btn.clicked.connect(
-                    lambda checked=False, s=subject: self._on_cv_subject_clicked(s)
-                )
-                self._cv_subject_buttons.append(btn)
-                flow_layout.addWidget(btn)
-
-            flow_layout.addStretch()
-            subjects_layout.addWidget(flow_widget)
-
-        subjects_layout.addStretch()
         subjects_scroll.setWidget(subjects_widget)
         body_row.addWidget(subjects_scroll, stretch=7)
 
@@ -1943,7 +2259,7 @@ class SettingsWindow(ThemedWidget):
     #  课程表内联编辑器 — 加载科目配置
     # ================================================================
     def _load_cv_subject_categories(self) -> None:
-        """从 subject_config.json 加载科目分类到缓存。"""
+        """从 subject_config.json 加载科目分类到缓存（兼容新旧格式）。"""
         if self._cv_subject_categories:
             return  # 已缓存
 
@@ -1958,7 +2274,12 @@ class SettingsWindow(ThemedWidget):
                 subject_types = config_data.get('Subject_Types', {})
                 for cat_name, subjects in subject_types.items():
                     if isinstance(subjects, list):
-                        self._cv_subject_categories[cat_name] = subjects
+                        names: List[str] = []
+                        for entry in subjects:
+                            n, _e = parse_subject_entry(entry)
+                            if n:
+                                names.append(n)
+                        self._cv_subject_categories[cat_name] = names
                     elif subjects == 'None' or subjects is None:
                         self._cv_subject_categories[cat_name] = ['None']
             else:
@@ -1966,6 +2287,66 @@ class SettingsWindow(ThemedWidget):
         except Exception as e:
             logger.error(f"读取科目配置失败：{e}")
             self._cv_subject_categories = {'Category_1': []}
+
+    # ================================================================
+    #  课程表内联编辑器 — 科目按钮区填充 / 重建
+    # ================================================================
+    def _populate_cv_subject_buttons(self) -> None:
+        """填充课程表内联编辑器的科目按钮区（按类别分组）。"""
+        if self._cv_subject_layout is None:
+            return
+        btn_style: str = self._get_cv_subject_btn_style()
+        dim_color: str = (
+            'rgba(255,255,255,0.50)' if self._theme.theme == 'darkcolor'
+            else 'rgba(0,0,0,0.50)'
+        )
+
+        self._cv_subject_buttons.clear()
+        for cat_name, subjects in self._cv_subject_categories.items():
+            # 类别标题
+            cat_title: QLabel = QLabel(f"—— {cat_name} ——")
+            cat_title.setFont(QFont("Microsoft YaHei", 10))
+            cat_title.setStyleSheet(
+                f"color: {dim_color}; background: transparent;"
+            )
+            self._cv_subject_layout.addWidget(cat_title)
+
+            # 科目按钮流式布局（自动换行）
+            flow_widget: QWidget = QWidget()
+            flow_widget.setStyleSheet("background: transparent;")
+            flow_layout: QHBoxLayout = QHBoxLayout(flow_widget)
+            flow_layout.setContentsMargins(0, 0, 0, 0)
+            flow_layout.setSpacing(6)
+
+            for subject in subjects:
+                btn: QPushButton = QPushButton(subject)
+                btn.setFont(QFont("Microsoft YaHei", 11))
+                btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+                btn.setMinimumHeight(32)
+                btn.setMinimumWidth(44)
+                btn.setStyleSheet(btn_style)
+                btn.clicked.connect(
+                    lambda checked=False, s=subject: self._on_cv_subject_clicked(s)
+                )
+                self._cv_subject_buttons.append(btn)
+                flow_layout.addWidget(btn)
+
+            flow_layout.addStretch()
+            self._cv_subject_layout.addWidget(flow_widget)
+
+        self._cv_subject_layout.addStretch()
+
+    def _rebuild_cv_subject_buttons(self) -> None:
+        """科目配置变更后重建课程表内联编辑器的科目按钮区。"""
+        if self._cv_subject_layout is None:
+            return
+        # 清空旧按钮
+        while self._cv_subject_layout.count():
+            item = self._cv_subject_layout.takeAt(0)
+            w = item.widget()  # type: ignore
+            if w is not None:
+                w.deleteLater()
+        self._populate_cv_subject_buttons()
 
     # ================================================================
     #  课程表内联编辑器 — 闪烁光标
@@ -2594,6 +2975,14 @@ class SettingsWindow(ThemedWidget):
             self._rule_list.refresh_theme()
         if self._rule_add_btn is not None:
             self._rule_add_btn.setStyleSheet(self._get_add_btn_style())
+        # 刷新科目编辑控件
+        if self._subject_card is not None:
+            self._subject_card.setStyleSheet(self._get_status_card_style())
+        sj_style: str = self._get_cv_subject_btn_style()
+        for btn in self._subject_buttons:
+            btn.setStyleSheet(sj_style)
+            btn.style().unpolish(btn)  # type: ignore
+            btn.style().polish(btn)  # type: ignore
 
     # ================================================================
     #  导航按钮样式刷新
@@ -3355,6 +3744,590 @@ class NewCurriculumDialog(QDialog):
     def result_copy_from(self) -> str:
         """返回选择的复制来源（空字符串表示空白）。"""
         return getattr(self, '_result_copy_from', '')
+
+
+# ==================== 科目编辑子窗口 ====================
+
+
+class SubjectEditDialog(QDialog):
+    """
+    # SubjectEditDialog — 科目编辑子窗口（新建 / 编辑共用）
+
+    字段：
+      - 中文名（QLineEdit，必填）
+      - 英文名（QLineEdit，可空；为空时窗口最下方显示翻译卡片）
+      - 所属类别（QComboBox）
+
+    规则：
+      - 第一类别（Subject_Types 第一个键）为系统保护类别：
+        新建科目时下拉框不提供该类别；编辑其中的科目时下拉框锁定。
+      - 未输入中文名或未选择类别时无法创建科目。
+      - 中文名不得与其他科目重名。
+      - 英文名为空时显示翻译卡片：系统默认网站 + 连接状态 + 翻译状态
+        + 翻译结果，可「填入英文名」/ 重新选择网站 / 重新翻译。
+    """
+
+    def __init__(self, theme_manager: ThemeManager,
+                 manager: SubjectConfigManager,
+                 mode: str = 'create',
+                 category: str = '',
+                 name: str = '',
+                 english_name: str = '',
+                 parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._theme: ThemeManager = theme_manager
+        self._manager: SubjectConfigManager = manager
+        self._mode: str = mode
+        self._initial_category: str = category
+        self._initial_name: str = name
+        self._initial_english: str = english_name
+
+        # 用于校验的配置快照（从文件加载）
+        self._config_data: Dict = manager.load()
+        subject_types: Any = self._config_data.get('Subject_Types', {})
+        all_cats: List[str] = (
+            list(subject_types.keys())
+            if isinstance(subject_types, dict) else []
+        )
+        # 第一类别 = 配置中第一个键（系统保护类别）
+        self._protected_category: str = all_cats[0] if all_cats else ''
+
+        self._worker: Optional[TranslateWorker] = None
+        self._translate_running: bool = False
+        self._card_visible: bool = False
+        self._result_text: str = ''
+        self._result: dict = {}
+
+        self.setWindowTitle('编辑科目' if mode == 'edit' else '新建科目')
+        self.setWindowFlags(
+            Qt.Window                         # type: ignore
+            | Qt.WindowCloseButtonHint        # type: ignore
+        )
+        self.setModal(True)
+        self.setMinimumWidth(440)
+
+        self._setup_ui()
+        logger.info(
+            f"SubjectEditDialog 初始化完成（mode={mode}, "
+            f"protected={self._protected_category}）"
+        )
+
+    # ================================================================
+    #  UI 构建
+    # ================================================================
+    def _setup_ui(self) -> None:
+        fc: str = self._theme.font_color
+        layout: QVBoxLayout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 16, 20, 16)
+
+        # ---- 中文名 ----
+        cn_label: QLabel = QLabel("科目中文名：")
+        cn_label.setFont(QFont("Microsoft YaHei", 12))
+        cn_label.setStyleSheet(f"color: {fc}; background: transparent;")
+        layout.addWidget(cn_label)
+
+        self._name_input: QLineEdit = QLineEdit(self._initial_name)
+        self._name_input.setFont(QFont("Microsoft YaHei", 11))
+        self._name_input.setMinimumHeight(32)
+        self._name_input.setStyleSheet(self._field_style())
+        layout.addWidget(self._name_input)
+
+        # ---- 英文名 ----
+        en_label: QLabel = QLabel("科目英文名：")
+        en_label.setFont(QFont("Microsoft YaHei", 12))
+        en_label.setStyleSheet(f"color: {fc}; background: transparent;")
+        layout.addWidget(en_label)
+
+        self._english_input: QLineEdit = QLineEdit(self._initial_english)
+        self._english_input.setFont(QFont("Microsoft YaHei", 11))
+        self._english_input.setMinimumHeight(32)
+        self._english_input.setStyleSheet(self._field_style())
+        layout.addWidget(self._english_input)
+
+        # ---- 所属类别 ----
+        cat_label: QLabel = QLabel("所属类别：")
+        cat_label.setFont(QFont("Microsoft YaHei", 12))
+        cat_label.setStyleSheet(f"color: {fc}; background: transparent;")
+        layout.addWidget(cat_label)
+
+        self._category_combo: QComboBox = QComboBox()
+        self._category_combo.setFont(QFont("Microsoft YaHei", 11))
+        self._category_combo.setMinimumHeight(32)
+        self._category_combo.setStyleSheet(self._combo_style())
+        self._populate_categories()
+        layout.addWidget(self._category_combo)
+
+        # ---- 翻译卡片（英文名为空时显示）----
+        self._translation_card: QFrame = self._build_translation_card()
+        layout.addWidget(self._translation_card)
+        self._translation_card.setVisible(False)
+
+        # ---- 按钮行 ----
+        btn_row: QHBoxLayout = QHBoxLayout()
+        btn_row.addStretch()
+
+        cancel_btn: QPushButton = QPushButton("取消")
+        cancel_btn.setFont(QFont("Microsoft YaHei", 11))
+        cancel_btn.setMinimumHeight(32)
+        cancel_btn.setStyleSheet(self._normal_btn_style())
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+
+        confirm_btn: QPushButton = QPushButton("确认")
+        confirm_btn.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))  # type: ignore
+        confirm_btn.setMinimumHeight(32)
+        confirm_btn.setStyleSheet(self._primary_btn_style())
+        confirm_btn.clicked.connect(self._on_confirm)
+        btn_row.addWidget(confirm_btn)
+
+        layout.addLayout(btn_row)
+
+        # ---- 联动 ----
+        self._english_input.textChanged.connect(self._on_english_changed)
+        if not self._initial_english.strip():
+            # 初始英文名为空 → 立即显示翻译卡片并自动翻译
+            self._translation_card.setVisible(True)
+            self._card_visible = True
+            self._start_translate()
+
+        self.setLayout(layout)
+        self.adjustSize()
+
+    # ================================================================
+    #  类别下拉框填充（第一类别保护规则）
+    # ================================================================
+    def _populate_categories(self) -> None:
+        subject_types: Any = self._config_data.get('Subject_Types', {})
+        if not isinstance(subject_types, dict):
+            subject_types = {}
+        list_cats: List[str] = [
+            c for c, v in subject_types.items() if isinstance(v, list)
+        ]
+
+        if self._mode == 'edit' and \
+                self._initial_category == self._protected_category:
+            # 第一类别中的科目：锁定类别，不能移出
+            self._category_combo.addItem(self._protected_category,
+                                         self._protected_category)
+            self._category_combo.setEnabled(False)
+            return
+
+        for cat in list_cats:
+            if cat == self._protected_category:
+                continue  # 任何科目都不能进入第一类别
+            self._category_combo.addItem(cat, cat)
+
+        if self._mode == 'edit':
+            idx: int = self._category_combo.findData(self._initial_category)
+            if idx >= 0:
+                self._category_combo.setCurrentIndex(idx)
+
+    # ================================================================
+    #  翻译卡片
+    # ================================================================
+    def _build_translation_card(self) -> QFrame:
+        fc: str = self._theme.font_color
+        card: QFrame = QFrame()
+        if self._theme.theme == 'darkcolor':
+            card_bg: str = 'rgba(255,255,255,0.04)'
+            card_border: str = 'rgba(33, 150, 243, 0.30)'
+        else:
+            card_bg = 'rgba(33, 150, 243, 0.04)'
+            card_border = 'rgba(33, 150, 243, 0.25)'
+        card.setStyleSheet(f"""
+            QFrame {{
+                background-color: {card_bg};
+                border: 1px solid {card_border};
+                border-radius: 10px;
+            }}
+        """)
+        layout: QVBoxLayout = QVBoxLayout(card)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(8)
+
+        # ---- 翻译网站选择行 ----
+        site_row: QHBoxLayout = QHBoxLayout()
+        site_row.setSpacing(8)
+
+        site_label: QLabel = QLabel("翻译网站：")
+        site_label.setFont(QFont("Microsoft YaHei", 11))
+        site_label.setStyleSheet(f"color: {fc}; background: transparent;")
+        site_row.addWidget(site_label)
+
+        self._site_combo: QComboBox = QComboBox()
+        self._site_combo.setFont(QFont("Microsoft YaHei", 11))
+        self._site_combo.setMinimumHeight(30)
+        self._site_combo.setStyleSheet(self._combo_style())
+        self._sites: List[Dict] = load_sites()
+        default_site: str = get_default_site()
+        for s in self._sites:
+            self._site_combo.addItem(s['name'], s['id'])
+        default_idx: int = self._site_combo.findData(default_site)
+        if default_idx >= 0:
+            self._site_combo.setCurrentIndex(default_idx)
+        site_row.addWidget(self._site_combo, 1)
+
+        self._translate_btn: QPushButton = QPushButton("重新翻译")
+        self._translate_btn.setFont(QFont("Microsoft YaHei", 11))
+        self._translate_btn.setMinimumHeight(30)
+        self._translate_btn.setStyleSheet(self._normal_btn_style())
+        self._translate_btn.clicked.connect(self._start_translate)
+        site_row.addWidget(self._translate_btn)
+
+        layout.addLayout(site_row)
+
+        # ---- 状态与结果 ----
+        self._conn_label: QLabel = QLabel("连接状态：—")
+        self._status_label: QLabel = QLabel("翻译状态：—")
+        self._result_label: QLabel = QLabel("翻译结果：—")
+        for lbl in (self._conn_label, self._status_label, self._result_label):
+            lbl.setFont(QFont("Microsoft YaHei", 10))
+            lbl.setStyleSheet(f"color: {fc}; background: transparent;")
+            lbl.setWordWrap(True)
+            layout.addWidget(lbl)
+
+        # ---- 填入按钮 ----
+        fill_row: QHBoxLayout = QHBoxLayout()
+        fill_row.addStretch()
+        self._fill_btn: QPushButton = QPushButton("填入英文名")
+        self._fill_btn.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))  # type: ignore
+        self._fill_btn.setMinimumHeight(30)
+        self._fill_btn.setEnabled(False)
+        self._fill_btn.setStyleSheet(self._primary_btn_style())
+        self._fill_btn.clicked.connect(self._on_fill)
+        fill_row.addWidget(self._fill_btn)
+        layout.addLayout(fill_row)
+
+        return card
+
+    # ================================================================
+    #  翻译流程
+    # ================================================================
+    def _on_english_changed(self, text: str) -> None:
+        """英文名输入变化 → 空时显示翻译卡片（首次显示自动翻译）。"""
+        has_text: bool = bool(text.strip())
+        if has_text:
+            self._translation_card.setVisible(False)
+            self._card_visible = False
+        else:
+            self._translation_card.setVisible(True)
+            if not self._card_visible:
+                self._card_visible = True
+                self._start_translate()
+        self.adjustSize()
+
+    def _start_translate(self) -> None:
+        """发起一次翻译（防重入）。"""
+        if self._translate_running:
+            return
+        source: str = self._name_input.text().strip()
+        if not source:
+            self._conn_label.setText("连接状态：—")
+            self._status_label.setText("翻译状态：等待输入中文名")
+            self._result_label.setText("翻译结果：请先填写科目中文名")
+            return
+        site_id: str = self._site_combo.currentData() or 'google'
+        self._result_text = ''
+        self._conn_label.setText("连接状态：连接中…")
+        self._status_label.setText("翻译状态：等待…")
+        self._result_label.setText("翻译结果：—")
+        self._fill_btn.setEnabled(False)
+        self._translate_btn.setEnabled(False)
+        self._site_combo.setEnabled(False)
+        self._translate_running = True
+
+        self._worker = TranslateWorker(source, site_id)
+        self._worker.status_changed.connect(self._on_worker_status)
+        self._worker.finished_ok.connect(self._on_translate_ok)
+        self._worker.finished_fail.connect(self._on_translate_fail)
+        self._worker.finished.connect(self._on_worker_finished)
+        self._worker.start()
+
+    def _on_worker_status(self, status: str) -> None:
+        """工作线程状态信号 → 更新连接 / 翻译状态标签。"""
+        if status == 'connecting':
+            self._conn_label.setText("连接状态：连接中…")
+        elif status == 'connected':
+            self._conn_label.setText("连接状态：连接成功")
+            self._status_label.setText("翻译状态：翻译中…")
+        elif status == 'failed':
+            self._conn_label.setText("连接状态：连接失败")
+
+    def _on_translate_ok(self, result: str, duration: float) -> None:
+        """翻译成功 → 显示结果并启用填入按钮。"""
+        self._result_text = result
+        self._status_label.setText("翻译状态：翻译完成")
+        self._result_label.setText(
+            f"翻译结果：{result}（耗时 {duration:.1f}s）"
+        )
+        self._fill_btn.setEnabled(True)
+
+    def _on_translate_fail(self, error: str) -> None:
+        """翻译失败 → 显示错误信息。"""
+        self._status_label.setText("翻译状态：翻译失败")
+        self._result_label.setText(f"翻译结果：{error}")
+
+    def _on_worker_finished(self) -> None:
+        """工作线程结束 → 恢复控件可用。"""
+        self._translate_running = False
+        self._translate_btn.setEnabled(True)
+        self._site_combo.setEnabled(True)
+        if self._worker is not None:
+            worker = self._worker
+            if worker in _ORPHAN_WORKERS:
+                _ORPHAN_WORKERS.remove(worker)
+            worker.deleteLater()
+        self._worker = None
+
+    def _on_fill(self) -> None:
+        """把翻译结果填入英文名输入框（卡片随后自动隐藏）。"""
+        if self._result_text:
+            self._english_input.setText(self._result_text)
+
+    # ================================================================
+    #  确认 / 结果
+    # ================================================================
+    def _on_confirm(self) -> None:
+        """校验并确认（需求：中文名与类别必填、不得重名）。"""
+        name: str = self._name_input.text().strip()
+        category: str = self._category_combo.currentData() or ''
+
+        if not name:
+            QMessageBox.warning(
+                self, "无法创建科目", "请输入科目中文名后再创建。"
+            )
+            return
+        if not category:
+            QMessageBox.warning(
+                self, "无法创建科目", "请选择所属类别后再创建。"
+            )
+            return
+
+        # 重名检查（编辑自身除外）
+        found = self._manager.find_subject(self._config_data, name)
+        if found is not None:
+            found_cat, _en = found
+            is_self: bool = (
+                self._mode == 'edit'
+                and found_cat == self._initial_category
+                and name == self._initial_name
+            )
+            if not is_self:
+                QMessageBox.warning(
+                    self, "无法创建科目",
+                    f"科目「{name}」已存在于 {found_cat}，"
+                    "请使用其他中文名。",
+                )
+                return
+
+        self._result = {
+            'name': name,
+            'english_name': self._english_input.text().strip(),
+            'category': category,
+        }
+        logger.info(f"SubjectEditDialog 确认：{self._result}")
+        self.accept()
+
+    def result(self) -> dict:  # type: ignore
+        """返回编辑结果：{name, english_name, category}。"""
+        return self._result
+
+    # ================================================================
+    #  样式辅助
+    # ================================================================
+    def _field_style(self) -> str:
+        fc: str = self._theme.font_color
+        if self._theme.theme == 'darkcolor':
+            bg: str = '#2d2d2d'
+            border: str = 'rgba(255,255,255,0.14)'
+        else:
+            bg = '#FFFFFF'
+            border = 'rgba(0,0,0,0.14)'
+        return f"""
+            QLineEdit {{
+                color: {fc};
+                background-color: {bg};
+                border: 1px solid {border};
+                border-radius: 6px;
+                padding: 6px 10px;
+            }}
+            QLineEdit:focus {{
+                border-color: #2196F3;
+            }}
+        """
+
+    def _combo_style(self) -> str:
+        fc: str = self._theme.font_color
+        if self._theme.theme == 'darkcolor':
+            bg: str = '#2d2d2d'
+            border: str = 'rgba(255,255,255,0.14)'
+        else:
+            bg = '#FFFFFF'
+            border = 'rgba(0,0,0,0.14)'
+        return f"""
+            QComboBox {{
+                color: {fc};
+                background-color: {bg};
+                border: 1px solid {border};
+                border-radius: 6px;
+                padding: 6px 10px;
+            }}
+            QComboBox:focus {{
+                border-color: #2196F3;
+            }}
+            QComboBox QAbstractItemView {{
+                color: {fc};
+                background-color: {bg};
+                selection-background-color: rgba(33, 150, 243, 0.25);
+            }}
+        """
+
+    def _normal_btn_style(self) -> str:
+        fc: str = self._theme.font_color
+        if self._theme.theme == 'darkcolor':
+            bg: str = 'rgba(255,255,255,0.06)'
+            hover: str = 'rgba(255,255,255,0.12)'
+        else:
+            bg = 'rgba(0,0,0,0.04)'
+            hover = 'rgba(0,0,0,0.08)'
+        return f"""
+            QPushButton {{
+                color: {fc};
+                background-color: {bg};
+                border: 1px solid {self._theme.border_color};
+                border-radius: 6px;
+                padding: 6px 16px;
+            }}
+            QPushButton:hover {{ background-color: {hover}; }}
+        """
+
+    def _primary_btn_style(self) -> str:
+        return """
+            QPushButton {
+                color: white;
+                background-color: #2196F3;
+                border: none;
+                border-radius: 6px;
+                padding: 6px 16px;
+            }
+            QPushButton:hover { background-color: #1976D2; }
+            QPushButton:disabled {
+                background-color: rgba(128, 128, 128, 0.4);
+            }
+        """
+
+    # ================================================================
+    #  关闭事件：取消进行中的翻译线程
+    # ================================================================
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """关闭时取消翻译工作线程，避免后台线程残留。"""
+        if self._worker is not None:
+            self._worker.cancel()
+            if self._worker.isRunning():
+                # 线程仍在后台运行：移交孤儿池持有引用，
+                # 防止 QThread 对象销毁时（线程未结束）导致 Qt 崩溃
+                _ORPHAN_WORKERS.append(self._worker)
+                self._worker.finished.connect(
+                    lambda w=self._worker: _cleanup_orphan_worker(w)
+                )
+            self._worker = None
+        super().closeEvent(event)
+
+
+# ==================== 新建类别子窗口 ====================
+
+
+class NewCategoryDialog(QDialog):
+    """
+    # NewCategoryDialog — 新建类别子窗口
+
+    用于为科目配置新增一个类别（初始为空列表）。
+    名称要求：非空、不得与现有类别重名、不得为保留名称 "None"。
+    """
+
+    def __init__(self, theme_manager: ThemeManager,
+                 existing: List[str],
+                 parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._theme: ThemeManager = theme_manager
+        self._existing: List[str] = existing
+
+        self.setWindowTitle('新建类别')
+        self.setWindowFlags(
+            Qt.Window                         # type: ignore
+            | Qt.WindowCloseButtonHint        # type: ignore
+        )
+        self.setModal(True)
+        self.setMinimumWidth(360)
+
+        self._name_input: Optional[QLineEdit] = None
+        self._result_name: str = ''
+
+        self._setup_ui()
+        logger.info("NewCategoryDialog 初始化完成")
+
+    def _setup_ui(self) -> None:
+        layout: QVBoxLayout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 16, 20, 16)
+
+        fc: str = self._theme.font_color
+
+        name_label: QLabel = QLabel("类别名称：")
+        name_label.setFont(QFont("Microsoft YaHei", 12))
+        name_label.setStyleSheet(f"color: {fc}; background: transparent;")
+        layout.addWidget(name_label)
+
+        self._name_input = QLineEdit("")
+        self._name_input.setFont(QFont("Microsoft YaHei", 11))
+        self._name_input.setMinimumHeight(32)
+        layout.addWidget(self._name_input)
+
+        hint: QLabel = QLabel("提示：第一类别为系统保护类别，不受新建类别影响。")
+        hint_font: QFont = QFont("Microsoft YaHei", 9)
+        hint_font.setItalic(True)
+        hint.setFont(hint_font)
+        hint.setStyleSheet(
+            f"color: {fc}; background: transparent; opacity: 0.6;"
+        )
+        layout.addWidget(hint)
+
+        btn_row: QHBoxLayout = QHBoxLayout()
+        btn_row.addStretch()
+
+        cancel_btn: QPushButton = QPushButton("取消")
+        cancel_btn.setFont(QFont("Microsoft YaHei", 11))
+        cancel_btn.setMinimumHeight(32)
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+
+        create_btn: QPushButton = QPushButton("创建")
+        create_btn.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))  # type: ignore
+        create_btn.setMinimumHeight(32)
+        create_btn.clicked.connect(self._on_create)
+        btn_row.addWidget(create_btn)
+
+        layout.addLayout(btn_row)
+        self.setLayout(layout)
+
+    def _on_create(self) -> None:
+        name: str = self._name_input.text().strip() if self._name_input else ''
+        if not name:
+            QMessageBox.warning(self, "无法创建类别", "请输入类别名称。")
+            return
+        if name.lower() == 'none' or name in self._existing:
+            QMessageBox.warning(
+                self, "无法创建类别",
+                f"类别「{name}」已存在或为保留名称，请使用其他名称。",
+            )
+            return
+        self._result_name = name
+        self.accept()
+
+    def result_name(self) -> str:
+        """返回新建的类别名称。"""
+        return self._result_name
 
 
 # ==================== 显示规则（整合自 schedule_display_rules） ====================

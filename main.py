@@ -41,6 +41,7 @@ from schedule_config import (
 from schedule_time import TimeWindow, FullscreenTimeWindow, ExamFullscreenWindow
 from schedule_frontend import ScheduleMainWindow
 from schedule_backend import TimeManager, ScheduleBackend, WindowHelper, LogManager
+from schedule_translate import TranslationMonitor
 from knotlink_bridge import KnotLinkBridge
 
 
@@ -218,6 +219,14 @@ def main() -> None:
     time_manager: TimeManager = TimeManager(debug_config=debug_config)
     backend_handler: ScheduleBackend = ScheduleBackend()
     logger.info("后端实例创建完成")
+
+    # ================================================================
+    #  第5.5步：创建翻译网站监测器（每 2.5 小时测试候选翻译网站）
+    # ================================================================
+    logger.info("正在创建 TranslationMonitor...")
+    translation_monitor: TranslationMonitor = TranslationMonitor()
+    translation_monitor.start()
+    logger.info("TranslationMonitor 已启动（每 2.5 小时自动测试翻译网站）")
 
     # ================================================================
     #  第6步：连接信号和槽

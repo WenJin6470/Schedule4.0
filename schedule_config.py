@@ -388,6 +388,206 @@ class ThemeManager:
                 return ''
         return ''
 
+
+# ==================== 科目配置管理器 ====================
+
+
+def parse_subject_entry(entry: Any) -> Tuple[str, str]:
+    """
+    解析科目配置中的单个科目条目，兼容新旧两种格式。
+    ------------------------------------------------
+    参数：
+        entry（Any）：科目条目
+          - 新格式 dict：{"name": "语文", "english_name": "Chinese"}
+          - 旧格式 str： "语文"
+
+    返回值：
+        (中文名, 英文名)：英文名缺失时返回空字符串
+    """
+    if isinstance(entry, dict):
+        name: str = str(entry.get('name', '') or '').strip()
+        english: str = str(entry.get('english_name', '') or '').strip()
+        return name, english
+    if isinstance(entry, str):
+        return entry.strip(), ''
+    return '', ''
+
+
+class SubjectConfigManager:
+    """
+    # SubjectConfigManager — 科目配置管理器
+
+    负责 Config/subject_config.json 的读取、归一化与保存。
+
+    数据格式（Subject_Types 下每个类别为科目条目列表）：
+      {
+        "Subject_Types": {
+          "Category_1": [
+            {"name": "语文", "english_name": "Chinese"},
+            ...
+          ],
+          "Category_2": "None"        ← 字符串（旧格式）同样兼容
+        }
+      }
+
+    对外接口：
+      - load()                       → 读取并归一化数据
+      - save(data)                   → 写入新格式文件
+      - category_names(data)         → 返回值为列表的类别键（可容纳新科目）
+      - all_subjects(data)           → 返回 [(类别, 中文名, 英文名), ...]
+      - find_subject(data, name)     → 按中文名查找 (类别, 英文名)，找不到返回 None
+    """
+
+    FILE_PATH: str = 'Config/subject_config.json'
+
+    def __init__(self) -> None:
+        """初始化科目配置管理器。"""
+        self._script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        self._file_path: str = os.path.join(self._script_dir, self.FILE_PATH)
+        logger.info("SubjectConfigManager 初始化完成")
+
+    # ================================================================
+    #  读取 / 归一化
+    # ================================================================
+    def load(self) -> Dict:
+        """
+        读取科目配置文件并归一化为新格式。
+        --------------------------------
+        旧格式（类别值为字符串列表）会被原地归一化为条目 dict 列表；
+        "None" 字符串保留原样。
+
+        返回值：
+            Dict：{"Subject_Types": {...}}；文件缺失 / 非法时返回空结构
+        """
+        default: Dict = {"Subject_Types": {}}
+        try:
+            if not os.path.exists(self._file_path):
+                logger.warning(f"科目配置文件不存在：{self._file_path}")
+                return default
+            with open(self._file_path, 'r', encoding='utf-8') as f:
+                data: Dict = json.load(f)
+            if not isinstance(data, dict):
+                logger.warning("科目配置文件格式异常（非对象），返回空结构")
+                return default
+            data = self._normalize(data)
+            logger.info(
+                f"科目配置加载完成：{len(data.get('Subject_Types', {}))} 个分类"
+            )
+            return data
+        except json.JSONDecodeError as e:
+            logger.error(f"科目配置文件 JSON 解析失败：{e}")
+            return default
+        except Exception as e:
+            logger.error(f"读取科目配置文件失败：{e}")
+            return default
+
+    # ================================================================
+    #  保存
+    # ================================================================
+    def save(self, data: Dict) -> bool:
+        """
+        将科目配置写入文件（新格式，UTF-8，缩进 4）。
+        ------------------------------------------
+        参数：
+            data（Dict）：{"Subject_Types": {...}} 结构
+
+        返回值：
+            bool：True 表示保存成功
+        """
+        try:
+            os.makedirs(os.path.dirname(self._file_path), exist_ok=True)
+            with open(self._file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+            logger.info(f"科目配置已保存：{self._file_path}")
+            return True
+        except Exception as e:
+            logger.error(f"保存科目配置失败：{e}")
+            return False
+
+    # ================================================================
+    #  查询辅助
+    # ================================================================
+    @staticmethod
+    def _normalize(data: Dict) -> Dict:
+        """把旧格式（字符串列表）归一化为条目 dict 列表。"""
+        subject_types: Any = data.get('Subject_Types', {})
+        if not isinstance(subject_types, dict):
+            data['Subject_Types'] = {}
+            return data
+
+        normalized: Dict[str, Any] = {}
+        for cat_name, subjects in subject_types.items():
+            if isinstance(subjects, list):
+                entries: List[Any] = []
+                for entry in subjects:
+                    if isinstance(entry, dict):
+                        entries.append(entry)
+                    elif isinstance(entry, str):
+                        entries.append({'name': entry, 'english_name': ''})
+                normalized[cat_name] = entries
+            else:
+                # "None" 字符串等非列表值原样保留
+                normalized[cat_name] = subjects
+        data['Subject_Types'] = normalized
+        return data
+
+    @staticmethod
+    def category_names(data: Dict) -> List[str]:
+        """
+        返回所有值为列表的类别键（这些类别可容纳科目）。
+        -----------------------------------------------
+        "None" 等字符串类别不包含在结果中。
+        """
+        subject_types: Any = data.get('Subject_Types', {})
+        if not isinstance(subject_types, dict):
+            return []
+        return [k for k, v in subject_types.items() if isinstance(v, list)]
+
+    @staticmethod
+    def all_subjects(data: Dict) -> List[Tuple[str, str, str]]:
+        """
+        返回全部科目：(类别, 中文名, 英文名)。
+        -----------------------------------
+        "None" 字符串类别中的内容不参与统计。
+        """
+        subject_types: Any = data.get('Subject_Types', {})
+        if not isinstance(subject_types, dict):
+            return []
+        result: List[Tuple[str, str, str]] = []
+        for cat_name, subjects in subject_types.items():
+            if not isinstance(subjects, list):
+                continue
+            for entry in subjects:
+                name, english = parse_subject_entry(entry)
+                if name:
+                    result.append((cat_name, name, english))
+        return result
+
+    @staticmethod
+    def find_subject(data: Dict, name: str) -> Optional[Tuple[str, str]]:
+        """
+        按中文名查找科目。
+        ----------------
+        参数：
+            data（Dict）：科目配置数据
+            name（str）：要查找的中文名
+
+        返回值：
+            Optional[Tuple[str, str]]：(类别, 英文名)；找不到返回 None
+        """
+        name = name.strip()
+        if not name:
+            return None
+        for cat_name, subjects in data.get('Subject_Types', {}).items():
+            if not isinstance(subjects, list):
+                continue
+            for entry in subjects:
+                ename, english = parse_subject_entry(entry)
+                if ename == name:
+                    return cat_name, english
+        return None
+
+
 # ==================== 课表数据管理器 ====================
 
 
