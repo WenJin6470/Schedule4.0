@@ -151,6 +151,7 @@ class SettingsWindow(ThemedWidget):
         self._font_card: Optional[QFrame] = None
         self._font_combo: Optional[QComboBox] = None
         self._font_preview_label: Optional[QLabel] = None
+        self._font_preview_title_label: Optional[QLabel] = None
         self._font_title_label: Optional[QLabel] = None
         self._font_hint_label: Optional[QLabel] = None
         self._applied_subject_font: str = self._theme.subject_font
@@ -427,9 +428,10 @@ class SettingsWindow(ThemedWidget):
         # ---- 字体修改卡片 ----
         self._font_card = QFrame()
         self._font_card.setStyleSheet(self._get_status_card_style())
+        self._font_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # type: ignore
         card_layout: QVBoxLayout = QVBoxLayout(self._font_card)
-        card_layout.setContentsMargins(20, 16, 20, 16)
-        card_layout.setSpacing(14)
+        card_layout.setContentsMargins(20, 12, 20, 12)
+        card_layout.setSpacing(4)
 
         # 顶部：左侧（标题 + 提示） + 右侧（字体下拉框）
         top_row: QHBoxLayout = QHBoxLayout()
@@ -460,7 +462,6 @@ class SettingsWindow(ThemedWidget):
         )
         self._font_hint_label.setWordWrap(True)
         left_col.addWidget(self._font_hint_label)
-        left_col.addStretch()
 
         top_row.addLayout(left_col, stretch=1)
 
@@ -482,18 +483,28 @@ class SettingsWindow(ThemedWidget):
         top_row.addWidget(self._font_combo, 0, Qt.AlignTop)  # type: ignore
         card_layout.addLayout(top_row)
 
-        # ---- 预览标签（位于标题与下拉框下方）----
+        # ---- 预览标题（预览标签上一行）----
+        self._font_preview_title_label = QLabel("预览")
+        self._font_preview_title_label.setFont(
+            QFont("Microsoft YaHei", 13, QFont.Bold)  # type: ignore
+        )
+        self._font_preview_title_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none;"
+        )
+        card_layout.addWidget(self._font_preview_title_label)
+
+        # ---- 预览标签 ----
         self._font_preview_label = QLabel("AaBbCc 0123456789 语文 · 数学 · 英语")
         self._font_preview_label.setFont(
-            QFont(self._applied_subject_font, 20)
+            QFont(self._applied_subject_font, 16)
         )
         self._font_preview_label.setAlignment(Qt.AlignCenter)  # type: ignore
         self._font_preview_label.setStyleSheet(self._get_font_preview_style())
-        self._font_preview_label.setMinimumHeight(64)
+        self._font_preview_label.setMinimumHeight(36)
         card_layout.addWidget(self._font_preview_label)
 
         layout.addWidget(self._font_card)
-        layout.addStretch()
+        layout.addStretch(1)
 
         # 先设置初始值，再连接信号，避免初始化时触发脏标记
         self._font_combo.currentTextChanged.connect(self._on_font_changed)
@@ -551,7 +562,7 @@ class SettingsWindow(ThemedWidget):
                 background-color: {bg};
                 border: 1px solid {border};
                 border-radius: 8px;
-                padding: 10px 16px;
+                padding: 6px 16px;
             }}
         """
 
@@ -1027,7 +1038,7 @@ class SettingsWindow(ThemedWidget):
         if not font_name:
             return
         if self._font_preview_label is not None:
-            self._font_preview_label.setFont(QFont(font_name, 20))
+            self._font_preview_label.setFont(QFont(font_name, 16))
         self._refresh_apply_button()
 
     def _refresh_apply_button(self) -> None:
@@ -3186,6 +3197,10 @@ class SettingsWindow(ThemedWidget):
             )
         if self._font_combo is not None:
             self._font_combo.setStyleSheet(self._get_font_combo_style())
+        if self._font_preview_title_label is not None:
+            self._font_preview_title_label.setStyleSheet(
+                f"color: {self._theme.font_color}; background: transparent; border: none;"
+            )
         if self._font_preview_label is not None:
             self._font_preview_label.setStyleSheet(self._get_font_preview_style())
         if self._status_card is not None:

@@ -40,6 +40,21 @@
                 "ts": "2026-08-18 13:22:43",
                 "duration": 8.115,
                 "correct": false
+            },
+            {
+                "ts": "2026-08-18 18:20:52",
+                "duration": 8.142,
+                "correct": false
+            },
+            {
+                "ts": "2026-08-18 18:21:14",
+                "duration": 8.064,
+                "correct": false
+            },
+            {
+                "ts": "2026-08-18 18:35:20",
+                "duration": 8.065,
+                "correct": false
             }
         ],
         "youdao": [
@@ -81,6 +96,21 @@
             {
                 "ts": "2026-08-18 13:22:43",
                 "duration": 0.216,
+                "correct": false
+            },
+            {
+                "ts": "2026-08-18 18:20:52",
+                "duration": 0.193,
+                "correct": false
+            },
+            {
+                "ts": "2026-08-18 18:21:14",
+                "duration": 0.492,
+                "correct": false
+            },
+            {
+                "ts": "2026-08-18 18:35:20",
+                "duration": 0.224,
                 "correct": false
             }
         ],
@@ -124,6 +154,21 @@
                 "ts": "2026-08-18 13:22:43",
                 "duration": 0.17,
                 "correct": false
+            },
+            {
+                "ts": "2026-08-18 18:20:52",
+                "duration": 0.178,
+                "correct": false
+            },
+            {
+                "ts": "2026-08-18 18:21:14",
+                "duration": 0.195,
+                "correct": false
+            },
+            {
+                "ts": "2026-08-18 18:35:20",
+                "duration": 0.182,
+                "correct": false
             }
         ],
         "mymemory": [
@@ -166,14 +211,29 @@
                 "ts": "2026-08-18 13:22:43",
                 "duration": 4.634,
                 "correct": false
+            },
+            {
+                "ts": "2026-08-18 18:20:52",
+                "duration": 1.754,
+                "correct": true
+            },
+            {
+                "ts": "2026-08-18 18:21:14",
+                "duration": 2.625,
+                "correct": true
+            },
+            {
+                "ts": "2026-08-18 18:35:20",
+                "duration": 1.401,
+                "correct": true
             }
         ]
     },
     "scores": {
         "google": 0.0,
         "youdao": 0.0,
-        "baidu": 12.2815625,
-        "mymemory": 49.140625
+        "baidu": 8.906818181818183,
+        "mymemory": 62.74863636363636
     },
-    "updated_at": "2026-08-18 13:22:43"
+    "updated_at": "2026-08-18 18:35:20"
 }
