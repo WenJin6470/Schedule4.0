@@ -198,7 +198,7 @@ class ScheduleMainWindow(ThemedWidget):
                 subject: str = today_curriculum.get(key, '')
                 label: QLabel = QLabel(self)
                 label.setObjectName(key)
-                label.setFont(QFont("Arial", 16))
+                label.setFont(QFont(self._theme.subject_font, 16))
                 label.setStyleSheet(f"""
                     color: {self._theme.font_color};
                     background: transparent;
@@ -486,7 +486,7 @@ class ScheduleMainWindow(ThemedWidget):
                 subject: str = today_curriculum.get(key, '')
                 label: QLabel = QLabel(self)
                 label.setObjectName(key)
-                label.setFont(QFont("Arial", 16))
+                label.setFont(QFont(self._theme.subject_font, 16))
                 label.setStyleSheet(f"""
                     color: {self._theme.font_color};
                     background: transparent;

@@ -108,6 +108,7 @@ class ThemeManager:
       - back_color       — 主背景色
       - root_back_color  — 次要背景色（科目窗口等）
       - font_color       — 字体颜色
+      - subject_font     — 主窗口科目显示字体
       - time_color       — 时间标签颜色
       - border_color     — 分割线颜色
       - window_opacity   — 窗口透明度
@@ -153,6 +154,7 @@ class ThemeManager:
         self.time_color: str = '#D32F2F'
         self.border_color: str = 'rgba(0, 0, 0, 0.08)'
         self.window_opacity: float = 0.70
+        self.subject_font: str = 'Arial'
 
         # ---- 科目配置 ----
         self.subject_config: Dict = {}
@@ -175,7 +177,8 @@ class ThemeManager:
                     f"curriculum={self.curriculum_path}, "
                     f"timetable={self.timetable_path}, "
                     f"fullscreen_bg_folder={self.fullscreen_bg_folder}, "
-                    f"log_retention_days={self.log_retention_days}")
+                    f"log_retention_days={self.log_retention_days}, "
+                    f"subject_font={self.subject_font}")
 
     # ================================================================
     #  读取主配置文件
@@ -199,6 +202,7 @@ class ThemeManager:
                 self.timetable_path = default_timetable
                 self.fullscreen_bg_folder = 'images/FullScreenBackgrounds/default'
                 self.log_retention_days = 7
+                self.subject_font = 'Arial'
                 self._apply_theme()
                 return
 
@@ -254,6 +258,12 @@ class ThemeManager:
                                              fallback=default_bg_folder)
             self.fullscreen_bg_folder = bg_folder_str.strip()
 
+            # --- subject_font（主窗口科目显示字体）---
+            default_subject_font: str = 'Arial'
+            subject_font_str: str = parser.get('Schedule', 'subject_font',
+                                                fallback=default_subject_font)
+            self.subject_font = subject_font_str.strip() or default_subject_font
+
             self._apply_theme()
 
             logger.info(f"配置加载完成：theme={self.theme}, language={self.language}, "
@@ -269,6 +279,7 @@ class ThemeManager:
             self.timetable_path = default_timetable
             self.fullscreen_bg_folder = 'images/FullScreenBackgrounds/default'
             self.log_retention_days = 7
+            self.subject_font = 'Arial'
             self._apply_theme()
         except Exception as e:
             logger.error(f"读取配置文件失败：{e}，使用默认值")
@@ -278,6 +289,7 @@ class ThemeManager:
             self.timetable_path = default_timetable
             self.fullscreen_bg_folder = 'images/FullScreenBackgrounds/default'
             self.log_retention_days = 7
+            self.subject_font = 'Arial'
             self._apply_theme()
 
     # ================================================================

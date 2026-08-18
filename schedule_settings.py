@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QScroller, QMessageBox,
 )
 from PySide6.QtCore import Qt, Signal, SignalInstance, QTimer
-from PySide6.QtGui import QFont, QIcon, QCloseEvent, QColor
+from PySide6.QtGui import QFont, QFontDatabase, QIcon, QCloseEvent, QColor
 
 from schedule_config import (
     ThemeManager, ThemedWidget, ScheduleDataManager,
@@ -146,6 +146,14 @@ class SettingsWindow(ThemedWidget):
 
         # 应用修改按钮引用（位于左侧导航栏底部、退出按钮下方）
         self._apply_btn: Optional[QPushButton] = None
+
+        # 基础设置 — 字体修改引用
+        self._font_card: Optional[QFrame] = None
+        self._font_combo: Optional[QComboBox] = None
+        self._font_preview_label: Optional[QLabel] = None
+        self._font_title_label: Optional[QLabel] = None
+        self._font_hint_label: Optional[QLabel] = None
+        self._applied_subject_font: str = self._theme.subject_font
 
         # 显示规则引用
         self._rule_list: Optional[DisplayRuleListWidget] = None
@@ -332,8 +340,8 @@ class SettingsWindow(ThemedWidget):
         self._stack: QStackedWidget = QStackedWidget()
         self._stack.setStyleSheet("background: transparent; border: none;")
 
-        # 页面 0：基础设置（占位）
-        self._stack.addWidget(self._create_placeholder_page("基础设置"))
+        # 页面 0：基础设置（字体修改）
+        self._stack.addWidget(self._create_basic_settings_page())
         # 页面 1：美化（占位）
         self._stack.addWidget(self._create_placeholder_page("美化"))
         # 页面 2：课表编辑（实际编辑器）
@@ -390,6 +398,162 @@ class SettingsWindow(ThemedWidget):
         layout.addStretch()
 
         return page
+
+    # ================================================================
+    #  创建基础设置页面
+    # ================================================================
+    def _create_basic_settings_page(self) -> QWidget:
+        """
+        构建"基础设置"页面。
+        ------------------
+        目前包含：字体修改卡片（主窗口科目显示字体选择 + 预览）。
+        """
+        page: QWidget = QWidget()
+        page.setStyleSheet("background: transparent;")
+
+        layout: QVBoxLayout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        fc: str = self._theme.font_color
+
+        # ---- 页面主标题 ----
+        page_title: QLabel = QLabel("基础设置")
+        page_title.setFont(QFont("Microsoft YaHei", 22, QFont.Bold))  # type: ignore
+        page_title.setStyleSheet(f"color: {fc}; background: transparent;")
+        page_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
+        layout.addWidget(page_title)
+
+        # ---- 字体修改卡片 ----
+        self._font_card = QFrame()
+        self._font_card.setStyleSheet(self._get_status_card_style())
+        card_layout: QVBoxLayout = QVBoxLayout(self._font_card)
+        card_layout.setContentsMargins(20, 16, 20, 16)
+        card_layout.setSpacing(14)
+
+        # 顶部：左侧（标题 + 提示） + 右侧（字体下拉框）
+        top_row: QHBoxLayout = QHBoxLayout()
+        top_row.setSpacing(16)
+
+        left_col: QVBoxLayout = QVBoxLayout()
+        left_col.setSpacing(6)
+
+        self._font_title_label = QLabel("字体修改")
+        self._font_title_label.setFont(
+            QFont("Microsoft YaHei", 14, QFont.Bold)  # type: ignore
+        )
+        self._font_title_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none;"
+        )
+        left_col.addWidget(self._font_title_label)
+
+        self._font_hint_label = QLabel(
+            "该字体修改范围仅用于主窗口的科目显示；"
+            "选择新的字体后先不应用到系统，"
+            "而是在点击「应用修改」后重启以进行修改。"
+        )
+        hint_font: QFont = QFont("Microsoft YaHei", 9)
+        hint_font.setItalic(True)
+        self._font_hint_label.setFont(hint_font)
+        self._font_hint_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none; opacity: 0.6;"
+        )
+        self._font_hint_label.setWordWrap(True)
+        left_col.addWidget(self._font_hint_label)
+        left_col.addStretch()
+
+        top_row.addLayout(left_col, stretch=1)
+
+        # ---- 字体下拉框（右侧）----
+        self._font_combo = QComboBox()
+        self._font_combo.setMinimumWidth(260)
+        self._font_combo.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self._font_combo.setStyleSheet(self._get_font_combo_style())
+
+        # 填充系统可用字体，并选中当前已应用的字体
+        families: List[str] = list(QFontDatabase.families())
+        if not families:
+            families = ['Arial', 'Microsoft YaHei', 'SimSun']
+        if self._applied_subject_font not in families:
+            families.insert(0, self._applied_subject_font)
+        self._font_combo.addItems(families)
+        self._font_combo.setCurrentText(self._applied_subject_font)
+
+        top_row.addWidget(self._font_combo, 0, Qt.AlignTop)  # type: ignore
+        card_layout.addLayout(top_row)
+
+        # ---- 预览标签（位于标题与下拉框下方）----
+        self._font_preview_label = QLabel("AaBbCc 0123456789 语文 · 数学 · 英语")
+        self._font_preview_label.setFont(
+            QFont(self._applied_subject_font, 20)
+        )
+        self._font_preview_label.setAlignment(Qt.AlignCenter)  # type: ignore
+        self._font_preview_label.setStyleSheet(self._get_font_preview_style())
+        self._font_preview_label.setMinimumHeight(64)
+        card_layout.addWidget(self._font_preview_label)
+
+        layout.addWidget(self._font_card)
+        layout.addStretch()
+
+        # 先设置初始值，再连接信号，避免初始化时触发脏标记
+        self._font_combo.currentTextChanged.connect(self._on_font_changed)
+
+        return page
+
+    def _get_font_combo_style(self) -> str:
+        """返回字体下拉框的 QSS 样式（兼容深/浅色主题）。"""
+        fc: str = self._theme.font_color
+        if self._theme.theme == 'darkcolor':
+            bg: str = '#2d2d2d'
+            border: str = 'rgba(255,255,255,0.14)'
+        else:
+            bg = '#FFFFFF'
+            border = 'rgba(0,0,0,0.14)'
+
+        return f"""
+            QComboBox {{
+                color: {fc};
+                background-color: {bg};
+                border: 1px solid {border};
+                border-radius: 6px;
+                padding: 8px 12px;
+            }}
+            QComboBox:hover, QComboBox:focus {{
+                border-color: #2196F3;
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 24px;
+            }}
+            QComboBox QAbstractItemView {{
+                color: {fc};
+                background-color: {bg};
+                border: 1px solid {border};
+                selection-background-color: rgba(33, 150, 243, 0.25);
+                selection-color: {fc};
+                outline: 0;
+            }}
+        """
+
+    def _get_font_preview_style(self) -> str:
+        """返回字体预览标签的 QSS 样式。"""
+        fc: str = self._theme.font_color
+        if self._theme.theme == 'darkcolor':
+            bg: str = 'rgba(255,255,255,0.04)'
+            border: str = 'rgba(255,255,255,0.10)'
+        else:
+            bg = 'rgba(0,0,0,0.03)'
+            border = 'rgba(0,0,0,0.10)'
+
+        return f"""
+            QLabel {{
+                color: {fc};
+                background-color: {bg};
+                border: 1px solid {border};
+                border-radius: 8px;
+                padding: 10px 16px;
+            }}
+        """
 
     # ================================================================
     #  创建时间表编辑器页面
@@ -852,6 +1016,20 @@ class SettingsWindow(ThemedWidget):
             self._editing_curriculum_path = ''
             self._has_unsaved_changes = False
 
+    def _font_is_dirty(self) -> bool:
+        """判断字体下拉框的当前选择是否与已应用字体不同。"""
+        if self._font_combo is None:
+            return False
+        return self._font_combo.currentText() != self._applied_subject_font
+
+    def _on_font_changed(self, font_name: str) -> None:
+        """字体下拉框选择变化：更新预览，并刷新「应用修改」按钮状态。"""
+        if not font_name:
+            return
+        if self._font_preview_label is not None:
+            self._font_preview_label.setFont(QFont(font_name, 20))
+        self._refresh_apply_button()
+
     def _refresh_apply_button(self) -> None:
         """根据是否有未应用修改，刷新「应用修改」按钮的状态和样式。
 
@@ -862,7 +1040,7 @@ class SettingsWindow(ThemedWidget):
         if not hasattr(self, '_apply_btn') or self._apply_btn is None:
             return
 
-        enabled: bool = self._has_unsaved_changes
+        enabled: bool = self._has_unsaved_changes or self._font_is_dirty()
         self._apply_btn.setEnabled(enabled)
 
         if self._theme.theme == 'darkcolor':
@@ -989,6 +1167,47 @@ class SettingsWindow(ThemedWidget):
         except Exception as e:
             logger.error(f"写回 schedule_config.ini 失败：{e}")
 
+    def _persist_subject_font(self) -> None:
+        """把当前选中的科目显示字体写回 schedule_config.ini（重启后生效）。"""
+        if self._font_combo is None:
+            return
+        font_name: str = self._font_combo.currentText().strip()
+        if not font_name:
+            return
+
+        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        ini_path: str = os.path.join(script_dir, 'Config', 'schedule_config.ini')
+        if not os.path.exists(ini_path):
+            logger.warning(f"配置文件不存在，无法写回字体：{ini_path}")
+            return
+        try:
+            with open(ini_path, 'r', encoding='utf-8') as f:
+                lines: List[str] = f.readlines()
+
+            updated: bool = False
+            out: List[str] = []
+            for line in lines:
+                stripped: str = line.lstrip()
+                if stripped.startswith(';') or stripped.startswith('#'):
+                    out.append(line)
+                    continue
+                if '=' in line:
+                    key: str = line.split('=', 1)[0].strip()
+                    if key == 'subject_font' and not updated:
+                        out.append(f"subject_font = {font_name}\n")
+                        updated = True
+                        continue
+                out.append(line)
+
+            if not updated:
+                out.append(f"subject_font = {font_name}\n")
+
+            with open(ini_path, 'w', encoding='utf-8') as f:
+                f.writelines(out)
+            logger.info(f"已把科目显示字体写回 schedule_config.ini：{font_name}")
+        except Exception as e:
+            logger.error(f"写回 schedule_config.ini 字体失败：{e}")
+
     def _restart_app(self) -> None:
         """重启软件：启动新进程并退出当前程序。"""
         script_dir: str = os.path.dirname(os.path.abspath(__file__))
@@ -1003,16 +1222,25 @@ class SettingsWindow(ThemedWidget):
             app.quit()
 
     def _on_apply_changes(self) -> None:
-        """应用修改：直接写入文件、写回 INI 路径、同步共享数据并重启软件。"""
+        """应用修改：持久化字体/课表修改、同步共享数据并重启软件。"""
+        # 1. 持久化字体设置（若已选择新字体）
+        self._persist_subject_font()
+        if self._font_combo is not None:
+            self._applied_subject_font = self._font_combo.currentText()
+
         if self._schedule_data is None:
-            logger.warning("无法应用修改：schedule_data 为 None")
+            # 仅字体等不依赖 schedule_data 的修改：直接重启生效
+            self._has_unsaved_changes = False
+            self._refresh_apply_button()
+            logger.info("应用修改：重启软件以立即生效")
+            self._restart_app()
             return
 
-        # 1. 将编辑副本直接写入本地文件
+        # 2. 将编辑副本直接写入本地文件
         self._save_editing_timetable_file()
         self._save_editing_curriculum_file()
 
-        # 2. 同步共享数据管理器（内存），使重启前程序状态保持一致
+        # 3. 同步共享数据管理器（内存），使重启前程序状态保持一致
         if self._editing_timetable_path:
             self._schedule_data.timetable_data = copy.deepcopy(
                 self._editing_timetable_data
@@ -1024,32 +1252,37 @@ class SettingsWindow(ThemedWidget):
             )
             self._schedule_data.curriculum_path = self._editing_curriculum_path
 
-        # 3. 写回 INI 活动路径（重启后使用）
+        # 4. 写回 INI 活动路径（重启后使用）
         self._persist_active_paths()
 
-        # 4. 重置未应用标志并刷新
+        # 5. 重置未应用标志并刷新
         self._has_unsaved_changes = False
         self._refresh_apply_button()
         self._refresh_status_label()
         self._refresh_curriculum_status()
 
-        # 5. 通知主窗口重建课时标签（重启前内存已一致）
+        # 6. 通知主窗口重建课时标签（重启前内存已一致）
         self.changes_applied.emit()
 
-        # 6. 重启软件以立即生效
+        # 7. 重启软件以立即生效
         logger.info("应用修改：重启软件以立即生效")
         self._restart_app()
 
     def _on_postpone_changes(self) -> None:
         """暂不应用：把修改直接保存到本地文件，当前运行程序不受影响（下次启动生效）。"""
-        # 1. 将编辑副本直接写入本地文件
+        # 1. 持久化字体设置（若已选择新字体）
+        self._persist_subject_font()
+        if self._font_combo is not None:
+            self._applied_subject_font = self._font_combo.currentText()
+
+        # 2. 将编辑副本直接写入本地文件
         self._save_editing_timetable_file()
         self._save_editing_curriculum_file()
 
-        # 2. 写回 INI 活动路径（下次启动使用新选择的文件）
+        # 3. 写回 INI 活动路径（下次启动使用新选择的文件）
         self._persist_active_paths()
 
-        # 3. 重置未应用标志并刷新
+        # 4. 重置未应用标志并刷新
         self._has_unsaved_changes = False
         self._refresh_apply_button()
         self._refresh_status_label()
@@ -2940,6 +3173,21 @@ class SettingsWindow(ThemedWidget):
         super().refresh_theme()
         self._refresh_nav_styles()
         self._refresh_exit_btn_style()
+        # 刷新基础设置 — 字体卡片
+        if self._font_card is not None:
+            self._font_card.setStyleSheet(self._get_status_card_style())
+        if self._font_title_label is not None:
+            self._font_title_label.setStyleSheet(
+                f"color: {self._theme.font_color}; background: transparent; border: none;"
+            )
+        if self._font_hint_label is not None:
+            self._font_hint_label.setStyleSheet(
+                f"color: {self._theme.font_color}; background: transparent; border: none; opacity: 0.6;"
+            )
+        if self._font_combo is not None:
+            self._font_combo.setStyleSheet(self._get_font_combo_style())
+        if self._font_preview_label is not None:
+            self._font_preview_label.setStyleSheet(self._get_font_preview_style())
         if self._status_card is not None:
             self._status_card.setStyleSheet(self._get_status_card_style())
         if self._status_label is not None:
@@ -3073,11 +3321,11 @@ class SettingsWindow(ThemedWidget):
     # ================================================================
     def _on_exit_clicked(self) -> None:
         """点击退出按钮：如有未应用修改则弹窗询问是否立即应用，然后隐藏窗口。"""
-        if self._has_unsaved_changes:
+        if self._has_unsaved_changes or self._font_is_dirty():
             box: QMessageBox = QMessageBox(self)
             box.setWindowTitle("未应用的修改")
             box.setText(
-                "您在课表编辑页面有未应用的修改。\n\n"
+                "您有未应用的修改。\n\n"
                 "是否立即应用修改？"
             )
             apply_btn: QPushButton = box.addButton(
@@ -3132,11 +3380,11 @@ class SettingsWindow(ThemedWidget):
         不触发销毁，以便再次打开时复用。
         如有未应用修改则弹窗询问是否立即应用。
         """
-        if self._has_unsaved_changes:
+        if self._has_unsaved_changes or self._font_is_dirty():
             box: QMessageBox = QMessageBox(self)
             box.setWindowTitle("未应用的修改")
             box.setText(
-                "您在课表编辑页面有未应用的修改。\n\n"
+                "您有未应用的修改。\n\n"
                 "是否立即应用修改？"
             )
             apply_btn: QPushButton = box.addButton(
