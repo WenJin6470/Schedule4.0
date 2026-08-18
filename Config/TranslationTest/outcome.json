@@ -25,6 +25,16 @@
                 "ts": "2026-08-18 08:25:54",
                 "duration": 8.107,
                 "correct": false
+            },
+            {
+                "ts": "2026-08-18 09:03:20",
+                "duration": 12.721,
+                "correct": false
+            },
+            {
+                "ts": "2026-08-18 11:58:24",
+                "duration": 8.105,
+                "correct": false
             }
         ],
         "youdao": [
@@ -51,6 +61,16 @@
             {
                 "ts": "2026-08-18 08:25:54",
                 "duration": 0.425,
+                "correct": false
+            },
+            {
+                "ts": "2026-08-18 09:03:20",
+                "duration": 3.281,
+                "correct": false
+            },
+            {
+                "ts": "2026-08-18 11:58:24",
+                "duration": 0.464,
                 "correct": false
             }
         ],
@@ -79,6 +99,16 @@
                 "ts": "2026-08-18 08:25:54",
                 "duration": 0.248,
                 "correct": false
+            },
+            {
+                "ts": "2026-08-18 09:03:20",
+                "duration": 0.205,
+                "correct": false
+            },
+            {
+                "ts": "2026-08-18 11:58:24",
+                "duration": 2.134,
+                "correct": false
             }
         ],
         "mymemory": [
@@ -106,14 +136,24 @@
                 "ts": "2026-08-18 08:25:54",
                 "duration": 1.613,
                 "correct": true
+            },
+            {
+                "ts": "2026-08-18 09:03:20",
+                "duration": 1.362,
+                "correct": true
+            },
+            {
+                "ts": "2026-08-18 11:58:24",
+                "duration": 1.07,
+                "correct": false
             }
         ]
     },
     "scores": {
         "google": 0.0,
         "youdao": 0.0,
-        "baidu": 19.9014,
-        "mymemory": 59.3316
+        "baidu": 14.048214285714284,
+        "mymemory": 56.49171428571428
     },
-    "updated_at": "2026-08-18 08:25:54"
+    "updated_at": "2026-08-18 11:58:24"
 }

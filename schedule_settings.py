@@ -157,8 +157,6 @@ class SettingsWindow(ThemedWidget):
         self._subject_config_data: Dict = {}
         self._subject_card: Optional[QFrame] = None
         self._subject_scroll_layout: Optional[QVBoxLayout] = None
-        self._subject_scroll_area: Optional[QScrollArea] = None
-        self._subject_scroll_widget: Optional[QWidget] = None
         self._subject_buttons: List[QPushButton] = []
         # 课程表内联编辑器的科目按钮区布局（重建时使用）
         self._cv_subject_layout: Optional[QVBoxLayout] = None
@@ -700,39 +698,16 @@ class SettingsWindow(ThemedWidget):
         sj_card_layout: QVBoxLayout = QVBoxLayout(self._subject_card)
         sj_card_layout.setContentsMargins(12, 10, 12, 10)
 
-        sj_subjects_scroll: QScrollArea = QScrollArea()
-        sj_subjects_scroll.setWidgetResizable(True)
-        # 不设固定最大高度：由 _resize_subject_scroll_area() 按内容
-        # 实际高度动态调整，确保所有科目按钮完整显示、无需滚轮滚动
-        sj_subjects_scroll.setStyleSheet("""
-            QScrollArea {
-                background: transparent;
-                border: none;
-            }
-            QScrollBar:vertical {
-                background: transparent;
-                width: 6px;
-                margin: 0;
-            }
-            QScrollBar::handle:vertical {
-                background: rgba(128, 128, 128, 0.3);
-                border-radius: 3px;
-                min-height: 20px;
-            }
-        """)
-
+        # 科目按钮直接放在普通容器中（不使用内部 QScrollArea）：
+        # 卡片高度时刻等于内容高度，所有科目按钮完整显示、下方无多余空白；
+        # 内容超出页面时由页面外层滚动区统一滚动，不会压缩卡片高度。
         sj_subjects_widget: QWidget = QWidget()
         sj_subjects_widget.setStyleSheet("background: transparent;")
         self._subject_scroll_layout = QVBoxLayout(sj_subjects_widget)
         self._subject_scroll_layout.setContentsMargins(0, 0, 0, 0)
         self._subject_scroll_layout.setSpacing(6)
 
-        # 保存引用：重建科目按钮后按内容高度调整卡片容器高度
-        self._subject_scroll_area = sj_subjects_scroll
-        self._subject_scroll_widget = sj_subjects_widget
-
-        sj_subjects_scroll.setWidget(sj_subjects_widget)
-        sj_card_layout.addWidget(sj_subjects_scroll)
+        sj_card_layout.addWidget(sj_subjects_widget)
         sj_indent_layout.addWidget(self._subject_card)
 
         # ---- 新建科目 / 新建类别按钮行 ----
@@ -1131,17 +1106,34 @@ class SettingsWindow(ThemedWidget):
         """从 subject_config.json 加载科目配置到工作副本。"""
         self._subject_config_data = self._subject_config_manager.load()
 
-    def _refresh_subject_buttons(self) -> None:
-        """按类别重建科目按钮（参照快捷编辑窗口左侧科目按钮区）。"""
-        if self._subject_scroll_layout is None:
-            return
-        # 清空旧按钮
+    def _clear_subject_layout(self) -> None:
+        """
+        清空科目卡片内全部旧控件（含每行科目按钮），避免残留孤儿控件。
+        ------------------------------------------------------------
+        之前的清空只删除顶层 QLabel，行内按钮随 QHBoxLayout 被移出后
+        仍作为内容容器的子控件残留，导致重建后按钮堆积、显示异常。
+        """
         while self._subject_scroll_layout.count():
             item = self._subject_scroll_layout.takeAt(0)
             w = item.widget()  # type: ignore
             if w is not None:
                 w.deleteLater()
+                continue
+            row = item.layout()  # type: ignore
+            if row is not None:
+                while row.count():
+                    ritem = row.takeAt(0)
+                    rw = ritem.widget()  # type: ignore
+                    if rw is not None:
+                        rw.deleteLater()
         self._subject_buttons.clear()
+
+    def _refresh_subject_buttons(self) -> None:
+        """按类别重建科目按钮（参照快捷编辑窗口左侧科目按钮区）。"""
+        if self._subject_scroll_layout is None:
+            return
+        # 清空旧按钮（含行内按钮，避免残留孤儿控件）
+        self._clear_subject_layout()
 
         data: Dict = self._subject_config_data or {}
         subject_types: Any = data.get('Subject_Types', {})
@@ -1206,20 +1198,9 @@ class SettingsWindow(ThemedWidget):
                         spacer.setStyleSheet("background: transparent;")
                         current_row.addWidget(spacer, stretch=1)
 
+        # 卡片高度由 Qt 布局按内容自动撑开（外层页面滚动区负责溢出滚动），
+        # 无需手动测量或固定高度，避免重建后控件重叠、类别标题被裁切。
         self._subject_scroll_layout.addStretch()
-        # 按内容实际高度调整卡片容器高度，使所有科目按钮完整显示
-        self._resize_subject_scroll_area()
-
-    # ================================================================
-    #  科目编辑 — 卡片容器高度自适应
-    # ================================================================
-    def _resize_subject_scroll_area(self) -> None:
-        """按科目内容实际高度调整卡片内滚动区高度，避免鼠标滚轮上下滚动。"""
-        if self._subject_scroll_area is None or self._subject_scroll_widget is None:
-            return
-        content_h: int = self._subject_scroll_widget.sizeHint().height()
-        # 最小高度：无科目内容时也保留少量可视空间
-        self._subject_scroll_area.setMaximumHeight(max(content_h + 4, 48))
 
     # ================================================================
     #  科目编辑 — 事件处理
@@ -1241,8 +1222,35 @@ class SettingsWindow(ThemedWidget):
             parent=self,
         )
         if dialog.exec() == QDialog.Accepted:  # type: ignore
-            result: dict = dialog.result()
-            self._apply_subject_change(category, name, result)
+            if dialog.deleted():
+                self._delete_subject(category, name)
+            else:
+                result: dict = dialog.result()
+                self._apply_subject_change(category, name, result)
+
+    def _delete_subject(self, category: str, name: str) -> None:
+        """从科目配置中删除指定科目（第一类别科目由子窗口禁用删除入口）。"""
+        subject_types: Any = self._subject_config_data.get(
+            'Subject_Types', {}
+        )
+        if not isinstance(subject_types, dict):
+            return
+        old_list: Any = subject_types.get(category)
+        if not isinstance(old_list, list):
+            return
+        # 防御：第一类别（系统保护类别）不允许删除
+        all_cats: List[str] = list(subject_types.keys())
+        protected: str = all_cats[0] if all_cats else ''
+        if category == protected:
+            logger.warning(f"第一类别为系统保护类别，禁止删除科目：{name}")
+            return
+        old_list[:] = [
+            e for e in old_list
+            if parse_subject_entry(e)[0] != name
+        ]
+        self._save_subject_config()
+        self._refresh_subject_buttons()
+        logger.info(f"已删除科目：{name}（{category}）")
 
     def _on_new_subject(self) -> None:
         """点击「新建科目」→ 打开科目编辑子窗口（新建模式）。"""
@@ -3826,11 +3834,10 @@ class SubjectEditDialog(QDialog):
 
         self._worker: Optional[TranslateWorker] = None
         self._translate_running: bool = False
-        self._card_visible: bool = False
-        # 「填入英文名」触发的文本变更保留翻译卡片不关闭
-        self._keep_card_open: bool = False
         self._result_text: str = ''
         self._result: dict = {}
+        # 删除标记（仅编辑模式、非第一类别科目可用）
+        self._deleted: bool = False
 
         self.setWindowTitle('编辑科目' if mode == 'edit' else '新建科目')
         self.setWindowFlags(
@@ -3892,13 +3899,28 @@ class SubjectEditDialog(QDialog):
         self._populate_categories()
         layout.addWidget(self._category_combo)
 
-        # ---- 翻译卡片（英文名为空时显示）----
+        # ---- 翻译卡片（始终显示，便于随时翻译/重翻）----
         self._translation_card: QFrame = self._build_translation_card()
         layout.addWidget(self._translation_card)
-        self._translation_card.setVisible(False)
 
         # ---- 按钮行 ----
         btn_row: QHBoxLayout = QHBoxLayout()
+        btn_row.setSpacing(12)
+
+        # 删除科目（仅编辑模式、且非第一类别保护科目时显示）
+        self._delete_btn: QPushButton = QPushButton("删除科目")
+        self._delete_btn.setFont(QFont("Microsoft YaHei", 11))
+        self._delete_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self._delete_btn.setMinimumHeight(32)
+        self._delete_btn.setStyleSheet(self._danger_btn_style())
+        self._delete_btn.setVisible(
+            self._mode == 'edit'
+            and bool(self._initial_category)
+            and self._initial_category != self._protected_category
+        )
+        self._delete_btn.clicked.connect(self._on_delete)
+        btn_row.addWidget(self._delete_btn)
+
         btn_row.addStretch()
 
         cancel_btn: QPushButton = QPushButton("取消")
@@ -3919,10 +3941,8 @@ class SubjectEditDialog(QDialog):
 
         # ---- 联动 ----
         self._english_input.textChanged.connect(self._on_english_changed)
+        # 英文名为空时打开即自动翻译（卡片始终显示，无需再控制显隐）
         if not self._initial_english.strip():
-            # 初始英文名为空 → 立即显示翻译卡片并自动翻译
-            self._translation_card.setVisible(True)
-            self._card_visible = True
             self._start_translate()
 
         self.setLayout(layout)
@@ -4043,25 +4063,9 @@ class SubjectEditDialog(QDialog):
     #  翻译流程
     # ================================================================
     def _on_english_changed(self, text: str) -> None:
-        """英文名输入变化 → 空时显示翻译卡片（首次显示自动翻译）。
-
-        点击「填入英文名」触发的文本变更（_keep_card_open 为 True）
-        不关闭翻译卡片；用户手动修改英文名时仍按原逻辑隐藏卡片。
-        """
-        has_text: bool = bool(text.strip())
-        if has_text:
-            if self._keep_card_open:
-                # 「填入英文名」：保留翻译卡片不关闭
-                self._card_visible = False
-                return
-            self._translation_card.setVisible(False)
-            self._card_visible = False
-        else:
-            self._translation_card.setVisible(True)
-            if not self._card_visible:
-                self._card_visible = True
-                self._start_translate()
-        self.adjustSize()
+        """英文名被清空时自动翻译；翻译卡片始终显示，不再因输入而隐藏。"""
+        if not text.strip():
+            self._start_translate()
 
     def _start_translate(self) -> None:
         """发起一次翻译（防重入）。"""
@@ -4127,11 +4131,9 @@ class SubjectEditDialog(QDialog):
         self._worker = None
 
     def _on_fill(self) -> None:
-        """把翻译结果填入英文名输入框（翻译卡片保持显示、不自动关闭）。"""
+        """把翻译结果填入英文名输入框（翻译卡片保持显示）。"""
         if self._result_text:
-            self._keep_card_open = True
             self._english_input.setText(self._result_text)
-            self._keep_card_open = False
 
     # ================================================================
     #  确认 / 结果
@@ -4180,6 +4182,26 @@ class SubjectEditDialog(QDialog):
     def result(self) -> dict:  # type: ignore
         """返回编辑结果：{name, english_name, category}。"""
         return self._result
+
+    # ================================================================
+    #  删除科目
+    # ================================================================
+    def _on_delete(self) -> None:
+        """确认并删除当前科目（仅编辑模式、非第一类别科目可触发）。"""
+        reply: QMessageBox.StandardButton = QMessageBox.question(
+            self, "删除科目",
+            f"确定要删除科目「{self._initial_name}」吗？",
+            QMessageBox.Yes | QMessageBox.No,  # type: ignore
+            QMessageBox.No,  # type: ignore
+        )
+        if reply != QMessageBox.Yes:  # type: ignore
+            return
+        self._deleted = True
+        self.accept()
+
+    def deleted(self) -> bool:
+        """返回是否请求删除科目。"""
+        return self._deleted
 
     # ================================================================
     #  样式辅助
@@ -4262,6 +4284,21 @@ class SubjectEditDialog(QDialog):
             QPushButton:hover { background-color: #1976D2; }
             QPushButton:disabled {
                 background-color: rgba(128, 128, 128, 0.4);
+            }
+        """
+
+    def _danger_btn_style(self) -> str:
+        """删除按钮样式：红字、透明底、红边框。"""
+        return """
+            QPushButton {
+                color: #E53935;
+                background-color: transparent;
+                border: 1px solid #E53935;
+                border-radius: 6px;
+                padding: 6px 16px;
+            }
+            QPushButton:hover {
+                background-color: rgba(229, 57, 53, 0.12);
             }
         """
 

@@ -78,13 +78,34 @@
             {
                 "name": "电磁学",
                 "english_name": "Electromagnetics"
+            },
+            {
+                "name": "劳动",
+                "english_name": "Labor"
             }
         ],
-        "Category_3": "None",
+        "Category_3": [
+            {
+                "name": "模拟电路",
+                "english_name": "Analog Circuit"
+            },
+            {
+                "name": "电路",
+                "english_name": "Circuits"
+            },
+            {
+                "name": "数字电路",
+                "english_name": "Digital Circuits"
+            }
+        ],
         "类别三": [
             {
                 "name": "生化",
                 "english_name": "Biochemistry"
+            },
+            {
+                "name": "林业",
+                "english_name": "forestry"
             }
         ]
     }
