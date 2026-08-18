@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QPushButton, QFrame,
     QGridLayout, QVBoxLayout, QHBoxLayout, QDialog,
 )
-from PySide6.QtGui import QFont, QPainter, QColor, QPen, QLinearGradient
+from PySide6.QtGui import QFont, QFontMetrics, QPainter, QColor, QPen, QLinearGradient
 
 from schedule_actions import ActionMessage, ActionType
 
@@ -40,6 +40,60 @@ if TYPE_CHECKING:
 
 # 获取本模块的 logger，日志将传播到 main.py 配置的根 logger
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+# ==================== 主窗口科目标签字体自适应 ====================
+
+# 主窗口科目显示字体的标准字号（点），自适应只缩小、绝不放大。
+SUBJECT_FONT_STANDARD_SIZE: int = 16
+# 自适应缩小的最小字号（点）：即使仍放不下也以此下限返回，避免出现 0 号字。
+SUBJECT_FONT_MIN_SIZE: int = 1
+# 标签左右各预留的像素边距，避免文字贴住标签边缘。
+SUBJECT_FONT_H_PADDING: int = 4
+
+
+def fit_subject_font(font_family: str, text: str,
+                     max_width: int, max_height: int,
+                     base_size: int = SUBJECT_FONT_STANDARD_SIZE,
+                     min_size: int = SUBJECT_FONT_MIN_SIZE,
+                     h_padding: int = SUBJECT_FONT_H_PADDING) -> QFont:
+    """
+    自适应计算主窗口科目标签的字体大小。
+    ---------------------------------
+    从标准字号 base_size 开始逐点向下缩小，直到文字能在
+    max_width × max_height 区域内完全显示；返回的字号永远不会大于 base_size。
+
+    参数：
+        font_family（str）：字体家族名（如 Arial、Microsoft YaHei）
+        text       （str）：要显示的科目文字（中文或英文）
+        max_width  （int）：标签可用宽度（像素）
+        max_height （int）：标签可用高度（像素）
+        base_size  （int）：标准字号（点），默认 16，结果不会超过它
+        min_size   （int）：允许缩到的最小字号（点），仍放不下时按此返回
+        h_padding  （int）：左右各预留的边距（像素），避免文字贴边
+
+    返回值：
+        QFont：字号 ≤ base_size、且能容纳 text 的最大字体
+    """
+    if not font_family:
+        font_family = 'Arial'
+    text = text or ''
+
+    usable_width: int = max(1, int(max_width) - 2 * int(h_padding))
+    usable_height: int = max(1, int(max_height))
+
+    # 空文字无需测量，直接返回标准字号
+    if not text.strip():
+        return QFont(font_family, base_size)
+
+    for size in range(int(base_size), int(min_size) - 1, -1):
+        font: QFont = QFont(font_family, size)
+        metrics: QFontMetrics = QFontMetrics(font)
+        if (metrics.horizontalAdvance(text) <= usable_width
+                and metrics.height() <= usable_height):
+            return font
+
+    return QFont(font_family, min_size)
 
 
 # ==================== 时间管理类 ====================

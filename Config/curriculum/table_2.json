@@ -9,7 +9,7 @@
         "lesson_8": "语文",
         "lesson_9": "地理",
         "lesson_10": "生物",
-        "lesson_11": "自习",
+        "lesson_11": "公共自习",
         "lesson_12": "语文",
         "lesson_13": "公共自习",
         "lesson_1": "数学"
@@ -25,7 +25,7 @@
         "lesson_8": "语文",
         "lesson_9": "地理",
         "lesson_10": "生物",
-        "lesson_11": "自习",
+        "lesson_11": "公共自习",
         "lesson_12": "语文",
         "lesson_13": "公共自习"
     },
@@ -55,7 +55,7 @@
         "lesson_8": "语文",
         "lesson_9": "地理",
         "lesson_10": "生物",
-        "lesson_11": "自习",
+        "lesson_11": "公共自习",
         "lesson_12": "语文",
         "lesson_13": ""
     },
@@ -70,7 +70,7 @@
         "lesson_8": "语文",
         "lesson_9": "地理",
         "lesson_10": "生物",
-        "lesson_11": "自习",
+        "lesson_11": "公共自习",
         "lesson_12": "语文"
     },
     "Saturday": {
@@ -84,7 +84,7 @@
         "lesson_8": "语文",
         "lesson_9": "地理",
         "lesson_10": "生物",
-        "lesson_11": "自习",
+        "lesson_11": "公共自习",
         "lesson_12": "语文"
     },
     "Sunday": {
@@ -98,7 +98,7 @@
         "lesson_8": "语文",
         "lesson_9": "地理",
         "lesson_10": "生物",
-        "lesson_11": "自习",
+        "lesson_11": "公共自习",
         "lesson_12": "语文"
     }
 }

@@ -156,6 +156,13 @@ class SettingsWindow(ThemedWidget):
         self._font_hint_label: Optional[QLabel] = None
         self._applied_subject_font: str = self._theme.subject_font
 
+        # 基础设置 — 语言切换引用
+        self._language_card: Optional[QFrame] = None
+        self._language_combo: Optional[QComboBox] = None
+        self._language_title_label: Optional[QLabel] = None
+        self._language_hint_label: Optional[QLabel] = None
+        self._applied_language: str = self._theme.language
+
         # 显示规则引用
         self._rule_list: Optional[DisplayRuleListWidget] = None
         self._rule_add_btn: Optional[QPushButton] = None
@@ -504,10 +511,68 @@ class SettingsWindow(ThemedWidget):
         card_layout.addWidget(self._font_preview_label)
 
         layout.addWidget(self._font_card)
+
+        # ---- 语言切换卡片 ----
+        self._language_card = QFrame()
+        self._language_card.setStyleSheet(self._get_status_card_style())
+        self._language_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # type: ignore
+        lang_card_layout: QVBoxLayout = QVBoxLayout(self._language_card)
+        lang_card_layout.setContentsMargins(20, 12, 20, 12)
+        lang_card_layout.setSpacing(4)
+
+        # 顶部：左侧（标题 + 提示） + 右侧（语言下拉框）
+        lang_top_row: QHBoxLayout = QHBoxLayout()
+        lang_top_row.setSpacing(16)
+
+        lang_left_col: QVBoxLayout = QVBoxLayout()
+        lang_left_col.setSpacing(6)
+
+        self._language_title_label = QLabel("语言切换")
+        self._language_title_label.setFont(
+            QFont("Microsoft YaHei", 14, QFont.Bold)  # type: ignore
+        )
+        self._language_title_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none;"
+        )
+        lang_left_col.addWidget(self._language_title_label)
+
+        self._language_hint_label = QLabel(
+            "该语言设置仅影响主页面显示科目时使用的语言；"
+            "选择新语言后点击「应用修改」重启以生效。"
+        )
+        lang_hint_font: QFont = QFont("Microsoft YaHei", 9)
+        lang_hint_font.setItalic(True)
+        self._language_hint_label.setFont(lang_hint_font)
+        self._language_hint_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none; opacity: 0.6;"
+        )
+        self._language_hint_label.setWordWrap(True)
+        lang_left_col.addWidget(self._language_hint_label)
+
+        lang_top_row.addLayout(lang_left_col, stretch=1)
+
+        # ---- 语言下拉框（右侧）----
+        self._language_combo = QComboBox()
+        self._language_combo.setMinimumWidth(260)
+        self._language_combo.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self._language_combo.setStyleSheet(self._get_font_combo_style())
+        self._language_combo.addItem("中文", "Chinese")
+        self._language_combo.addItem("英文", "English")
+
+        # 选中当前已应用的语言
+        current_lang_idx: int = self._language_combo.findData(self._applied_language)
+        if current_lang_idx >= 0:
+            self._language_combo.setCurrentIndex(current_lang_idx)
+
+        lang_top_row.addWidget(self._language_combo, 0, Qt.AlignTop)  # type: ignore
+        lang_card_layout.addLayout(lang_top_row)
+
+        layout.addWidget(self._language_card)
         layout.addStretch(1)
 
         # 先设置初始值，再连接信号，避免初始化时触发脏标记
         self._font_combo.currentTextChanged.connect(self._on_font_changed)
+        self._language_combo.currentIndexChanged.connect(self._on_language_changed)
 
         return page
 
@@ -1033,12 +1098,22 @@ class SettingsWindow(ThemedWidget):
             return False
         return self._font_combo.currentText() != self._applied_subject_font
 
+    def _language_is_dirty(self) -> bool:
+        """判断语言下拉框的当前选择是否与已应用语言不同。"""
+        if self._language_combo is None:
+            return False
+        return self._language_combo.currentData() != self._applied_language
+
     def _on_font_changed(self, font_name: str) -> None:
         """字体下拉框选择变化：更新预览，并刷新「应用修改」按钮状态。"""
         if not font_name:
             return
         if self._font_preview_label is not None:
             self._font_preview_label.setFont(QFont(font_name, 16))
+        self._refresh_apply_button()
+
+    def _on_language_changed(self, index: int) -> None:
+        """语言下拉框选择变化：刷新「应用修改」按钮状态。"""
         self._refresh_apply_button()
 
     def _refresh_apply_button(self) -> None:
@@ -1051,7 +1126,11 @@ class SettingsWindow(ThemedWidget):
         if not hasattr(self, '_apply_btn') or self._apply_btn is None:
             return
 
-        enabled: bool = self._has_unsaved_changes or self._font_is_dirty()
+        enabled: bool = (
+            self._has_unsaved_changes
+            or self._font_is_dirty()
+            or self._language_is_dirty()
+        )
         self._apply_btn.setEnabled(enabled)
 
         if self._theme.theme == 'darkcolor':
@@ -1219,6 +1298,47 @@ class SettingsWindow(ThemedWidget):
         except Exception as e:
             logger.error(f"写回 schedule_config.ini 字体失败：{e}")
 
+    def _persist_language(self) -> None:
+        """把当前选中的科目显示语言写回 schedule_config.ini（重启后生效）。"""
+        if self._language_combo is None:
+            return
+        lang_value = self._language_combo.currentData()
+        if not lang_value:
+            return
+
+        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        ini_path: str = os.path.join(script_dir, 'Config', 'schedule_config.ini')
+        if not os.path.exists(ini_path):
+            logger.warning(f"配置文件不存在，无法写回语言：{ini_path}")
+            return
+        try:
+            with open(ini_path, 'r', encoding='utf-8') as f:
+                lines: List[str] = f.readlines()
+
+            updated: bool = False
+            out: List[str] = []
+            for line in lines:
+                stripped: str = line.lstrip()
+                if stripped.startswith(';') or stripped.startswith('#'):
+                    out.append(line)
+                    continue
+                if '=' in line:
+                    key: str = line.split('=', 1)[0].strip()
+                    if key == 'language' and not updated:
+                        out.append(f"language = {lang_value}\n")
+                        updated = True
+                        continue
+                out.append(line)
+
+            if not updated:
+                out.append(f"language = {lang_value}\n")
+
+            with open(ini_path, 'w', encoding='utf-8') as f:
+                f.writelines(out)
+            logger.info(f"已把科目显示语言写回 schedule_config.ini：{lang_value}")
+        except Exception as e:
+            logger.error(f"写回 schedule_config.ini 语言失败：{e}")
+
     def _restart_app(self) -> None:
         """重启软件：启动新进程并退出当前程序。"""
         script_dir: str = os.path.dirname(os.path.abspath(__file__))
@@ -1238,6 +1358,11 @@ class SettingsWindow(ThemedWidget):
         self._persist_subject_font()
         if self._font_combo is not None:
             self._applied_subject_font = self._font_combo.currentText()
+
+        # 1b. 持久化语言设置（若已选择新语言）
+        self._persist_language()
+        if self._language_combo is not None:
+            self._applied_language = self._language_combo.currentData()
 
         if self._schedule_data is None:
             # 仅字体等不依赖 schedule_data 的修改：直接重启生效
@@ -1285,6 +1410,11 @@ class SettingsWindow(ThemedWidget):
         self._persist_subject_font()
         if self._font_combo is not None:
             self._applied_subject_font = self._font_combo.currentText()
+
+        # 1b. 持久化语言设置（若已选择新语言）
+        self._persist_language()
+        if self._language_combo is not None:
+            self._applied_language = self._language_combo.currentData()
 
         # 2. 将编辑副本直接写入本地文件
         self._save_editing_timetable_file()
@@ -3203,6 +3333,19 @@ class SettingsWindow(ThemedWidget):
             )
         if self._font_preview_label is not None:
             self._font_preview_label.setStyleSheet(self._get_font_preview_style())
+        # 刷新基础设置 — 语言切换卡片
+        if self._language_card is not None:
+            self._language_card.setStyleSheet(self._get_status_card_style())
+        if self._language_title_label is not None:
+            self._language_title_label.setStyleSheet(
+                f"color: {self._theme.font_color}; background: transparent; border: none;"
+            )
+        if self._language_hint_label is not None:
+            self._language_hint_label.setStyleSheet(
+                f"color: {self._theme.font_color}; background: transparent; border: none; opacity: 0.6;"
+            )
+        if self._language_combo is not None:
+            self._language_combo.setStyleSheet(self._get_font_combo_style())
         if self._status_card is not None:
             self._status_card.setStyleSheet(self._get_status_card_style())
         if self._status_label is not None:
@@ -3336,7 +3479,8 @@ class SettingsWindow(ThemedWidget):
     # ================================================================
     def _on_exit_clicked(self) -> None:
         """点击退出按钮：如有未应用修改则弹窗询问是否立即应用，然后隐藏窗口。"""
-        if self._has_unsaved_changes or self._font_is_dirty():
+        if (self._has_unsaved_changes or self._font_is_dirty()
+                or self._language_is_dirty()):
             box: QMessageBox = QMessageBox(self)
             box.setWindowTitle("未应用的修改")
             box.setText(
@@ -3395,7 +3539,8 @@ class SettingsWindow(ThemedWidget):
         不触发销毁，以便再次打开时复用。
         如有未应用修改则弹窗询问是否立即应用。
         """
-        if self._has_unsaved_changes or self._font_is_dirty():
+        if (self._has_unsaved_changes or self._font_is_dirty()
+                or self._language_is_dirty()):
             box: QMessageBox = QMessageBox(self)
             box.setWindowTitle("未应用的修改")
             box.setText(

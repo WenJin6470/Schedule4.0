@@ -29,8 +29,9 @@ from PySide6.QtWidgets import QLabel, QPushButton, QMenu
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QAction
 
-from schedule_config import ThemeManager, ThemedWidget, ScheduleDataManager, DebugConfig, is_color_dark
+from schedule_config import ThemeManager, ThemedWidget, ScheduleDataManager, DebugConfig, is_color_dark, SubjectConfigManager
 from schedule_actions import ActionMessage, ActionType
+from schedule_backend import fit_subject_font
 
 # ═══════════════════════════════════════════════════════════════════════════
 # ★ 启动优化：懒加载子模块 ★
@@ -112,6 +113,10 @@ class ScheduleMainWindow(ThemedWidget):
         # ---- 课时标签列表 ----
         self.period_labels: List[QLabel] = []
 
+        # ---- 每个课时标签对应的原始科目名（中文），与显示文本分离，
+        #      保证英文显示模式下同步回 curriculum_data 时仍保存中文原文 ----
+        self._period_raw_subjects: Dict[str, str] = {}
+
         # ---- 当前显示的星期 ----
         self._current_display_day: str = 'Monday'
 
@@ -129,6 +134,45 @@ class ScheduleMainWindow(ThemedWidget):
         self._setup_ui()
         logger.info("ScheduleMainWindow 初始化完成")
         logger.info("=" * 50)
+
+    # ================================================================
+    #  私有方法：按语言设置返回科目显示文本
+    # ================================================================
+    def _display_subject(self, subject: str) -> str:
+        """
+        按当前语言设置返回科目显示文本。
+        ---------------------------------
+        语言为 English 时，尝试通过 subject_config.json 的中英文映射
+        把中文科目名翻译为英文名；找不到英文名（或非英文模式）时返回原文。
+        """
+        subject = (subject or '').strip()
+        if not subject or self._theme.language != 'English':
+            return subject
+
+        found = SubjectConfigManager.find_subject(
+            self._theme.subject_config, subject
+        )
+        if found is not None and found[1]:
+            return found[1]
+        return subject
+
+    def _apply_subject_label(self, label: QLabel, raw_subject: str,
+                             label_height: int) -> None:
+        """
+        设置科目标签的显示文本，并按标签可用空间自适应缩小字体。
+        ---------------------------------------------------
+        显示文本由 _display_subject 按当前语言生成；字体由后端
+        fit_subject_font 以标准字号为上限逐步缩小，确保文字在
+        标签宽度 × 高度内完全显示。
+        """
+        display_text: str = self._display_subject(raw_subject)
+        label.setText(display_text)
+        label.setFont(fit_subject_font(
+            self._theme.subject_font,
+            display_text,
+            self._win_width,
+            label_height,
+        ))
 
     # ================================================================
     #  私有方法：创建所有 UI 元素
@@ -196,16 +240,16 @@ class ScheduleMainWindow(ThemedWidget):
         for key in self._schedule_data.timetable_data:
             if key.startswith('lesson_'):
                 subject: str = today_curriculum.get(key, '')
+                self._period_raw_subjects[key] = subject
                 label: QLabel = QLabel(self)
                 label.setObjectName(key)
-                label.setFont(QFont(self._theme.subject_font, 16))
                 label.setStyleSheet(f"""
                     color: {self._theme.font_color};
                     background: transparent;
                 """)
                 label.setAlignment(Qt.AlignCenter)  # type: ignore
                 label.setGeometry(0, y_offset, self._win_width, label_height)
-                label.setText(subject)
+                self._apply_subject_label(label, subject, label_height)
                 self.period_labels.append(label)
                 y_offset += label_height
             elif key.startswith('dividerline_'):
@@ -446,6 +490,7 @@ class ScheduleMainWindow(ThemedWidget):
                 child.deleteLater()
 
         self.period_labels.clear()
+        self._period_raw_subjects.clear()
 
         # 重新计算布局参数
         close_btn_height: int = 36
@@ -484,16 +529,16 @@ class ScheduleMainWindow(ThemedWidget):
         for key in self._schedule_data.timetable_data:
             if key.startswith('lesson_'):
                 subject: str = today_curriculum.get(key, '')
+                self._period_raw_subjects[key] = subject
                 label: QLabel = QLabel(self)
                 label.setObjectName(key)
-                label.setFont(QFont(self._theme.subject_font, 16))
                 label.setStyleSheet(f"""
                     color: {self._theme.font_color};
                     background: transparent;
                 """)
                 label.setAlignment(Qt.AlignCenter)  # type: ignore
                 label.setGeometry(0, y_offset, self._win_width, label_height)
-                label.setText(subject)
+                self._apply_subject_label(label, subject, label_height)
                 self.period_labels.append(label)
                 y_offset += label_height
             elif key.startswith('dividerline_'):
@@ -668,8 +713,10 @@ class ScheduleMainWindow(ThemedWidget):
         """
         if 0 <= self._cursor_index < len(self.period_labels):
             label = self.period_labels[self._cursor_index]
+            key: str = label.objectName()  # type: ignore
             old_text: str = label.text().strip()
-            label.setText(subject_name)
+            self._period_raw_subjects[key] = subject_name
+            self._apply_subject_label(label, subject_name, label.height())
             logger.info(f"标签更新：第 {self._cursor_index + 1} 节 "
                         f"'{old_text}' → '{subject_name}'")
 
@@ -678,9 +725,11 @@ class ScheduleMainWindow(ThemedWidget):
         return self._cursor_index
 
     def get_cursor_subject(self) -> str:
-        """获取当前光标所在标签的文字内容。"""
+        """获取当前光标所在标签的原始科目名（中文）。"""
         if 0 <= self._cursor_index < len(self.period_labels):
-            return self.period_labels[self._cursor_index].text().strip()
+            label = self.period_labels[self._cursor_index]
+            key: str = label.objectName()  # type: ignore
+            return self._period_raw_subjects.get(key, label.text().strip())
         return ""
 
     # ================================================================
@@ -714,7 +763,9 @@ class ScheduleMainWindow(ThemedWidget):
         for label in self.period_labels:
             key: str = label.objectName()  # type: ignore
             if key.startswith('lesson_'):
-                label.setText(curriculum.get(key, ''))
+                raw: str = curriculum.get(key, '')
+                self._period_raw_subjects[key] = raw
+                self._apply_subject_label(label, raw, label.height())
 
         logger.info(f"主窗口课表已切换至：{week_name}")
 
@@ -729,7 +780,10 @@ class ScheduleMainWindow(ThemedWidget):
         for label in self.period_labels:
             key: str = label.objectName()  # type: ignore
             if key.startswith('lesson_'):
-                day_data[key] = label.text().strip()
+                # 同步回 curriculum_data 时使用原始科目名，避免英文显示污染数据
+                day_data[key] = self._period_raw_subjects.get(
+                    key, label.text().strip()
+                )
         # 更新内存中的课程表数据
         self._schedule_data.curriculum_data[day] = day_data
         logger.debug(f"已同步 {day} 的 {len(day_data)} 个课时标签到 curriculum_data")
