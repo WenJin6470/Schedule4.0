@@ -157,6 +157,8 @@ class SettingsWindow(ThemedWidget):
         self._subject_config_data: Dict = {}
         self._subject_card: Optional[QFrame] = None
         self._subject_scroll_layout: Optional[QVBoxLayout] = None
+        self._subject_scroll_area: Optional[QScrollArea] = None
+        self._subject_scroll_widget: Optional[QWidget] = None
         self._subject_buttons: List[QPushButton] = []
         # 课程表内联编辑器的科目按钮区布局（重建时使用）
         self._cv_subject_layout: Optional[QVBoxLayout] = None
@@ -700,7 +702,8 @@ class SettingsWindow(ThemedWidget):
 
         sj_subjects_scroll: QScrollArea = QScrollArea()
         sj_subjects_scroll.setWidgetResizable(True)
-        sj_subjects_scroll.setMaximumHeight(220)
+        # 不设固定最大高度：由 _resize_subject_scroll_area() 按内容
+        # 实际高度动态调整，确保所有科目按钮完整显示、无需滚轮滚动
         sj_subjects_scroll.setStyleSheet("""
             QScrollArea {
                 background: transparent;
@@ -723,6 +726,10 @@ class SettingsWindow(ThemedWidget):
         self._subject_scroll_layout = QVBoxLayout(sj_subjects_widget)
         self._subject_scroll_layout.setContentsMargins(0, 0, 0, 0)
         self._subject_scroll_layout.setSpacing(6)
+
+        # 保存引用：重建科目按钮后按内容高度调整卡片容器高度
+        self._subject_scroll_area = sj_subjects_scroll
+        self._subject_scroll_widget = sj_subjects_widget
 
         sj_subjects_scroll.setWidget(sj_subjects_widget)
         sj_card_layout.addWidget(sj_subjects_scroll)
@@ -1148,15 +1155,17 @@ class SettingsWindow(ThemedWidget):
         )
 
         for cat_name, subjects in subject_types.items():
-            if not isinstance(subjects, list):
-                continue
-            # 类别标题
+            # 类别标题（所有类别都显示，包括 "None" 占位类别）
             cat_title: QLabel = QLabel(f"—— {cat_name} ——")
             cat_title.setFont(QFont("Microsoft YaHei", 10))
             cat_title.setStyleSheet(
                 f"color: {dim_color}; background: transparent;"
             )
             self._subject_scroll_layout.addWidget(cat_title)
+
+            # "None" 占位类别：仅显示类别名，不显示科目内容
+            if not isinstance(subjects, list):
+                continue
 
             # 科目按钮流式布局（每行 4 个，自动补齐空位）
             buttons_per_row: int = 4
@@ -1198,6 +1207,19 @@ class SettingsWindow(ThemedWidget):
                         current_row.addWidget(spacer, stretch=1)
 
         self._subject_scroll_layout.addStretch()
+        # 按内容实际高度调整卡片容器高度，使所有科目按钮完整显示
+        self._resize_subject_scroll_area()
+
+    # ================================================================
+    #  科目编辑 — 卡片容器高度自适应
+    # ================================================================
+    def _resize_subject_scroll_area(self) -> None:
+        """按科目内容实际高度调整卡片内滚动区高度，避免鼠标滚轮上下滚动。"""
+        if self._subject_scroll_area is None or self._subject_scroll_widget is None:
+            return
+        content_h: int = self._subject_scroll_widget.sizeHint().height()
+        # 最小高度：无科目内容时也保留少量可视空间
+        self._subject_scroll_area.setMaximumHeight(max(content_h + 4, 48))
 
     # ================================================================
     #  科目编辑 — 事件处理
@@ -1236,11 +1258,15 @@ class SettingsWindow(ThemedWidget):
                 'Subject_Types', {}
             )
             cat: str = result['category']
-            # 防御：目标类别必须是列表类别（"None" 等字符串类别不可加入）
+            # 防御：目标类别必须是列表类别；
+            # "None" 占位类别首次加入科目时转为列表（占位符仅为占位）
             if cat in subject_types and \
                     not isinstance(subject_types[cat], list):
-                logger.warning(f"无法加入科目到非列表类别：{cat}")
-                return
+                if SubjectConfigManager.is_placeholder(subject_types[cat]):
+                    subject_types[cat] = []
+                else:
+                    logger.warning(f"无法加入科目到非列表类别：{cat}")
+                    return
             if cat not in subject_types:
                 subject_types[cat] = []
             subject_types[cat].append({
@@ -1301,11 +1327,16 @@ class SettingsWindow(ThemedWidget):
                     break
         else:
             # 移动到其他类别（旧类别中移除，新类别中追加）
-            # 防御：目标类别必须是列表类别（"None" 等字符串类别不可移入）
+            # 防御：目标类别必须是列表类别；
+            # "None" 占位类别首次移入科目时转为列表（占位符仅为占位）
             if target_cat in subject_types and \
                     not isinstance(subject_types[target_cat], list):
-                logger.warning(f"无法移动科目到非列表类别：{target_cat}")
-                return
+                if SubjectConfigManager.is_placeholder(
+                        subject_types[target_cat]):
+                    subject_types[target_cat] = []
+                else:
+                    logger.warning(f"无法移动科目到非列表类别：{target_cat}")
+                    return
             old_list[:] = [
                 e for e in old_list
                 if parse_subject_entry(e)[0] != old_name
@@ -3764,7 +3795,8 @@ class SubjectEditDialog(QDialog):
       - 未输入中文名或未选择类别时无法创建科目。
       - 中文名不得与其他科目重名。
       - 英文名为空时显示翻译卡片：系统默认网站 + 连接状态 + 翻译状态
-        + 翻译结果，可「填入英文名」/ 重新选择网站 / 重新翻译。
+        + 翻译结果，可「填入英文名」/ 重新选择网站 / 翻译；
+        点击「填入英文名」后翻译卡片保持显示，不会自动关闭。
     """
 
     def __init__(self, theme_manager: ThemeManager,
@@ -3795,6 +3827,8 @@ class SubjectEditDialog(QDialog):
         self._worker: Optional[TranslateWorker] = None
         self._translate_running: bool = False
         self._card_visible: bool = False
+        # 「填入英文名」触发的文本变更保留翻译卡片不关闭
+        self._keep_card_open: bool = False
         self._result_text: str = ''
         self._result: dict = {}
 
@@ -3901,8 +3935,12 @@ class SubjectEditDialog(QDialog):
         subject_types: Any = self._config_data.get('Subject_Types', {})
         if not isinstance(subject_types, dict):
             subject_types = {}
-        list_cats: List[str] = [
-            c for c, v in subject_types.items() if isinstance(v, list)
+        # 可加入科目的类别：列表类别 + "None" 占位类别
+        # （占位类别在首次加入科目时由调用方转为列表）
+        selectable_cats: List[str] = [
+            c for c, v in subject_types.items()
+            if isinstance(v, list)
+            or SubjectConfigManager.is_placeholder(v)
         ]
 
         if self._mode == 'edit' and \
@@ -3913,7 +3951,7 @@ class SubjectEditDialog(QDialog):
             self._category_combo.setEnabled(False)
             return
 
-        for cat in list_cats:
+        for cat in selectable_cats:
             if cat == self._protected_category:
                 continue  # 任何科目都不能进入第一类别
             self._category_combo.addItem(cat, cat)
@@ -3968,7 +4006,7 @@ class SubjectEditDialog(QDialog):
             self._site_combo.setCurrentIndex(default_idx)
         site_row.addWidget(self._site_combo, 1)
 
-        self._translate_btn: QPushButton = QPushButton("重新翻译")
+        self._translate_btn: QPushButton = QPushButton("翻译")
         self._translate_btn.setFont(QFont("Microsoft YaHei", 11))
         self._translate_btn.setMinimumHeight(30)
         self._translate_btn.setStyleSheet(self._normal_btn_style())
@@ -4005,9 +4043,17 @@ class SubjectEditDialog(QDialog):
     #  翻译流程
     # ================================================================
     def _on_english_changed(self, text: str) -> None:
-        """英文名输入变化 → 空时显示翻译卡片（首次显示自动翻译）。"""
+        """英文名输入变化 → 空时显示翻译卡片（首次显示自动翻译）。
+
+        点击「填入英文名」触发的文本变更（_keep_card_open 为 True）
+        不关闭翻译卡片；用户手动修改英文名时仍按原逻辑隐藏卡片。
+        """
         has_text: bool = bool(text.strip())
         if has_text:
+            if self._keep_card_open:
+                # 「填入英文名」：保留翻译卡片不关闭
+                self._card_visible = False
+                return
             self._translation_card.setVisible(False)
             self._card_visible = False
         else:
@@ -4081,9 +4127,11 @@ class SubjectEditDialog(QDialog):
         self._worker = None
 
     def _on_fill(self) -> None:
-        """把翻译结果填入英文名输入框（卡片随后自动隐藏）。"""
+        """把翻译结果填入英文名输入框（翻译卡片保持显示、不自动关闭）。"""
         if self._result_text:
+            self._keep_card_open = True
             self._english_input.setText(self._result_text)
+            self._keep_card_open = False
 
     # ================================================================
     #  确认 / 结果

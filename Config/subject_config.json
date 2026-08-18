@@ -1,0 +1,91 @@
+{
+    "Subject_Types": {
+        "Category_1": [
+            {
+                "name": "语文",
+                "english_name": "Chinese"
+            },
+            {
+                "name": "数学",
+                "english_name": "Mathematics"
+            },
+            {
+                "name": "英语",
+                "english_name": "English"
+            },
+            {
+                "name": "物理",
+                "english_name": "Physics"
+            },
+            {
+                "name": "化学",
+                "english_name": "Chemistry"
+            },
+            {
+                "name": "生物",
+                "english_name": "Biology"
+            },
+            {
+                "name": "历史",
+                "english_name": "History"
+            },
+            {
+                "name": "政治",
+                "english_name": "Politics"
+            },
+            {
+                "name": "地理",
+                "english_name": "Geography"
+            }
+        ],
+        "Category_2": [
+            {
+                "name": "活动",
+                "english_name": "Activity"
+            },
+            {
+                "name": "体育",
+                "english_name": "Physical Education"
+            },
+            {
+                "name": "信息",
+                "english_name": "Information Technology"
+            },
+            {
+                "name": "音乐",
+                "english_name": "Music"
+            },
+            {
+                "name": "美术",
+                "english_name": "Art"
+            },
+            {
+                "name": "通用技术",
+                "english_name": "General Technology"
+            },
+            {
+                "name": "自习",
+                "english_name": "Self-study"
+            },
+            {
+                "name": "生涯",
+                "english_name": "Career"
+            },
+            {
+                "name": "理化",
+                "english_name": "Physical and chemical"
+            },
+            {
+                "name": "电磁学",
+                "english_name": "Electromagnetics"
+            }
+        ],
+        "Category_3": "None",
+        "类别三": [
+            {
+                "name": "生化",
+                "english_name": "Biochemistry"
+            }
+        ]
+    }
+}

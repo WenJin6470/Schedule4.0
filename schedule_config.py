@@ -433,7 +433,8 @@ class SubjectConfigManager:
     对外接口：
       - load()                       → 读取并归一化数据
       - save(data)                   → 写入新格式文件
-      - category_names(data)         → 返回值为列表的类别键（可容纳新科目）
+      - is_placeholder(value)        → 判断是否为 "None" 占位类别值
+      - category_names(data)         → 返回可容纳科目的类别键（列表 + "None" 占位）
       - all_subjects(data)           → 返回 [(类别, 中文名, 英文名), ...]
       - find_subject(data, name)     → 按中文名查找 (类别, 英文名)，找不到返回 None
     """
@@ -532,16 +533,31 @@ class SubjectConfigManager:
         return data
 
     @staticmethod
+    def is_placeholder(value: Any) -> bool:
+        """
+        判断类别值是否为 "None" 占位符（空类别占位，可容纳新科目）。
+        ---------------------------------------------------------
+        "None" 字符串或 null 均视为占位符；占位类别在首次加入科目时转为列表。
+        """
+        if value is None:
+            return True
+        return isinstance(value, str) and value.strip().lower() == 'none'
+
+    @staticmethod
     def category_names(data: Dict) -> List[str]:
         """
-        返回所有值为列表的类别键（这些类别可容纳科目）。
-        -----------------------------------------------
-        "None" 等字符串类别不包含在结果中。
+        返回所有可容纳科目的类别键（列表类别 + "None" 占位类别）。
+        ---------------------------------------------------------
+        "None" 占位类别在首次加入科目时由调用方转为列表，因此同样可容纳科目；
+        其他非列表值（非占位符）不包含在结果中。
         """
         subject_types: Any = data.get('Subject_Types', {})
         if not isinstance(subject_types, dict):
             return []
-        return [k for k, v in subject_types.items() if isinstance(v, list)]
+        return [
+            k for k, v in subject_types.items()
+            if isinstance(v, list) or SubjectConfigManager.is_placeholder(v)
+        ]
 
     @staticmethod
     def all_subjects(data: Dict) -> List[Tuple[str, str, str]]:
