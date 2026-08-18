@@ -144,9 +144,8 @@ class SettingsWindow(ThemedWidget):
         self._has_unsaved_changes: bool = False  # 是否有尚未应用到当前程序的修改
         self._editing_initialized: bool = False  # 编辑副本是否已完成首次初始化
 
-        # 应用 / 暂不应用按钮引用
+        # 应用修改按钮引用（位于左侧导航栏底部、退出按钮下方）
         self._apply_btn: Optional[QPushButton] = None
-        self._discard_btn: Optional[QPushButton] = None
 
         # 显示规则引用
         self._rule_list: Optional[DisplayRuleListWidget] = None
@@ -221,6 +220,8 @@ class SettingsWindow(ThemedWidget):
           2. 分割线
           3. 4 个导航按钮（带 emoji 图标）
           4. 底部弹簧
+          5. 退出按钮（🚪）
+          6. 应用修改按钮（✅，位于退出按钮下方）
         """
         panel: QWidget = QWidget()
         panel.setStyleSheet("background: transparent;")
@@ -295,9 +296,20 @@ class SettingsWindow(ThemedWidget):
         self._exit_btn = exit_btn
         layout.addWidget(exit_btn)
 
+        # ---- 应用修改按钮（位于退出按钮下方）----
+        self._apply_btn = QPushButton("  ✅  应用修改")
+        self._apply_btn.setFont(QFont("Microsoft YaHei", 11))
+        self._apply_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self._apply_btn.setMinimumHeight(44)
+        self._apply_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # type: ignore
+        self._apply_btn.setEnabled(False)  # 初始无修改时禁用
+        self._apply_btn.clicked.connect(self._on_apply_changes)
+        layout.addWidget(self._apply_btn)
+
         # 应用初始样式
         self._refresh_nav_styles()
         self._refresh_exit_btn_style()
+        self._refresh_apply_button()
 
         return panel
 
@@ -754,34 +766,6 @@ class SettingsWindow(ThemedWidget):
         self._load_subject_config_data()
         self._refresh_subject_buttons()
 
-        # 底部弹簧：把「应用修改 / 暂不应用」按钮推至页面最底部
-        layout.addStretch()
-
-        # ---- 应用 / 暂不应用按钮行（页面最底部）----
-        apply_btn_row: QHBoxLayout = QHBoxLayout()
-        apply_btn_row.setSpacing(12)
-
-        self._apply_btn = QPushButton("应用修改")
-        self._apply_btn.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))  # type: ignore
-        self._apply_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
-        self._apply_btn.setMinimumHeight(40)
-        self._apply_btn.setMinimumWidth(140)
-        self._apply_btn.setEnabled(False)  # 初始无修改时禁用
-        self._apply_btn.clicked.connect(self._on_apply_changes)
-        apply_btn_row.addWidget(self._apply_btn)
-
-        self._discard_btn = QPushButton("暂不应用")
-        self._discard_btn.setFont(QFont("Microsoft YaHei", 11))
-        self._discard_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
-        self._discard_btn.setMinimumHeight(40)
-        self._discard_btn.setMinimumWidth(140)
-        self._discard_btn.setEnabled(False)
-        self._discard_btn.clicked.connect(self._on_postpone_changes)
-        apply_btn_row.addWidget(self._discard_btn)
-
-        apply_btn_row.addStretch()
-        layout.addLayout(apply_btn_row)
-
         # 初始加载数据
         self._refresh_table()
 
@@ -869,27 +853,26 @@ class SettingsWindow(ThemedWidget):
             self._has_unsaved_changes = False
 
     def _refresh_apply_button(self) -> None:
-        """根据是否有未应用修改，刷新应用/暂不应用按钮状态和样式。"""
+        """根据是否有未应用修改，刷新「应用修改」按钮的状态和样式。
+
+        该按钮位于左侧导航栏底部、退出按钮下方：
+          - 无未应用修改时：灰色禁用态（不可点击）
+          - 有未应用修改时：绿色实色背景（可点击应用）
+        """
         if not hasattr(self, '_apply_btn') or self._apply_btn is None:
             return
 
         enabled: bool = self._has_unsaved_changes
         self._apply_btn.setEnabled(enabled)
-        if hasattr(self, '_discard_btn') and self._discard_btn is not None:
-            self._discard_btn.setEnabled(enabled)
 
         if self._theme.theme == 'darkcolor':
             apply_primary: str = '#4CAF50'
             apply_hover: str = '#66BB6A'
-            postpone_color: str = '#90A4AE'
-            postpone_hover_bg: str = 'rgba(144,164,174,0.12)'
             disabled_bg: str = 'rgba(255,255,255,0.05)'
             disabled_fg: str = 'rgba(255,255,255,0.25)'
         else:
             apply_primary = '#43A047'
             apply_hover = '#66BB6A'
-            postpone_color = '#607D8B'
-            postpone_hover_bg = 'rgba(96,125,139,0.08)'
             disabled_bg = 'rgba(0,0,0,0.04)'
             disabled_fg = 'rgba(0,0,0,0.25)'
 
@@ -898,34 +881,22 @@ class SettingsWindow(ThemedWidget):
                 QPushButton {{
                     color: white; background-color: {apply_primary};
                     border: none; border-radius: 6px;
-                    padding: 8px 24px;
+                    padding: 10px 14px;
+                    text-align: left;
                 }}
                 QPushButton:hover {{
                     background-color: {apply_hover};
                 }}
             """)
-            if hasattr(self, '_discard_btn') and self._discard_btn is not None:
-                self._discard_btn.setStyleSheet(f"""
-                    QPushButton {{
-                        color: {postpone_color}; background: transparent;
-                        border: 1px solid {postpone_color}; border-radius: 6px;
-                        padding: 8px 24px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {postpone_hover_bg};
-                    }}
-                """)
         else:
-            style: str = f"""
+            self._apply_btn.setStyleSheet(f"""
                 QPushButton {{
                     color: {disabled_fg}; background-color: {disabled_bg};
                     border: none; border-radius: 6px;
-                    padding: 8px 24px;
+                    padding: 10px 14px;
+                    text-align: left;
                 }}
-            """
-            self._apply_btn.setStyleSheet(style)
-            if hasattr(self, '_discard_btn') and self._discard_btn is not None:
-                self._discard_btn.setStyleSheet(style)
+            """)
 
     # ================================================================
     #  直接保存编辑副本到本地文件（不入缓存）
@@ -1113,8 +1084,8 @@ class SettingsWindow(ThemedWidget):
         之前的清空只删除顶层 QLabel，行内按钮随 QHBoxLayout 被移出后
         仍作为内容容器的子控件残留，导致重建后按钮堆积、显示异常。
         """
-        while self._subject_scroll_layout.count():
-            item = self._subject_scroll_layout.takeAt(0)
+        while self._subject_scroll_layout.count(): # type: ignore
+            item = self._subject_scroll_layout.takeAt(0) # type: ignore
             w = item.widget()  # type: ignore
             if w is not None:
                 w.deleteLater()
@@ -3007,7 +2978,7 @@ class SettingsWindow(ThemedWidget):
             btn.setStyleSheet(btn_style)
             btn.style().unpolish(btn)  # type: ignore
             btn.style().polish(btn)  # type: ignore
-        # 刷新应用/暂不应用按钮样式
+        # 刷新应用修改按钮样式
         self._refresh_apply_button()
         # 刷新显示规则控件
         if self._rule_list is not None:
@@ -4191,7 +4162,7 @@ class SubjectEditDialog(QDialog):
         reply: QMessageBox.StandardButton = QMessageBox.question(
             self, "删除科目",
             f"确定要删除科目「{self._initial_name}」吗？",
-            QMessageBox.Yes | QMessageBox.No,  # type: ignore
+            QMessageBox.No | QMessageBox.Yes,  # type: ignore
             QMessageBox.No,  # type: ignore
         )
         if reply != QMessageBox.Yes:  # type: ignore
