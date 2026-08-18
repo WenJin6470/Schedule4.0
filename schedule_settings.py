@@ -62,6 +62,109 @@ def _cleanup_orphan_worker(worker: Optional[TranslateWorker]) -> None:
     worker.deleteLater()
 
 
+# ==================== 科目名称自动缩写 ====================
+
+# 中文名最大长度（字符），超过则截断到前 SUBJECT_CN_MAX_LEN 个字符。
+SUBJECT_CN_MAX_LEN: int = 7
+# 英文名最大长度（字符，含空格与符号），超过则自动缩写。
+SUBJECT_EN_MAX_LEN: int = 12
+
+# 众所周知的整句英文缩写（键统一小写，整句优先匹配）。
+# 缩写结果统一为无空格、无连字符的紧凑形式。
+_ENGLISH_PHRASE_ABBR: Dict[str, str] = {
+    'information technology': 'InfoTech',
+    'physical education': 'PE',
+    'general technology': 'GenTech',
+    'physical and chemical': 'PhysChem',
+}
+
+# 单词级英文缩写（键统一小写；仅当整句未命中时逐词使用）。
+_ENGLISH_WORD_ABBR: Dict[str, str] = {
+    'electromagnetics': 'Electromag',
+    'biochemistry': 'Biochem',
+    'general': 'Gen',
+}
+
+# 缩写时跳过的英文虚词（对辨识度无贡献）。
+_ENGLISH_STOPWORDS = {'and', 'of', 'the', 'in', 'on', 'for', 'with', 'or'}
+
+
+def abbreviate_chinese_name(name: str, max_len: int = SUBJECT_CN_MAX_LEN) -> str:
+    """
+    中文名超过 max_len 个字符时截断到前 max_len 个字符。
+    -----------------------------------------------
+    参数：
+        name    （str）：待处理的中文名
+        max_len （int）：最大长度，默认 7
+
+    返回值：
+        str：未超长时原样返回，超长时返回前 max_len 个字符
+    """
+    text: str = name.strip()
+    if len(text) > max_len:
+        return text[:max_len]
+    return text
+
+
+def abbreviate_english_name(name: str, max_len: int = SUBJECT_EN_MAX_LEN) -> str:
+    """
+    把过长的科目英文名缩写为易辨识的紧凑短形式（无空格、无连字符）。
+    -------------------------------------------------------------
+    规则：
+      1. 整句（小写比较）命中已知缩写表时直接使用；
+      2. 否则先按空白、连字符、下划线、斜杠等分隔符拆成单词，再逐词缩写：
+         命中单词表用对应缩写，否则取单词前 4 个字母并首字母大写
+         （不足 7 个字母的单词保持原样），英文虚词跳过；
+      3. 单词缩写结果直接拼接（去掉空格与连字符等分隔符）；
+      4. 最终结果若仍超过 max_len，则截断到 max_len。
+
+    参数：
+        name    （str）：待缩写的英文名
+        max_len （int）：目标最大长度，默认 12
+
+    返回值：
+        str：缩写结果；无法产生有效缩写时返回原字符串
+    """
+    original: str = name.strip()
+    if not original:
+        return original
+
+    lowered: str = original.lower()
+    # 归一化分隔符：连字符 / 下划线 / 斜杠等统一视为空格，使
+    # 「Physical-Education」等写法也能命中整句缩写表（如 PE）。
+    normalized: str = lowered.replace('-', ' ').replace('_', ' ').replace('/', ' ')
+    if normalized in _ENGLISH_PHRASE_ABBR:
+        return _ENGLISH_PHRASE_ABBR[normalized]
+
+    # 先按空白、连字符、下划线、斜杠等分隔符拆成单词
+    separated: str = normalized
+
+    abbr_words: List[str] = []
+    for raw_word in separated.split():
+        letters: str = ''.join(ch for ch in raw_word if ch.isalpha())
+        if not letters:
+            continue
+        lw: str = letters.lower()
+        if lw in _ENGLISH_STOPWORDS:
+            continue
+        if lw in _ENGLISH_WORD_ABBR:
+            abbr_words.append(_ENGLISH_WORD_ABBR[lw])
+        elif len(letters) <= 6:
+            abbr_words.append(letters[:1].upper() + letters[1:].lower())
+        else:
+            stem: str = letters[:4].lower()
+            abbr_words.append(stem[:1].upper() + stem[1:])
+
+    if not abbr_words:
+        return original
+
+    # 紧凑拼接：去掉单词之间的空格（连字符等已在拆分时去除）
+    result: str = ''.join(abbr_words).strip()
+    if len(result) > max_len:
+        result = result[:max_len].rstrip()
+    return result if result else original
+
+
 class SettingsWindow(ThemedWidget):
     """
     # SettingsWindow — 全屏设置窗口
@@ -4320,6 +4423,9 @@ class SubjectEditDialog(QDialog):
 
         # ---- 联动 ----
         self._english_input.textChanged.connect(self._on_english_changed)
+        # 输入框失去焦点时自动缩写超长的中 / 英文名
+        self._name_input.editingFinished.connect(self._abbreviate_name_field)
+        self._english_input.editingFinished.connect(self._abbreviate_english_field)
         # 英文名为空时打开即自动翻译（卡片始终显示，无需再控制显隐）
         if not self._initial_english.strip():
             self._start_translate()
@@ -4510,15 +4616,43 @@ class SubjectEditDialog(QDialog):
         self._worker = None
 
     def _on_fill(self) -> None:
-        """把翻译结果填入英文名输入框（翻译卡片保持显示）。"""
+        """把翻译结果填入英文名输入框，并检测缩写超长英文名（翻译卡片保持显示）。"""
         if self._result_text:
             self._english_input.setText(self._result_text)
+            self._abbreviate_english_field()
+
+    # ================================================================
+    #  自动缩写（输入框失焦时触发，确认时兜底再执行一次）
+    # ================================================================
+    def _abbreviate_name_field(self) -> None:
+        """中文名超过 7 个字符时自动截断到前 7 个字符。"""
+        if self._name_input is None:
+            return
+        text: str = self._name_input.text().strip()
+        abbr: str = abbreviate_chinese_name(text)
+        if abbr != text:
+            self._name_input.setText(abbr)
+
+    def _abbreviate_english_field(self) -> None:
+        """英文名超过 12 个字符（含空格与符号）时自动缩写。"""
+        if self._english_input is None:
+            return
+        text: str = self._english_input.text().strip()
+        if len(text) <= SUBJECT_EN_MAX_LEN:
+            return
+        abbr: str = abbreviate_english_name(text)
+        if abbr != text:
+            self._english_input.setText(abbr)
 
     # ================================================================
     #  确认 / 结果
     # ================================================================
     def _on_confirm(self) -> None:
         """校验并确认（需求：中文名与类别必填、不得重名）。"""
+        # 直接点击「确认」时输入框可能未触发失焦，这里兜底再缩写一次
+        self._abbreviate_name_field()
+        self._abbreviate_english_field()
+
         name: str = self._name_input.text().strip()
         category: str = self._category_combo.currentData() or ''
 
