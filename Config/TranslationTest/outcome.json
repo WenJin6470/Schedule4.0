@@ -75,6 +75,11 @@
                 "ts": "2026-08-18 21:37:18",
                 "duration": 8.096,
                 "correct": false
+            },
+            {
+                "ts": "2026-08-19 08:20:45",
+                "duration": 8.1,
+                "correct": false
             }
         ],
         "youdao": [
@@ -151,6 +156,11 @@
             {
                 "ts": "2026-08-18 21:37:18",
                 "duration": 0.394,
+                "correct": false
+            },
+            {
+                "ts": "2026-08-19 08:20:45",
+                "duration": 0.222,
                 "correct": false
             }
         ],
@@ -229,6 +239,11 @@
                 "ts": "2026-08-18 21:37:18",
                 "duration": 0.212,
                 "correct": false
+            },
+            {
+                "ts": "2026-08-19 08:20:45",
+                "duration": 0.194,
+                "correct": false
             }
         ],
         "mymemory": [
@@ -306,14 +321,19 @@
                 "ts": "2026-08-18 21:37:18",
                 "duration": 1.925,
                 "correct": false
+            },
+            {
+                "ts": "2026-08-19 08:20:45",
+                "duration": 1.363,
+                "correct": true
             }
         ]
     },
     "scores": {
         "google": 0.0,
         "youdao": 0.0,
-        "baidu": 6.5056,
-        "mymemory": 65.85829999999999
+        "baidu": 6.0929375,
+        "mymemory": 67.9495625
     },
-    "updated_at": "2026-08-18 21:37:18"
+    "updated_at": "2026-08-19 08:20:45"
 }

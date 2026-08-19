@@ -62,6 +62,14 @@ def _cleanup_orphan_worker(worker: Optional[TranslateWorker]) -> None:
     worker.deleteLater()
 
 
+# ==================== 开机自启动（注册表） ====================
+
+# 当前用户 Run 键路径：登录 Windows 后自动运行其中的程序
+_AUTOSTART_REG_KEY: str = r'Software\Microsoft\Windows\CurrentVersion\Run'
+# 本程序在 Run 键下的值名称
+_AUTOSTART_VALUE_NAME: str = 'Schedule4.0'
+
+
 # ==================== 科目名称自动缩写 ====================
 
 # 中文名最大长度（字符），超过则截断到前 SUBJECT_CN_MAX_LEN 个字符。
@@ -266,6 +274,13 @@ class SettingsWindow(ThemedWidget):
         self._language_hint_label: Optional[QLabel] = None
         self._applied_language: str = self._theme.language
 
+        # 基础设置 — 开机自启动引用
+        self._autostart_card: Optional[QFrame] = None
+        self._autostart_combo: Optional[QComboBox] = None
+        self._autostart_title_label: Optional[QLabel] = None
+        self._autostart_hint_label: Optional[QLabel] = None
+        self._applied_autostart: bool = self._is_autostart_enabled()
+
         # 显示规则引用
         self._rule_list: Optional[DisplayRuleListWidget] = None
         self._rule_add_btn: Optional[QPushButton] = None
@@ -451,7 +466,7 @@ class SettingsWindow(ThemedWidget):
         self._stack: QStackedWidget = QStackedWidget()
         self._stack.setStyleSheet("background: transparent; border: none;")
 
-        # 页面 0：基础设置（字体修改）
+        # 页面 0：基础设置（开机自启动 + 字体修改 + 语言切换）
         self._stack.addWidget(self._create_basic_settings_page())
         # 页面 1：美化（占位）
         self._stack.addWidget(self._create_placeholder_page("美化"))
@@ -517,7 +532,7 @@ class SettingsWindow(ThemedWidget):
         """
         构建"基础设置"页面。
         ------------------
-        目前包含：字体修改卡片（主窗口科目显示字体选择 + 预览）。
+        目前包含：开机自启动卡片（注册表方式）+ 字体修改卡片 + 语言切换卡片。
         """
         page: QWidget = QWidget()
         page.setStyleSheet("background: transparent;")
@@ -534,6 +549,69 @@ class SettingsWindow(ThemedWidget):
         page_title.setStyleSheet(f"color: {fc}; background: transparent;")
         page_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
         layout.addWidget(page_title)
+
+        # ---- 开机自启动卡片 ----
+        self._autostart_card = QFrame()
+        self._autostart_card.setStyleSheet(self._get_status_card_style())
+        self._autostart_card.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Fixed  # type: ignore
+        )
+        autostart_card_layout: QVBoxLayout = QVBoxLayout(self._autostart_card)
+        autostart_card_layout.setContentsMargins(20, 12, 20, 12)
+        autostart_card_layout.setSpacing(4)
+
+        # 顶部：左侧（标题 + 提示） + 右侧（开启/关闭下拉框）
+        autostart_top_row: QHBoxLayout = QHBoxLayout()
+        autostart_top_row.setSpacing(16)
+
+        autostart_left_col: QVBoxLayout = QVBoxLayout()
+        autostart_left_col.setSpacing(6)
+
+        self._autostart_title_label = QLabel("开机自启动")
+        self._autostart_title_label.setFont(
+            QFont("Microsoft YaHei", 14, QFont.Bold)  # type: ignore
+        )
+        self._autostart_title_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none;"
+        )
+        autostart_left_col.addWidget(self._autostart_title_label)
+
+        self._autostart_hint_label = QLabel(
+            "开启后，登录 Windows 时自动启动本程序；"
+            "该设置通过修改注册表实现，点击「应用修改」后立即生效。"
+        )
+        autostart_hint_font: QFont = QFont("Microsoft YaHei", 9)
+        autostart_hint_font.setItalic(True)
+        self._autostart_hint_label.setFont(autostart_hint_font)
+        self._autostart_hint_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none; opacity: 0.6;"
+        )
+        self._autostart_hint_label.setWordWrap(True)
+        autostart_left_col.addWidget(self._autostart_hint_label)
+
+        autostart_top_row.addLayout(autostart_left_col, stretch=1)
+
+        # ---- 开启/关闭下拉框（右侧）----
+        self._autostart_combo = QComboBox()
+        self._autostart_combo.setMinimumWidth(260)
+        self._autostart_combo.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self._autostart_combo.setStyleSheet(self._get_font_combo_style())
+        self._autostart_combo.addItem("开启", "on")
+        self._autostart_combo.addItem("关闭", "off")
+
+        # 选中当前已应用的自启动状态
+        autostart_idx: int = self._autostart_combo.findData(
+            "on" if self._applied_autostart else "off"
+        )
+        if autostart_idx >= 0:
+            self._autostart_combo.setCurrentIndex(autostart_idx)
+
+        autostart_top_row.addWidget(
+            self._autostart_combo, 0, Qt.AlignTop  # type: ignore
+        )
+        autostart_card_layout.addLayout(autostart_top_row)
+
+        layout.addWidget(self._autostart_card)
 
         # ---- 字体修改卡片 ----
         self._font_card = QFrame()
@@ -676,6 +754,7 @@ class SettingsWindow(ThemedWidget):
         # 先设置初始值，再连接信号，避免初始化时触发脏标记
         self._font_combo.currentTextChanged.connect(self._on_font_changed)
         self._language_combo.currentIndexChanged.connect(self._on_language_changed)
+        self._autostart_combo.currentIndexChanged.connect(self._on_autostart_changed)
 
         return page
 
@@ -1207,6 +1286,14 @@ class SettingsWindow(ThemedWidget):
             return False
         return self._language_combo.currentData() != self._applied_language
 
+    def _autostart_is_dirty(self) -> bool:
+        """判断自启动下拉框的当前选择是否与已应用状态不同。"""
+        if self._autostart_combo is None:
+            return False
+        return self._autostart_combo.currentData() != (
+            "on" if self._applied_autostart else "off"
+        )
+
     def _on_font_changed(self, font_name: str) -> None:
         """字体下拉框选择变化：更新预览，并刷新「应用修改」按钮状态。"""
         if not font_name:
@@ -1217,6 +1304,10 @@ class SettingsWindow(ThemedWidget):
 
     def _on_language_changed(self, index: int) -> None:
         """语言下拉框选择变化：刷新「应用修改」按钮状态。"""
+        self._refresh_apply_button()
+
+    def _on_autostart_changed(self, index: int) -> None:
+        """自启动下拉框选择变化：刷新「应用修改」按钮状态。"""
         self._refresh_apply_button()
 
     def _refresh_apply_button(self) -> None:
@@ -1233,6 +1324,7 @@ class SettingsWindow(ThemedWidget):
             self._has_unsaved_changes
             or self._font_is_dirty()
             or self._language_is_dirty()
+            or self._autostart_is_dirty()
         )
         self._apply_btn.setEnabled(enabled)
 
@@ -1442,6 +1534,87 @@ class SettingsWindow(ThemedWidget):
         except Exception as e:
             logger.error(f"写回 schedule_config.ini 语言失败：{e}")
 
+    # ================================================================
+    #  开机自启动（注册表）
+    # ================================================================
+    def _build_autostart_command(self) -> str:
+        """
+        构造写入注册表的自启动启动命令。
+        ---------------------------------
+        已打包（PyInstaller）时直接使用当前可执行文件；
+        源码运行时使用「python 解释器 + main.py」组合，
+        与 _restart_app 的启动方式保持一致。
+        """
+        if getattr(sys, 'frozen', False):
+            return f'"{sys.executable}"'
+        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        main_script: str = os.path.join(script_dir, 'main.py')
+        return f'"{sys.executable}" "{main_script}"'
+
+    def _is_autostart_enabled(self) -> bool:
+        """查询注册表 Run 键，判断开机自启动是否已开启。"""
+        if sys.platform != 'win32':
+            logger.warning("非 Windows 平台，跳过开机自启动查询")
+            return False
+        try:
+            import winreg  # noqa: PLC0415
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER, _AUTOSTART_REG_KEY
+            ) as key:
+                value, _ = winreg.QueryValueEx(key, _AUTOSTART_VALUE_NAME)
+            return bool(value)
+        except OSError:
+            return False
+
+    def _set_autostart_enabled(self, enabled: bool) -> bool:
+        """
+        写入或删除注册表 Run 键下的自启动项。
+        -------------------------------------
+        参数：
+            enabled（bool）：True 写入启动命令，False 删除自启动项
+
+        返回值：
+            bool：操作是否成功
+        """
+        if sys.platform != 'win32':
+            logger.warning("非 Windows 平台，无法修改开机自启动")
+            return False
+        try:
+            import winreg  # noqa: PLC0415
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER, _AUTOSTART_REG_KEY,
+                0, winreg.KEY_SET_VALUE
+            ) as key:
+                if enabled:
+                    winreg.SetValueEx(
+                        key, _AUTOSTART_VALUE_NAME, 0,
+                        winreg.REG_SZ, self._build_autostart_command()
+                    )
+                else:
+                    try:
+                        winreg.DeleteValue(key, _AUTOSTART_VALUE_NAME)
+                    except FileNotFoundError:
+                        pass  # 值不存在视为已删除
+            logger.info(
+                f"开机自启动已{'开启' if enabled else '关闭'}："
+                f"{_AUTOSTART_VALUE_NAME} @ HKCU\\{_AUTOSTART_REG_KEY}"
+            )
+            return True
+        except OSError as e:
+            logger.error(f"修改注册表开机自启动失败：{e}")
+            return False
+
+    def _persist_autostart(self) -> None:
+        """把当前选中的开机自启动状态写入注册表（立即生效）。"""
+        if self._autostart_combo is None:
+            return
+        enabled: bool = self._autostart_combo.currentData() == "on"
+        if enabled == self._applied_autostart:
+            return
+        if self._set_autostart_enabled(enabled):
+            self._applied_autostart = enabled
+            logger.info(f"开机自启动状态已更新：{'开启' if enabled else '关闭'}")
+
     def _restart_app(self) -> None:
         """重启软件：启动新进程并退出当前程序。"""
         script_dir: str = os.path.dirname(os.path.abspath(__file__))
@@ -1466,6 +1639,9 @@ class SettingsWindow(ThemedWidget):
         self._persist_language()
         if self._language_combo is not None:
             self._applied_language = self._language_combo.currentData()
+
+        # 1c. 持久化开机自启动设置（若已修改，立即写入注册表）
+        self._persist_autostart()
 
         if self._schedule_data is None:
             # 仅字体等不依赖 schedule_data 的修改：直接重启生效
@@ -1518,6 +1694,9 @@ class SettingsWindow(ThemedWidget):
         self._persist_language()
         if self._language_combo is not None:
             self._applied_language = self._language_combo.currentData()
+
+        # 1c. 持久化开机自启动设置（若已修改，立即写入注册表）
+        self._persist_autostart()
 
         # 2. 将编辑副本直接写入本地文件
         self._save_editing_timetable_file()
@@ -3583,7 +3762,7 @@ class SettingsWindow(ThemedWidget):
     def _on_exit_clicked(self) -> None:
         """点击退出按钮：如有未应用修改则弹窗询问是否立即应用，然后隐藏窗口。"""
         if (self._has_unsaved_changes or self._font_is_dirty()
-                or self._language_is_dirty()):
+                or self._language_is_dirty() or self._autostart_is_dirty()):
             box: QMessageBox = QMessageBox(self)
             box.setWindowTitle("未应用的修改")
             box.setText(
@@ -3643,7 +3822,7 @@ class SettingsWindow(ThemedWidget):
         如有未应用修改则弹窗询问是否立即应用。
         """
         if (self._has_unsaved_changes or self._font_is_dirty()
-                or self._language_is_dirty()):
+                or self._language_is_dirty() or self._autostart_is_dirty()):
             box: QMessageBox = QMessageBox(self)
             box.setWindowTitle("未应用的修改")
             box.setText(
