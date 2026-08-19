@@ -1,5 +1,6 @@
 {
     "Monday": {
+        "lesson_1": "数学",
         "lesson_2": "英语",
         "lesson_3": "数学",
         "lesson_4": "英语",
@@ -11,8 +12,7 @@
         "lesson_10": "生物",
         "lesson_11": "生涯",
         "lesson_12": "体育",
-        "lesson_13": "通用技术",
-        "lesson_1": "数学"
+        "lesson_13": "通用技术"
     },
     "Tuesday": {
         "lesson_1": "信息",
