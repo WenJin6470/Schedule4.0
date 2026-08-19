@@ -11,7 +11,8 @@
   ✅ run_translation_tests() — 专门测试函数：
       - 读取 Config/TranslationTest/translation_sites.txt 中的候选网站
       - 从 Config/TranslationTest/Translation_test.csv 任选一条测试词条
-      - 对每个网站执行测试翻译，记录「完成翻译耗时」与「翻译是否正确」
+      - 对每个网站执行测试翻译，记录「完成翻译耗时」「翻译是否正确」
+        「需翻译的中文」「期望的英文」「翻译的英文」
       - 结果写入 Config/TranslationTest/outcome.json（每网站保留最近 20 次）
       - 每次测试后对每网站近 20 次结果拟合出可用度数字分，
         将可用度最高的网站 id 写入 schedule_config.ini 的 translation_site
@@ -560,7 +561,8 @@ def run_translation_tests() -> Dict[str, Any]:
     流程：
       1. 读取候选网站列表
       2. 从 CSV 任选一条测试词条
-      3. 对每个网站执行测试翻译，记录 (完成翻译耗时, 翻译是否正确)
+      3. 对每个网站执行测试翻译，记录 (完成翻译耗时, 翻译是否正确,
+         需翻译的中文, 期望的英文, 翻译的英文)
       4. 写入 outcome.json（每网站保留最近 20 次）
       5. 对每网站近 20 次结果拟合出可用度分数并保存
       6. 将可用度最高的网站 id 写入 schedule_config.ini
@@ -596,11 +598,15 @@ def run_translation_tests() -> Dict[str, Any]:
         except Exception as e:
             duration = time.monotonic() - t0
             correct = False
+            actual = ''  # 测试失败时无实际译文，记为空白
             logger.warning(f"  [{sid}] 测试失败：{e} 耗时={duration:.3f}s")
         record: Dict[str, Any] = {
             'ts': now_str,
             'duration': round(duration, 3),
             'correct': correct,
+            'Need Teanslate': source,
+            'Expected English': expected,
+            'Translation': actual,
         }
         records: Any = history.get(sid, [])
         if not isinstance(records, list):

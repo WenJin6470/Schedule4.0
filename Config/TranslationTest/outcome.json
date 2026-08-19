@@ -2,338 +2,50 @@
     "history": {
         "google": [
             {
-                "ts": "2026-08-17 20:59:50",
-                "duration": 8.157,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-17 21:09:05",
-                "duration": 8.071,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-17 21:15:54",
-                "duration": 8.063,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 08:20:38",
-                "duration": 8.384,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 08:25:54",
-                "duration": 8.107,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 09:03:20",
-                "duration": 12.721,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 11:58:24",
-                "duration": 8.105,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 13:22:43",
-                "duration": 8.115,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 18:20:52",
-                "duration": 8.142,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 18:21:14",
-                "duration": 8.064,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 18:35:20",
-                "duration": 8.065,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 19:59:29",
-                "duration": 8.118,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 20:51:43",
-                "duration": 8.084,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 21:20:06",
-                "duration": 8.038,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 21:37:18",
-                "duration": 8.096,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-19 08:20:45",
-                "duration": 8.1,
-                "correct": false
+                "ts": "2026-08-19 08:50:46",
+                "duration": 8.062,
+                "correct": false,
+                "需翻译的中文": "活动",
+                "期望的英文": "Activity",
+                "翻译的英文": ""
             }
         ],
         "youdao": [
             {
-                "ts": "2026-08-17 20:59:50",
-                "duration": 0.251,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-17 21:09:05",
-                "duration": 0.26,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-17 21:15:54",
-                "duration": 0.195,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 08:20:38",
-                "duration": 0.481,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 08:25:54",
-                "duration": 0.425,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 09:03:20",
-                "duration": 3.281,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 11:58:24",
-                "duration": 0.464,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 13:22:43",
-                "duration": 0.216,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 18:20:52",
-                "duration": 0.193,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 18:21:14",
-                "duration": 0.492,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 18:35:20",
-                "duration": 0.224,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 19:59:29",
-                "duration": 0.235,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 20:51:43",
-                "duration": 0.216,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 21:20:06",
-                "duration": 0.222,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 21:37:18",
-                "duration": 0.394,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-19 08:20:45",
-                "duration": 0.222,
-                "correct": false
+                "ts": "2026-08-19 08:50:46",
+                "duration": 0.196,
+                "correct": false,
+                "需翻译的中文": "活动",
+                "期望的英文": "Activity",
+                "翻译的英文": ""
             }
         ],
         "baidu": [
             {
-                "ts": "2026-08-17 20:59:50",
-                "duration": 0.167,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-17 21:09:05",
-                "duration": 0.154,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-17 21:15:54",
-                "duration": 0.135,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 08:20:38",
-                "duration": 0.282,
-                "correct": true
-            },
-            {
-                "ts": "2026-08-18 08:25:54",
-                "duration": 0.248,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 09:03:20",
-                "duration": 0.205,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 11:58:24",
-                "duration": 2.134,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 13:22:43",
-                "duration": 0.17,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 18:20:52",
+                "ts": "2026-08-19 08:50:46",
                 "duration": 0.178,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 18:21:14",
-                "duration": 0.195,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 18:35:20",
-                "duration": 0.182,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 19:59:29",
-                "duration": 0.211,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 20:51:43",
-                "duration": 0.186,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 21:20:06",
-                "duration": 0.173,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 21:37:18",
-                "duration": 0.212,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-19 08:20:45",
-                "duration": 0.194,
-                "correct": false
+                "correct": false,
+                "需翻译的中文": "活动",
+                "期望的英文": "Activity",
+                "翻译的英文": "activity; campaign; exercise; flexible"
             }
         ],
         "mymemory": [
             {
-                "ts": "2026-08-17 20:59:50",
-                "duration": 1.125,
-                "correct": true
-            },
-            {
-                "ts": "2026-08-17 21:09:05",
-                "duration": 1.148,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-17 21:15:54",
-                "duration": 1.149,
-                "correct": true
-            },
-            {
-                "ts": "2026-08-18 08:20:38",
-                "duration": 1.649,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 08:25:54",
-                "duration": 1.613,
-                "correct": true
-            },
-            {
-                "ts": "2026-08-18 09:03:20",
-                "duration": 1.362,
-                "correct": true
-            },
-            {
-                "ts": "2026-08-18 11:58:24",
-                "duration": 1.07,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 13:22:43",
-                "duration": 4.634,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-18 18:20:52",
-                "duration": 1.754,
-                "correct": true
-            },
-            {
-                "ts": "2026-08-18 18:21:14",
-                "duration": 2.625,
-                "correct": true
-            },
-            {
-                "ts": "2026-08-18 18:35:20",
-                "duration": 1.401,
-                "correct": true
-            },
-            {
-                "ts": "2026-08-18 19:59:29",
-                "duration": 0.836,
-                "correct": true
-            },
-            {
-                "ts": "2026-08-18 20:51:43",
-                "duration": 0.955,
-                "correct": true
-            },
-            {
-                "ts": "2026-08-18 21:20:06",
-                "duration": 1.005,
-                "correct": true
-            },
-            {
-                "ts": "2026-08-18 21:37:18",
-                "duration": 1.925,
-                "correct": false
-            },
-            {
-                "ts": "2026-08-19 08:20:45",
-                "duration": 1.363,
-                "correct": true
+                "ts": "2026-08-19 08:50:46",
+                "duration": 0.981,
+                "correct": false,
+                "需翻译的中文": "活动",
+                "期望的英文": "Activity",
+                "翻译的英文": "Event"
             }
         ]
     },
     "scores": {
         "google": 0.0,
         "youdao": 0.0,
-        "baidu": 6.0929375,
-        "mymemory": 67.9495625
+        "baidu": 0.0,
+        "mymemory": 0.0
     },
-    "updated_at": "2026-08-19 08:20:45"
+    "updated_at": "2026-08-19 08:50:46"
 }
