@@ -90,7 +90,7 @@ class ScheduleMainWindow(ThemedWidget):
             schedule_data（ScheduleDataManager）： 课表数据管理器（含时间表和课程表数据）
             debug_config（DebugConfig）：          调试配置管理器（含时间覆盖参数）
         """
-        super().__init__(theme_manager, bg_color_attr='root_back_color')
+        super().__init__(theme_manager, bg_color_attr='main_back_color')
 
         logger.info("=" * 50)
         logger.info("ScheduleMainWindow 初始化开始")
@@ -244,7 +244,7 @@ class ScheduleMainWindow(ThemedWidget):
                 label: QLabel = QLabel(self)
                 label.setObjectName(key)
                 label.setStyleSheet(f"""
-                    color: {self._theme.font_color};
+                    color: {self._theme.main_font_color};
                     background: transparent;
                 """)
                 label.setAlignment(Qt.AlignCenter)  # type: ignore
@@ -326,7 +326,7 @@ class ScheduleMainWindow(ThemedWidget):
         menu.setFont(QFont("Arial", 11))
 
         # 菜单样式：与主窗口主题协调
-        is_dark: bool = (self._theme.theme == 'darkcolor')
+        is_dark: bool = is_color_dark(self._theme.main_back_color)
         menu_bg: str = '#2D2D30' if is_dark else '#FFFFFF'
         menu_text: str = '#E0E0E0' if is_dark else '#212121'
         menu_hover: str = '#3E3E42' if is_dark else '#E8E8E8'
@@ -533,7 +533,7 @@ class ScheduleMainWindow(ThemedWidget):
                 label: QLabel = QLabel(self)
                 label.setObjectName(key)
                 label.setStyleSheet(f"""
-                    color: {self._theme.font_color};
+                    color: {self._theme.main_font_color};
                     background: transparent;
                 """)
                 label.setAlignment(Qt.AlignCenter)  # type: ignore
@@ -627,7 +627,7 @@ class ScheduleMainWindow(ThemedWidget):
         if 0 <= self._cursor_index < len(self.period_labels):
             label = self.period_labels[self._cursor_index]
             label.setStyleSheet(f"""
-                color: {self._theme.font_color};
+                color: {self._theme.main_font_color};
                 background: transparent;
             """)
         self._blink_on = False
@@ -639,7 +639,7 @@ class ScheduleMainWindow(ThemedWidget):
             return
 
         label = self.period_labels[self._cursor_index]
-        font_color = self._theme.font_color
+        font_color = self._theme.main_font_color
 
         if self._blink_on:
             # 恢复常态
@@ -693,7 +693,7 @@ class ScheduleMainWindow(ThemedWidget):
         # 先恢复所有标签样式
         for label in self.period_labels:
             label.setStyleSheet(f"""
-                color: {self._theme.font_color};
+                color: {self._theme.main_font_color};
                 background: transparent;
             """)
         # 立即显示一次高亮
@@ -819,7 +819,7 @@ class ScheduleMainWindow(ThemedWidget):
             return
 
         # 第一步：将所有标签重置为默认字体颜色
-        default_color = self._theme.font_color
+        default_color = self._theme.main_font_color
         for label in self.period_labels:
             label.setStyleSheet(f"color: {default_color}; background: transparent;")
 

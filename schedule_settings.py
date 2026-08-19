@@ -22,6 +22,7 @@
 import copy
 import json
 import logging
+import math
 import os
 import subprocess
 import sys
@@ -35,13 +36,16 @@ from PySide6.QtWidgets import (
     QLineEdit, QComboBox, QRadioButton, QFileDialog, QAbstractItemView,
     QScrollArea, QScroller, QMessageBox,
 )
-from PySide6.QtCore import Qt, Signal, SignalInstance, QTimer
-from PySide6.QtGui import QFont, QFontDatabase, QIcon, QCloseEvent, QColor
+from PySide6.QtCore import Qt, Signal, SignalInstance, QTimer, QPointF
+from PySide6.QtGui import (
+    QFont, QFontDatabase, QIcon, QCloseEvent, QColor,
+    QBrush, QImage, QPainter, QPen,
+)
 
 from schedule_config import (
     ThemeManager, ThemedWidget, ScheduleDataManager,
     DisplayRulesManager, parse_display_rule,
-    SubjectConfigManager, parse_subject_entry,
+    SubjectConfigManager, parse_subject_entry, is_color_dark,
 )
 from schedule_backend import TimeWheelPicker, WheelColumn
 from schedule_translate import TranslateWorker, load_sites, get_default_site
@@ -173,6 +177,154 @@ def abbreviate_english_name(name: str, max_len: int = SUBJECT_EN_MAX_LEN) -> str
     return result if result else original
 
 
+# ==================== 开关控件 ====================
+
+class ToggleSwitch(QWidget):
+    """
+    # ToggleSwitch — 简单的开关按钮
+
+    点击切换开/关状态，通过 paintEvent 绘制圆角轨道与滑块。
+    """
+
+    # 信号：状态切换（参数为新状态）
+    toggled = Signal(bool)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        """初始化开关控件。"""
+        super().__init__(parent)
+        self._checked: bool = False
+        self.setFixedSize(48, 26)
+        self.setCursor(Qt.PointingHandCursor)  # type: ignore
+
+    def isChecked(self) -> bool:
+        """返回当前开关状态。"""
+        return self._checked
+
+    def setChecked(self, checked: bool) -> None:
+        """设置开关状态（不触发 toggled 信号）。"""
+        self._checked = bool(checked)
+        self.update()
+
+    def mousePressEvent(self, event) -> None:  # noqa: ANN001
+        """点击切换状态并发出 toggled 信号。"""
+        self.setChecked(not self._checked)
+        self.toggled.emit(self._checked)
+
+    def paintEvent(self, event) -> None:  # noqa: ANN001
+        """绘制开关轨道与滑块。"""
+        painter: QPainter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)  # type: ignore
+
+        w: int = self.width()
+        h: int = self.height()
+        track: QColor = QColor('#2196F3') if self._checked else QColor('#9E9E9E')
+        painter.setPen(Qt.NoPen)  # type: ignore
+        painter.setBrush(QBrush(track))
+        painter.drawRoundedRect(0, 0, w, h, h / 2, h / 2)
+
+        margin: int = 3
+        knob_d: int = h - margin * 2
+        knob_x: int = (w - knob_d - margin) if self._checked else margin
+        painter.setBrush(QBrush(QColor('#FFFFFF')))
+        painter.drawEllipse(knob_x, margin, knob_d, knob_d)
+
+
+# ==================== 色相圆盘控件 ====================
+
+class ColorWheel(QWidget):
+    """
+    # ColorWheel — HSV 色相圆盘
+
+    圆盘一周为色相，半径方向为饱和度（中心为白色，边缘为纯色）。
+    点击 / 拖动选择颜色，通过 color_changed 信号通知。
+    """
+
+    # 信号：颜色变化（参数为当前选中颜色）
+    color_changed = Signal(QColor)
+
+    def __init__(self, parent: QWidget | None = None, size: int = 180) -> None:
+        """初始化色相圆盘。"""
+        super().__init__(parent)
+        self._radius: int = size // 2
+        self._hue: float = 0.0
+        self._sat: float = 0.0
+        self._indicator_radius: int = 6
+        self._image: Optional[QImage] = None
+        self.setFixedSize(size, size)
+        self.setCursor(Qt.CrossCursor)  # type: ignore
+        self._build_wheel_image()
+
+    def _build_wheel_image(self) -> None:
+        """逐像素生成 HSV 色相圆盘图像并缓存。"""
+        d: int = self._radius * 2
+        img: QImage = QImage(d, d, QImage.Format_ARGB32)  # type: ignore
+        img.fill(QColor(0, 0, 0, 0))
+        cx: int = self._radius
+        cy: int = self._radius
+        max_r: float = float(self._radius - 2)
+        for y in range(d):
+            for x in range(d):
+                dx: int = x - cx
+                dy: int = y - cy
+                dist: float = math.hypot(dx, dy)
+                if dist <= max_r:
+                    hue: float = (math.degrees(math.atan2(dy, dx)) + 360.0) % 360.0
+                    sat: float = dist / max_r
+                    color: QColor = QColor.fromHsvF(hue / 360.0, sat, 1.0)
+                    img.setPixel(x, y, color.rgb())
+        self._image = img
+
+    def current_color(self) -> QColor:
+        """返回当前选中的颜色。"""
+        return QColor.fromHsvF(self._hue / 360.0, self._sat, 1.0)
+
+    def set_color(self, color: QColor) -> None:
+        """设置当前颜色（不触发信号）。"""
+        h, s, _v, _a = color.getHsvF()
+        self._hue = h * 360.0
+        self._sat = s
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: ANN001
+        """绘制圆盘与选中指示器。"""
+        painter: QPainter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)  # type: ignore
+        if self._image is not None:
+            painter.drawImage(0, 0, self._image)
+
+        angle: float = math.radians(self._hue)
+        r: float = self._sat * float(self._radius - 2)
+        px: float = self._radius + r * math.cos(angle)
+        py: float = self._radius + r * math.sin(angle)
+        painter.setPen(QPen(QColor('#FFFFFF'), 2))
+        painter.setBrush(QBrush(self.current_color()))
+        painter.drawEllipse(
+            QPointF(px, py),
+            float(self._indicator_radius),
+            float(self._indicator_radius),
+        )
+
+    def _update_from_pos(self, pos) -> None:  # noqa: ANN001
+        """根据坐标更新色相 / 饱和度并发出信号。"""
+        dx: float = float(pos.x() - self._radius)
+        dy: float = float(pos.y() - self._radius)
+        dist: float = math.hypot(dx, dy)
+        max_r: float = float(self._radius - 2)
+        self._sat = min(1.0, max(0.0, dist / max_r))
+        self._hue = (math.degrees(math.atan2(dy, dx)) + 360.0) % 360.0
+        self.update()
+        self.color_changed.emit(self.current_color())
+
+    def mousePressEvent(self, event) -> None:  # noqa: ANN001
+        """按下即选择颜色。"""
+        self._update_from_pos(event.position().toPoint())
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: ANN001
+        """按住拖动连续选择颜色。"""
+        if event.buttons() & Qt.LeftButton:  # type: ignore
+            self._update_from_pos(event.position().toPoint())
+
+
 class SettingsWindow(ThemedWidget):
     """
     # SettingsWindow — 全屏设置窗口
@@ -276,10 +428,28 @@ class SettingsWindow(ThemedWidget):
 
         # 基础设置 — 开机自启动引用
         self._autostart_card: Optional[QFrame] = None
-        self._autostart_combo: Optional[QComboBox] = None
+        self._autostart_switch: Optional[ToggleSwitch] = None
         self._autostart_title_label: Optional[QLabel] = None
         self._autostart_hint_label: Optional[QLabel] = None
         self._applied_autostart: bool = self._is_autostart_enabled()
+
+        # 美化 — 明暗模式 / 主题色引用
+        self._applied_theme: str = self._theme.theme
+        self._applied_theme_color: str = self._theme.theme_color
+        self._pending_color: str = self._theme.theme_color
+        self._theme_card: Optional[QFrame] = None
+        self._theme_combo: Optional[QComboBox] = None
+        self._theme_title_label: Optional[QLabel] = None
+        self._theme_hint_label: Optional[QLabel] = None
+        self._color_card: Optional[QFrame] = None
+        self._color_mode_switch: Optional[ToggleSwitch] = None
+        self._color_title_label: Optional[QLabel] = None
+        self._color_hint_label: Optional[QLabel] = None
+        self._color_picker_area: Optional[QWidget] = None
+        self._color_wheel: Optional[ColorWheel] = None
+        self._color_preview: Optional[QFrame] = None
+        self._color_rgb_label: Optional[QLabel] = None
+        self._color_confirm_btn: Optional[QPushButton] = None
 
         # 显示规则引用
         self._rule_list: Optional[DisplayRuleListWidget] = None
@@ -468,8 +638,8 @@ class SettingsWindow(ThemedWidget):
 
         # 页面 0：基础设置（开机自启动 + 字体修改 + 语言切换）
         self._stack.addWidget(self._create_basic_settings_page())
-        # 页面 1：美化（占位）
-        self._stack.addWidget(self._create_placeholder_page("美化"))
+        # 页面 1：美化（明暗模式 + 主题色）
+        self._stack.addWidget(self._create_beautify_page())
         # 页面 2：课表编辑（实际编辑器）
         self._stack.addWidget(self._create_timetable_editor_page())
         # 页面 3：关于（占位）
@@ -591,23 +761,12 @@ class SettingsWindow(ThemedWidget):
 
         autostart_top_row.addLayout(autostart_left_col, stretch=1)
 
-        # ---- 开启/关闭下拉框（右侧）----
-        self._autostart_combo = QComboBox()
-        self._autostart_combo.setMinimumWidth(260)
-        self._autostart_combo.setCursor(Qt.PointingHandCursor)  # type: ignore
-        self._autostart_combo.setStyleSheet(self._get_font_combo_style())
-        self._autostart_combo.addItem("开启", "on")
-        self._autostart_combo.addItem("关闭", "off")
-
-        # 选中当前已应用的自启动状态
-        autostart_idx: int = self._autostart_combo.findData(
-            "on" if self._applied_autostart else "off"
-        )
-        if autostart_idx >= 0:
-            self._autostart_combo.setCurrentIndex(autostart_idx)
+        # ---- 开启/关闭开关（右侧）----
+        self._autostart_switch = ToggleSwitch()
+        self._autostart_switch.setChecked(self._applied_autostart)
 
         autostart_top_row.addWidget(
-            self._autostart_combo, 0, Qt.AlignTop  # type: ignore
+            self._autostart_switch, 0, Qt.AlignTop  # type: ignore
         )
         autostart_card_layout.addLayout(autostart_top_row)
 
@@ -754,9 +913,286 @@ class SettingsWindow(ThemedWidget):
         # 先设置初始值，再连接信号，避免初始化时触发脏标记
         self._font_combo.currentTextChanged.connect(self._on_font_changed)
         self._language_combo.currentIndexChanged.connect(self._on_language_changed)
-        self._autostart_combo.currentIndexChanged.connect(self._on_autostart_changed)
+        self._autostart_switch.toggled.connect(self._on_autostart_toggled)
 
         return page
+
+    # ================================================================
+    #  创建美化页面
+    # ================================================================
+    def _create_beautify_page(self) -> QWidget:
+        """
+        构建"美化"页面。
+        ----------------
+        包含两张卡片：
+          1. 明暗模式卡片 — 亮色 / 暗色（适用于全部窗口）
+          2. 主题色卡片   — 彩色模式开关 + 颜色圆盘选择区
+        """
+        page: QWidget = QWidget()
+        page.setStyleSheet("background: transparent;")
+
+        layout: QVBoxLayout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        fc: str = self._theme.font_color
+
+        # ---- 页面主标题 ----
+        page_title: QLabel = QLabel("美化")
+        page_title.setFont(QFont("Microsoft YaHei", 22, QFont.Bold))  # type: ignore
+        page_title.setStyleSheet(f"color: {fc}; background: transparent;")
+        page_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
+        layout.addWidget(page_title)
+
+        # ================================================================
+        #  卡片 1：明暗模式
+        # ================================================================
+        self._theme_card = QFrame()
+        self._theme_card.setStyleSheet(self._get_status_card_style())
+        self._theme_card.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Fixed  # type: ignore
+        )
+        theme_card_layout: QVBoxLayout = QVBoxLayout(self._theme_card)
+        theme_card_layout.setContentsMargins(20, 12, 20, 12)
+        theme_card_layout.setSpacing(4)
+
+        theme_top_row: QHBoxLayout = QHBoxLayout()
+        theme_top_row.setSpacing(16)
+
+        theme_left_col: QVBoxLayout = QVBoxLayout()
+        theme_left_col.setSpacing(6)
+
+        self._theme_title_label = QLabel("明暗模式")
+        self._theme_title_label.setFont(
+            QFont("Microsoft YaHei", 14, QFont.Bold)  # type: ignore
+        )
+        self._theme_title_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none;"
+        )
+        theme_left_col.addWidget(self._theme_title_label)
+
+        self._theme_hint_label = QLabel(
+            "亮色与暗色模式适用于全部窗口；"
+            "选择后点击「应用修改」重启以生效。"
+        )
+        theme_hint_font: QFont = QFont("Microsoft YaHei", 9)
+        theme_hint_font.setItalic(True)
+        self._theme_hint_label.setFont(theme_hint_font)
+        self._theme_hint_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none; opacity: 0.6;"
+        )
+        self._theme_hint_label.setWordWrap(True)
+        theme_left_col.addWidget(self._theme_hint_label)
+
+        theme_top_row.addLayout(theme_left_col, stretch=1)
+
+        # ---- 明暗模式下拉框（右侧）----
+        self._theme_combo = QComboBox()
+        self._theme_combo.setMinimumWidth(260)
+        self._theme_combo.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self._theme_combo.setStyleSheet(self._get_font_combo_style())
+        self._theme_combo.addItem("亮色模式", "lightcolor")
+        self._theme_combo.addItem("暗色模式", "darkcolor")
+
+        # 选中当前已应用的主题（彩色模式时回退为亮色）
+        combo_theme: str = (
+            self._applied_theme
+            if self._applied_theme in ('lightcolor', 'darkcolor')
+            else 'lightcolor'
+        )
+        theme_idx: int = self._theme_combo.findData(combo_theme)
+        if theme_idx >= 0:
+            self._theme_combo.setCurrentIndex(theme_idx)
+
+        theme_top_row.addWidget(self._theme_combo, 0, Qt.AlignTop)  # type: ignore
+        theme_card_layout.addLayout(theme_top_row)
+
+        layout.addWidget(self._theme_card)
+
+        # ================================================================
+        #  卡片 2：主题色
+        # ================================================================
+        self._color_card = QFrame()
+        self._color_card.setStyleSheet(self._get_status_card_style())
+        self._color_card.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Fixed  # type: ignore
+        )
+        color_card_layout: QVBoxLayout = QVBoxLayout(self._color_card)
+        color_card_layout.setContentsMargins(20, 12, 20, 12)
+        color_card_layout.setSpacing(4)
+
+        color_top_row: QHBoxLayout = QHBoxLayout()
+        color_top_row.setSpacing(16)
+
+        color_left_col: QVBoxLayout = QVBoxLayout()
+        color_left_col.setSpacing(6)
+
+        self._color_title_label = QLabel("主题色")
+        self._color_title_label.setFont(
+            QFont("Microsoft YaHei", 14, QFont.Bold)  # type: ignore
+        )
+        self._color_title_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none;"
+        )
+        color_left_col.addWidget(self._color_title_label)
+
+        self._color_hint_label = QLabel(
+            "开启后进入彩色模式，主题色仅应用于课表主窗口与置顶时间窗口，"
+            "其余窗口保持浅色；在下方圆盘选择颜色后点击「确定」，"
+            "再点击「应用修改」重启以生效。"
+        )
+        color_hint_font: QFont = QFont("Microsoft YaHei", 9)
+        color_hint_font.setItalic(True)
+        self._color_hint_label.setFont(color_hint_font)
+        self._color_hint_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none; opacity: 0.6;"
+        )
+        self._color_hint_label.setWordWrap(True)
+        color_left_col.addWidget(self._color_hint_label)
+
+        color_top_row.addLayout(color_left_col, stretch=1)
+
+        # ---- 彩色模式开关（右侧）----
+        self._color_mode_switch = ToggleSwitch()
+        self._color_mode_switch.setChecked(self._applied_theme == 'multicolor')
+        color_top_row.addWidget(self._color_mode_switch, 0, Qt.AlignTop)  # type: ignore
+        color_card_layout.addLayout(color_top_row)
+
+        # ---- 颜色选择区域（开关打开时显示）----
+        self._color_picker_area = QWidget()
+        self._color_picker_area.setStyleSheet("background: transparent;")
+        picker_layout: QHBoxLayout = QHBoxLayout(self._color_picker_area)
+        picker_layout.setContentsMargins(0, 12, 0, 0)
+        picker_layout.setSpacing(20)
+
+        self._color_wheel = ColorWheel()
+        picker_layout.addWidget(self._color_wheel, 0, Qt.AlignLeft)  # type: ignore
+
+        right_col: QVBoxLayout = QVBoxLayout()
+        right_col.setSpacing(10)
+
+        # 颜色预览（一个控件同时展示颜色与 RGB 值）
+        self._color_preview = QFrame()
+        self._color_preview.setMinimumSize(170, 110)
+        preview_layout: QVBoxLayout = QVBoxLayout(self._color_preview)
+        preview_layout.setContentsMargins(10, 8, 10, 8)
+        preview_layout.addStretch()
+        self._color_rgb_label = QLabel()
+        self._color_rgb_label.setAlignment(Qt.AlignCenter)  # type: ignore
+        preview_layout.addWidget(self._color_rgb_label)
+        right_col.addWidget(self._color_preview)
+
+        self._color_confirm_btn = QPushButton("确定")
+        self._color_confirm_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self._color_confirm_btn.setMinimumHeight(34)
+        self._color_confirm_btn.setStyleSheet(self._get_confirm_btn_style())
+        right_col.addWidget(self._color_confirm_btn)
+        right_col.addStretch()
+
+        picker_layout.addLayout(right_col, stretch=1)
+        color_card_layout.addWidget(self._color_picker_area)
+
+        layout.addWidget(self._color_card)
+        layout.addStretch(1)
+
+        # ---- 初始化颜色与显隐（先设值，后连信号，避免触发脏标记）----
+        init_color: QColor = QColor(self._pending_color)
+        if not init_color.isValid():
+            init_color = QColor('#2196F3')
+        self._color_wheel.set_color(init_color)
+        self._update_color_preview(init_color)
+        self._refresh_color_picker_visibility()
+
+        self._theme_combo.currentIndexChanged.connect(self._on_theme_combo_changed)
+        self._color_mode_switch.toggled.connect(self._on_color_mode_toggled)
+        self._color_wheel.color_changed.connect(self._on_color_wheel_changed)
+        self._color_confirm_btn.clicked.connect(self._on_color_confirm_clicked)
+
+        return page
+
+    # ================================================================
+    #  美化页面 — 样式与事件处理
+    # ================================================================
+    def _get_confirm_btn_style(self) -> str:
+        """返回「确定」按钮的 QSS 样式。"""
+        return """
+            QPushButton {
+                color: white;
+                background-color: #2196F3;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-size: 13px;
+            }
+            QPushButton:hover { background-color: #42A5F5; }
+            QPushButton:pressed { background-color: #1E88E5; }
+        """
+
+    def _effective_theme(self) -> str:
+        """返回当前 UI 状态下应写入配置的主题名。"""
+        # 控件尚未构建（初始化期间）时回退到已应用主题，避免误判脏状态
+        if self._color_mode_switch is None or self._theme_combo is None:
+            return self._applied_theme
+        if self._color_mode_switch.isChecked():
+            return 'multicolor'
+        return self._theme_combo.currentData() or 'lightcolor'
+
+    def _appearance_is_dirty(self) -> bool:
+        """判断外观（主题 / 主题色）是否存在未应用的修改。"""
+        if self._theme_combo is None or self._color_mode_switch is None:
+            return False
+        if self._effective_theme() != self._applied_theme:
+            return True
+        if self._effective_theme() == 'multicolor':
+            return (self._pending_color or '').lower() != (
+                self._applied_theme_color or ''
+            ).lower()
+        return False
+
+    def _on_theme_combo_changed(self, index: int) -> None:
+        """明暗模式下拉框变化：刷新「应用修改」按钮状态。"""
+        self._refresh_apply_button()
+
+    def _on_color_mode_toggled(self, checked: bool) -> None:
+        """彩色模式开关切换：刷新颜色选择区显隐与「应用修改」按钮状态。"""
+        self._refresh_color_picker_visibility()
+        self._refresh_apply_button()
+
+    def _on_color_wheel_changed(self, color: QColor) -> None:
+        """颜色圆盘变化：实时更新预览（不影响已确认的颜色）。"""
+        self._update_color_preview(color)
+
+    def _on_color_confirm_clicked(self) -> None:
+        """「确定」按钮：把圆盘当前颜色固化为待应用的主题色。"""
+        if self._color_wheel is None:
+            return
+        self._pending_color = self._color_wheel.current_color().name()
+        self._update_color_preview(self._color_wheel.current_color())
+        self._refresh_apply_button()
+
+    def _refresh_color_picker_visibility(self) -> None:
+        """根据彩色模式开关刷新颜色选择区域的显隐。"""
+        if self._color_picker_area is not None and self._color_mode_switch is not None:
+            self._color_picker_area.setVisible(self._color_mode_switch.isChecked())
+
+    def _update_color_preview(self, color: QColor) -> None:
+        """刷新颜色预览控件的背景色与 RGB 文本。"""
+        if self._color_preview is None or self._color_rgb_label is None:
+            return
+        hex_str: str = color.name()
+        r, g, b, _a = color.getRgb()
+        self._color_preview.setStyleSheet(
+            f"QFrame {{"
+            f"background-color: {hex_str};"
+            f"border: 1px solid rgba(128,128,128,0.35);"
+            f"border-radius: 8px;"
+            f"}}"
+        )
+        text_color: str = '#FFFFFF' if is_color_dark(hex_str) else '#000000'
+        self._color_rgb_label.setStyleSheet(
+            f"color: {text_color}; background: transparent; border: none;"
+        )
+        self._color_rgb_label.setText(f"RGB({r}, {g}, {b})\n{hex_str}")
 
     def _get_font_combo_style(self) -> str:
         """返回字体下拉框的 QSS 样式（兼容深/浅色主题）。"""
@@ -1287,12 +1723,10 @@ class SettingsWindow(ThemedWidget):
         return self._language_combo.currentData() != self._applied_language
 
     def _autostart_is_dirty(self) -> bool:
-        """判断自启动下拉框的当前选择是否与已应用状态不同。"""
-        if self._autostart_combo is None:
+        """判断自启动开关的当前状态是否与已应用状态不同。"""
+        if self._autostart_switch is None:
             return False
-        return self._autostart_combo.currentData() != (
-            "on" if self._applied_autostart else "off"
-        )
+        return self._autostart_switch.isChecked() != self._applied_autostart
 
     def _on_font_changed(self, font_name: str) -> None:
         """字体下拉框选择变化：更新预览，并刷新「应用修改」按钮状态。"""
@@ -1306,8 +1740,8 @@ class SettingsWindow(ThemedWidget):
         """语言下拉框选择变化：刷新「应用修改」按钮状态。"""
         self._refresh_apply_button()
 
-    def _on_autostart_changed(self, index: int) -> None:
-        """自启动下拉框选择变化：刷新「应用修改」按钮状态。"""
+    def _on_autostart_toggled(self, checked: bool) -> None:
+        """自启动开关状态变化：刷新「应用修改」按钮状态。"""
         self._refresh_apply_button()
 
     def _refresh_apply_button(self) -> None:
@@ -1325,6 +1759,7 @@ class SettingsWindow(ThemedWidget):
             or self._font_is_dirty()
             or self._language_is_dirty()
             or self._autostart_is_dirty()
+            or self._appearance_is_dirty()
         )
         self._apply_btn.setEnabled(enabled)
 
@@ -1534,6 +1969,53 @@ class SettingsWindow(ThemedWidget):
         except Exception as e:
             logger.error(f"写回 schedule_config.ini 语言失败：{e}")
 
+    def _persist_appearance(self) -> None:
+        """把当前主题（theme）与主题色（theme_color）写回 schedule_config.ini。"""
+        theme_value: str = self._effective_theme()
+        color_value: str = (self._pending_color or '#2196f3').lower()
+
+        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        ini_path: str = os.path.join(script_dir, 'Config', 'schedule_config.ini')
+        if not os.path.exists(ini_path):
+            logger.warning(f"配置文件不存在，无法写回外观设置：{ini_path}")
+            return
+        try:
+            with open(ini_path, 'r', encoding='utf-8') as f:
+                lines: List[str] = f.readlines()
+
+            updated: Dict[str, bool] = {'theme': False, 'theme_color': False}
+            out: List[str] = []
+            for line in lines:
+                stripped: str = line.lstrip()
+                if stripped.startswith(';') or stripped.startswith('#'):
+                    out.append(line)
+                    continue
+                if '=' in line:
+                    key: str = line.split('=', 1)[0].strip()
+                    if key == 'theme' and not updated['theme']:
+                        out.append(f"theme = {theme_value}\n")
+                        updated['theme'] = True
+                        continue
+                    if key == 'theme_color' and not updated['theme_color']:
+                        out.append(f"theme_color = {color_value}\n")
+                        updated['theme_color'] = True
+                        continue
+                out.append(line)
+
+            if not updated['theme']:
+                out.append(f"theme = {theme_value}\n")
+            if not updated['theme_color']:
+                out.append(f"theme_color = {color_value}\n")
+
+            with open(ini_path, 'w', encoding='utf-8') as f:
+                f.writelines(out)
+            logger.info(
+                f"已把外观设置写回 schedule_config.ini："
+                f"theme={theme_value}, theme_color={color_value}"
+            )
+        except Exception as e:
+            logger.error(f"写回 schedule_config.ini 外观设置失败：{e}")
+
     # ================================================================
     #  开机自启动（注册表）
     # ================================================================
@@ -1606,9 +2088,9 @@ class SettingsWindow(ThemedWidget):
 
     def _persist_autostart(self) -> None:
         """把当前选中的开机自启动状态写入注册表（立即生效）。"""
-        if self._autostart_combo is None:
+        if self._autostart_switch is None:
             return
-        enabled: bool = self._autostart_combo.currentData() == "on"
+        enabled: bool = self._autostart_switch.isChecked()
         if enabled == self._applied_autostart:
             return
         if self._set_autostart_enabled(enabled):
@@ -1642,6 +2124,11 @@ class SettingsWindow(ThemedWidget):
 
         # 1c. 持久化开机自启动设置（若已修改，立即写入注册表）
         self._persist_autostart()
+
+        # 1d. 持久化外观设置（主题 / 主题色，重启后生效）
+        self._persist_appearance()
+        self._applied_theme = self._effective_theme()
+        self._applied_theme_color = self._pending_color
 
         if self._schedule_data is None:
             # 仅字体等不依赖 schedule_data 的修改：直接重启生效
@@ -1697,6 +2184,11 @@ class SettingsWindow(ThemedWidget):
 
         # 1c. 持久化开机自启动设置（若已修改，立即写入注册表）
         self._persist_autostart()
+
+        # 1d. 持久化外观设置（主题 / 主题色，下次启动生效）
+        self._persist_appearance()
+        self._applied_theme = self._effective_theme()
+        self._applied_theme_color = self._pending_color
 
         # 2. 将编辑副本直接写入本地文件
         self._save_editing_timetable_file()
@@ -2892,10 +3384,13 @@ class SettingsWindow(ThemedWidget):
         right_layout.addWidget(sep)
 
         # -- 操作按钮（垂直排列）--
+        action_style: str = self._get_cv_action_btn_style()
+
         confirm_btn: QPushButton = QPushButton("确认保存")
         confirm_btn.setFont(QFont("Microsoft YaHei", 10, QFont.Bold))  # type: ignore
         confirm_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
         confirm_btn.setMinimumHeight(34)
+        confirm_btn.setStyleSheet(action_style)
         confirm_btn.clicked.connect(self._on_cv_confirm)
         right_layout.addWidget(confirm_btn)
 
@@ -2903,6 +3398,7 @@ class SettingsWindow(ThemedWidget):
         cancel_btn.setFont(QFont("Microsoft YaHei", 10))
         cancel_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
         cancel_btn.setMinimumHeight(32)
+        cancel_btn.setStyleSheet(action_style)
         cancel_btn.clicked.connect(self._on_cv_cancel)
         right_layout.addWidget(cancel_btn)
 
@@ -2910,6 +3406,7 @@ class SettingsWindow(ThemedWidget):
         clear_btn.setFont(QFont("Microsoft YaHei", 10))
         clear_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
         clear_btn.setMinimumHeight(32)
+        clear_btn.setStyleSheet(action_style)
         clear_btn.clicked.connect(self._on_cv_clear)
         right_layout.addWidget(clear_btn)
 
@@ -3361,20 +3858,51 @@ class SettingsWindow(ThemedWidget):
         """
 
     def _get_cv_nav_btn_style(self) -> str:
-        """返回导航按钮的 QSS 样式。"""
-        fc: str = self._theme.font_color
+        """返回导航按钮的 QSS 样式（暗色模式下调整为浅底深字，与操作按钮一致）。"""
         if self._theme.theme == 'darkcolor':
-            bg: str = 'rgba(255,255,255,0.06)'
-            hover_bg: str = 'rgba(255,255,255,0.14)'
-            border: str = 'rgba(255,255,255,0.10)'
+            bg: str = '#E0E0E0'
+            fg: str = '#212121'
+            hover_bg: str = '#FFFFFF'
+            border: str = 'rgba(255,255,255,0.30)'
         else:
+            fg = self._theme.font_color
             bg = 'rgba(0,0,0,0.04)'
             hover_bg = 'rgba(0,0,0,0.08)'
             border = 'rgba(0,0,0,0.10)'
 
         return f"""
             QPushButton {{
-                color: {fc};
+                color: {fg};
+                background-color: {bg};
+                border: 1px solid {border};
+                border-radius: 6px;
+                padding: 6px 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {hover_bg};
+            }}
+        """
+
+    def _get_cv_action_btn_style(self) -> str:
+        """返回课程表编辑卡操作按钮（确认保存 / 取消 / 清除）的 QSS 样式。
+
+        暗色模式下按钮调整为浅色（浅底深字），与深色卡片背景形成对比；
+        浅色模式下保持浅底深字。
+        """
+        if self._theme.theme == 'darkcolor':
+            bg: str = '#E0E0E0'
+            fg: str = '#212121'
+            hover_bg: str = '#FFFFFF'
+            border: str = 'rgba(255,255,255,0.30)'
+        else:
+            bg = '#FFFFFF'
+            fg = '#212121'
+            hover_bg = '#F5F5F5'
+            border = 'rgba(0,0,0,0.12)'
+
+        return f"""
+            QPushButton {{
+                color: {fg};
                 background-color: {bg};
                 border: 1px solid {border};
                 border-radius: 6px;
@@ -3628,6 +4156,32 @@ class SettingsWindow(ThemedWidget):
             )
         if self._language_combo is not None:
             self._language_combo.setStyleSheet(self._get_font_combo_style())
+        # 刷新美化 — 明暗模式卡片
+        if self._theme_card is not None:
+            self._theme_card.setStyleSheet(self._get_status_card_style())
+        if self._theme_title_label is not None:
+            self._theme_title_label.setStyleSheet(
+                f"color: {self._theme.font_color}; background: transparent; border: none;"
+            )
+        if self._theme_hint_label is not None:
+            self._theme_hint_label.setStyleSheet(
+                f"color: {self._theme.font_color}; background: transparent; border: none; opacity: 0.6;"
+            )
+        if self._theme_combo is not None:
+            self._theme_combo.setStyleSheet(self._get_font_combo_style())
+        # 刷新美化 — 主题色卡片
+        if self._color_card is not None:
+            self._color_card.setStyleSheet(self._get_status_card_style())
+        if self._color_title_label is not None:
+            self._color_title_label.setStyleSheet(
+                f"color: {self._theme.font_color}; background: transparent; border: none;"
+            )
+        if self._color_hint_label is not None:
+            self._color_hint_label.setStyleSheet(
+                f"color: {self._theme.font_color}; background: transparent; border: none; opacity: 0.6;"
+            )
+        if self._color_confirm_btn is not None:
+            self._color_confirm_btn.setStyleSheet(self._get_confirm_btn_style())
         if self._status_card is not None:
             self._status_card.setStyleSheet(self._get_status_card_style())
         if self._status_label is not None:
@@ -3762,7 +4316,8 @@ class SettingsWindow(ThemedWidget):
     def _on_exit_clicked(self) -> None:
         """点击退出按钮：如有未应用修改则弹窗询问是否立即应用，然后隐藏窗口。"""
         if (self._has_unsaved_changes or self._font_is_dirty()
-                or self._language_is_dirty() or self._autostart_is_dirty()):
+                or self._language_is_dirty() or self._autostart_is_dirty()
+                or self._appearance_is_dirty()):
             box: QMessageBox = QMessageBox(self)
             box.setWindowTitle("未应用的修改")
             box.setText(
@@ -3822,7 +4377,8 @@ class SettingsWindow(ThemedWidget):
         如有未应用修改则弹窗询问是否立即应用。
         """
         if (self._has_unsaved_changes or self._font_is_dirty()
-                or self._language_is_dirty() or self._autostart_is_dirty()):
+                or self._language_is_dirty() or self._autostart_is_dirty()
+                or self._appearance_is_dirty()):
             box: QMessageBox = QMessageBox(self)
             box.setWindowTitle("未应用的修改")
             box.setText(
@@ -3844,10 +4400,90 @@ class SettingsWindow(ThemedWidget):
         self.hide()
 
 
+# ==================== 带主题背景色的对话框基类 ====================
+
+
+class ThemedDialog(QDialog):
+    """
+    # ThemedDialog — 带主题背景色的对话框基类
+
+    通过 paintEvent 直接填充背景色（与 ThemedWidget 的思路一致），
+    使子窗口在暗色模式下整体呈现深色背景，而不是仅内部控件变暗。
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        """初始化对话框基类（子类负责在 super().__init__ 后设置 self._theme）。"""
+        super().__init__(parent)
+        self._theme: Optional[ThemeManager] = None
+
+    def _dialog_bg(self) -> str:
+        """返回对话框背景色（暗色模式用次级深色，其余保持浅色）。"""
+        if self._theme is not None and self._theme.theme == 'darkcolor':
+            return '#252526'
+        return '#FAFAFA'
+
+    def _field_style(self) -> str:
+        """返回输入框（QLineEdit）的主题 QSS 样式。"""
+        fc: str = self._theme.font_color if self._theme else '#212121'
+        if self._theme is not None and self._theme.theme == 'darkcolor':
+            bg: str = '#2d2d2d'
+            border: str = 'rgba(255,255,255,0.14)'
+        else:
+            bg = '#FFFFFF'
+            border = 'rgba(0,0,0,0.14)'
+        return f"""
+            QLineEdit {{
+                color: {fc};
+                background-color: {bg};
+                border: 1px solid {border};
+                border-radius: 6px;
+                padding: 6px 10px;
+            }}
+            QLineEdit:focus {{
+                border-color: #2196F3;
+            }}
+        """
+
+    def _combo_style(self) -> str:
+        """返回下拉框（QComboBox）的主题 QSS 样式。"""
+        fc: str = self._theme.font_color if self._theme else '#212121'
+        if self._theme is not None and self._theme.theme == 'darkcolor':
+            bg: str = '#2d2d2d'
+            border: str = 'rgba(255,255,255,0.14)'
+        else:
+            bg = '#FFFFFF'
+            border = 'rgba(0,0,0,0.14)'
+        return f"""
+            QComboBox {{
+                color: {fc};
+                background-color: {bg};
+                border: 1px solid {border};
+                border-radius: 6px;
+                padding: 6px 10px;
+            }}
+            QComboBox:hover, QComboBox:focus {{
+                border-color: #2196F3;
+            }}
+            QComboBox QAbstractItemView {{
+                color: {fc};
+                background-color: {bg};
+                border: 1px solid {border};
+                selection-background-color: rgba(33, 150, 243, 0.25);
+                selection-color: {fc};
+                outline: 0;
+            }}
+        """
+
+    def paintEvent(self, event) -> None:  # noqa: ANN001
+        """填充对话框背景色，保证暗色模式下整体为深色。"""
+        painter: QPainter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(self._dialog_bg()))
+
+
 # ==================== 时间表条目编辑对话框 ====================
 
 
-class TimetableEntryDialog(QDialog):
+class TimetableEntryDialog(ThemedDialog):
     """
     # TimetableEntryDialog — 时间表条目编辑子窗口
 
@@ -3945,8 +4581,14 @@ class TimetableEntryDialog(QDialog):
 
         self._lesson_radio: QRadioButton = QRadioButton("课时")
         self._lesson_radio.setFont(QFont("Microsoft YaHei", 11))
+        self._lesson_radio.setStyleSheet(
+            f"color: {fc}; background: transparent;"
+        )
         self._divider_radio: QRadioButton = QRadioButton("分隔线")
         self._divider_radio.setFont(QFont("Microsoft YaHei", 11))
+        self._divider_radio.setStyleSheet(
+            f"color: {fc}; background: transparent;"
+        )
 
         radio_layout: QHBoxLayout = QHBoxLayout()
         radio_layout.addWidget(self._lesson_radio)
@@ -4050,7 +4692,9 @@ class TimetableEntryDialog(QDialog):
         # ---- 分隔线提示 ----
         self._divider_hint: QLabel = QLabel("分隔线不需要时间设置")
         self._divider_hint.setFont(QFont("Microsoft YaHei", 11))
-        self._divider_hint.setStyleSheet("opacity: 0.5;")
+        self._divider_hint.setStyleSheet(
+            f"color: {fc}; background: transparent; opacity: 0.5;"
+        )
         self._divider_hint.setVisible(self._entry_type == 'dividerline')
         layout.addWidget(self._divider_hint)
 
@@ -4217,7 +4861,7 @@ class TimetableEntryDialog(QDialog):
 # ==================== 新建时间表对话框 ====================
 
 
-class NewTimetableDialog(QDialog):
+class NewTimetableDialog(ThemedDialog):
     """
     # NewTimetableDialog — 新建时间表子窗口
 
@@ -4269,6 +4913,7 @@ class NewTimetableDialog(QDialog):
         self._name_input = QLineEdit(default_name)
         self._name_input.setFont(QFont("Microsoft YaHei", 11))
         self._name_input.setMinimumHeight(32)
+        self._name_input.setStyleSheet(self._field_style())
         layout.addWidget(self._name_input)
 
         # ---- 复制来源 ----
@@ -4280,6 +4925,7 @@ class NewTimetableDialog(QDialog):
         self._copy_combo = QComboBox()
         self._copy_combo.setFont(QFont("Microsoft YaHei", 11))
         self._copy_combo.setMinimumHeight(32)
+        self._copy_combo.setStyleSheet(self._combo_style())
         self._copy_combo.addItem("（空白）", "")
         for fname in ScheduleDataManager.get_timetable_files():
             self._copy_combo.addItem(fname, fname)
@@ -4333,7 +4979,7 @@ class NewTimetableDialog(QDialog):
 # ==================== 新建课程表对话框 ====================
 
 
-class NewCurriculumDialog(QDialog):
+class NewCurriculumDialog(ThemedDialog):
     """
     # NewCurriculumDialog — 新建课程表子窗口
 
@@ -4386,6 +5032,7 @@ class NewCurriculumDialog(QDialog):
         self._name_input = QLineEdit(default_name)
         self._name_input.setFont(QFont("Microsoft YaHei", 11))
         self._name_input.setMinimumHeight(32)
+        self._name_input.setStyleSheet(self._field_style())
         layout.addWidget(self._name_input)
 
         # ---- 复制来源 ----
@@ -4397,6 +5044,7 @@ class NewCurriculumDialog(QDialog):
         self._copy_combo = QComboBox()
         self._copy_combo.setFont(QFont("Microsoft YaHei", 11))
         self._copy_combo.setMinimumHeight(32)
+        self._copy_combo.setStyleSheet(self._combo_style())
         self._copy_combo.addItem("（空白）", "")
         for fname in ScheduleDataManager.get_curriculum_files():
             self._copy_combo.addItem(fname, fname)
@@ -4449,7 +5097,7 @@ class NewCurriculumDialog(QDialog):
 # ==================== 科目编辑子窗口 ====================
 
 
-class SubjectEditDialog(QDialog):
+class SubjectEditDialog(ThemedDialog):
     """
     # SubjectEditDialog — 科目编辑子窗口（新建 / 编辑共用）
 
@@ -5015,7 +5663,7 @@ class SubjectEditDialog(QDialog):
 # ==================== 新建类别子窗口 ====================
 
 
-class NewCategoryDialog(QDialog):
+class NewCategoryDialog(ThemedDialog):
     """
     # NewCategoryDialog — 新建类别子窗口
 
@@ -5059,6 +5707,7 @@ class NewCategoryDialog(QDialog):
         self._name_input = QLineEdit("")
         self._name_input.setFont(QFont("Microsoft YaHei", 11))
         self._name_input.setMinimumHeight(32)
+        self._name_input.setStyleSheet(self._field_style())
         layout.addWidget(self._name_input)
 
         hint: QLabel = QLabel("提示：第一类别为系统保护类别，不受新建类别影响。")
@@ -5479,7 +6128,7 @@ class DisplayRuleListWidget(QFrame):
 # ==================== 规则编辑子窗口 ====================
 
 
-class RuleEditDialog(QDialog):
+class RuleEditDialog(ThemedDialog):
     """
     # RuleEditDialog — 显示规则编辑子窗口
 

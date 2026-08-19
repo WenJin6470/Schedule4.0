@@ -10,7 +10,7 @@
   ✅ ThemeManager       — 集中管理所有颜色、字体、透明度等主题参数
   ✅ ScheduleDataManager — 读取课表数据和时间表配置
   ✅ ThemedWidget       — 所有窗口的基类，提供 paintEvent 背景填充
-  ✅ 工具函数           — get_color / RGB_to_Hex / is_color_dark
+  ✅ 工具函数           — is_color_dark / normalize_hex_color
 
 所有前端窗口类（主窗口、时间窗口、快捷编辑、设置）均通过
 ThemeManager 获取主题颜色，确保全局一致性。
@@ -32,46 +32,26 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 # ==================== 工具函数 ====================
 
-def get_color(x: int, y: int) -> Tuple[int, int, int]:
+def normalize_hex_color(value: str, fallback: str = '#2196f3') -> str:
     """
-    获取屏幕上 (x, y) 坐标处像素的 RGB 颜色。
-    ---------------------------------------
-    通过截取整个屏幕后取指定坐标的像素颜色，
-    比 grabWindow(0, x, y, 1, 1) 更可靠，避免高 DPI 或
-    多屏幕时的坐标偏移问题。
+    把用户输入的十六进制颜色规范化为 #rrggbb 小写格式。
+    ------------------------------------------------
+    支持带或不带 # 前缀的 6 位十六进制字符串；
+    非法输入返回 fallback。
 
     参数：
-        x（int）：屏幕 X 坐标
-        y（int）：屏幕 Y 坐标
+        value    （str）：待规范化的颜色字符串
+        fallback （str）：非法输入时的兜底颜色
 
     返回值：
-        Tuple[int, int, int]：（R, G, B）颜色值，范围 0-255
+        str：#rrggbb 格式的小写十六进制颜色
     """
-    screen = QApplication.primaryScreen()
-    if screen is None:
-        return (128, 128, 128)
-
-    geo = screen.geometry()
-    x = max(0, min(x, geo.width() - 1))
-    y = max(0, min(y, geo.height() - 1))
-
-    pixmap = screen.grabWindow(0)
-    image = pixmap.toImage()
-    color = image.pixelColor(x, y)
-    return (color.red(), color.green(), color.blue())
-
-
-def RGB_to_Hex(rgb: Tuple[int, int, int]) -> str:
-    """
-    将 RGB 元组转换为十六进制颜色字符串。
-    ----------------------------------
-    参数：
-        rgb（Tuple[int, int, int]）：RGB 颜色元组
-
-    返回值：
-        str：十六进制颜色字符串，格式 #RRGGBB
-    """
-    return '#{:02x}{:02x}{:02x}'.format(rgb[0], rgb[1], rgb[2])
+    value = (value or '').strip()
+    if value.startswith('#'):
+        value = value[1:]
+    if re.fullmatch(r'[0-9a-fA-F]{6}', value):
+        return '#' + value.lower()
+    return fallback
 
 
 def is_color_dark(hex_color: str) -> bool:
@@ -105,14 +85,17 @@ class ThemeManager:
     ---
 
     对外属性（颜色）：
-      - back_color       — 主背景色
-      - root_back_color  — 次要背景色（科目窗口等）
-      - font_color       — 字体颜色
+      - back_color       — 主背景色（置顶时间窗口背景）
+      - root_back_color  — 次要背景色（设置 / 快捷编辑等窗口）
+      - main_back_color  — 课表主窗口（科目显示）背景色
+      - font_color       — 字体颜色（设置 / 快捷编辑等窗口）
+      - main_font_color  — 课表主窗口（科目显示）字体色
       - subject_font     — 主窗口科目显示字体
       - time_color       — 时间标签颜色
       - border_color     — 分割线颜色
       - window_opacity   — 窗口透明度
       - theme            — 主题名称
+      - theme_color      — 彩色模式的主题色（#rrggbb）
       - language         — 显示语言
       - subject_config   — 科目分类配置
       - curriculum_path  — 课程表 JSON 文件路径（由 INI 的 table 参数指定）
@@ -150,11 +133,14 @@ class ThemeManager:
         # ---- 颜色属性（兜底默认白色主题）----
         self.back_color: str = '#FFFFFF'
         self.root_back_color: str = '#FAFAFA'
+        self.main_back_color: str = '#FAFAFA'
         self.font_color: str = '#212121'
+        self.main_font_color: str = '#212121'
         self.time_color: str = '#D32F2F'
         self.border_color: str = 'rgba(0, 0, 0, 0.08)'
         self.window_opacity: float = 0.70
         self.subject_font: str = 'Arial'
+        self.theme_color: str = '#2196f3'
 
         # ---- 科目配置 ----
         self.subject_config: Dict = {}
@@ -189,6 +175,7 @@ class ThemeManager:
         config_path: str = os.path.join(script_dir, 'Config', 'schedule_config.ini')
 
         default_theme: str = 'lightcolor'
+        default_theme_color: str = '#2196f3'
         default_language: str = 'Chinese'
         default_curriculum: str = 'Config/curriculum/table_1.json'
         default_timetable: str = 'Config/timetable/timetable_1.json'
@@ -197,6 +184,7 @@ class ThemeManager:
             if not os.path.exists(config_path):
                 logger.warning(f"配置文件不存在：{config_path}，使用默认值")
                 self.theme = default_theme
+                self.theme_color = default_theme_color
                 self.language = default_language
                 self.curriculum_path = default_curriculum
                 self.timetable_path = default_timetable
@@ -218,6 +206,11 @@ class ThemeManager:
             else:
                 logger.warning(f"theme='{theme_str}' 无效，使用默认值 '{default_theme}'")
                 self.theme = default_theme
+
+            # --- theme_color（彩色模式的主题色，十六进制 #rrggbb）---
+            theme_color_str: str = parser.get('Schedule', 'theme_color',
+                                              fallback=default_theme_color)
+            self.theme_color = normalize_hex_color(theme_color_str, default_theme_color)
 
             # --- language ---
             lang_str: str = parser.get('Schedule', 'language', fallback=default_language)
@@ -274,6 +267,7 @@ class ThemeManager:
         except (ValueError, TypeError) as e:
             logger.warning(f"配置文件参数格式错误：{e}，使用默认值")
             self.theme = default_theme
+            self.theme_color = default_theme_color
             self.language = default_language
             self.curriculum_path = default_curriculum
             self.timetable_path = default_timetable
@@ -284,6 +278,7 @@ class ThemeManager:
         except Exception as e:
             logger.error(f"读取配置文件失败：{e}，使用默认值")
             self.theme = default_theme
+            self.theme_color = default_theme_color
             self.language = default_language
             self.curriculum_path = default_curriculum
             self.timetable_path = default_timetable
@@ -300,16 +295,18 @@ class ThemeManager:
         根据 self.theme 的值设置所有颜色属性。
         -----------------------------------
         主题说明：
-          lightcolor — 浅色模式（白底深字）
-          darkcolor  — 深色模式（深灰底浅字）
-          multicolor — 自适应桌面背景色
+          lightcolor — 浅色模式（白底深字，全部窗口）
+          darkcolor  — 深色模式（深灰底浅字，全部窗口）
+          multicolor — 彩色模式（主窗口与置顶时间窗口使用主题色，其余窗口保持浅色）
         """
         logger.info(f"应用主题：{self.theme}")
 
         if self.theme == 'lightcolor':
             self.back_color = '#FFFFFF'
             self.root_back_color = '#FAFAFA'
+            self.main_back_color = '#FAFAFA'
             self.font_color = '#212121'
+            self.main_font_color = '#212121'
             self.time_color = '#D32F2F'
             self.border_color = 'rgba(0, 0, 0, 0.08)'
             self.window_opacity = 0.70
@@ -317,29 +314,30 @@ class ThemeManager:
         elif self.theme == 'darkcolor':
             self.back_color = '#252526'
             self.root_back_color = '#1E1E1E'
+            self.main_back_color = '#1E1E1E'
             self.font_color = '#E0E0E0'
+            self.main_font_color = '#E0E0E0'
             self.time_color = '#EF5350'
             self.border_color = 'rgba(62, 62, 66, 0.25)'
             self.window_opacity = 0.85
 
         elif self.theme == 'multicolor':
-            # 屏幕右上角采样（与时间窗口位置一致）
-            sample_x = int(self.screen_width * (1765 / 1920)) - 1
-            sample_y = int(self.screen_height * (45 / 1080)) - 1
-            gca = get_color(sample_x, sample_y)
-            self.back_color = RGB_to_Hex((int(gca[0]), int(gca[1]), int(gca[2])))
-            self.root_back_color = self.back_color
+            # 彩色模式：置顶时间窗口与课表主窗口使用用户选定的主题色，
+            # 其余窗口（设置 / 快捷编辑 / 全屏时间）保持浅色。
+            self.back_color = self.theme_color
+            self.root_back_color = '#FAFAFA'
+            self.main_back_color = self.theme_color
+            self.font_color = '#212121'
+            self.main_font_color = 'white' if is_color_dark(self.theme_color) else 'black'
+            self.time_color = '#FF0000'
             self.border_color = 'rgba(128, 128, 128, 0.15)'
             self.window_opacity = 0.70
-            self.time_color = '#FF0000'
-
-            if is_color_dark(self.back_color):
-                self.font_color = 'white'
-            else:
-                self.font_color = 'black'
 
         logger.info(f"主题配置完成：back_color={self.back_color}, "
-                    f"font_color={self.font_color}, opacity={self.window_opacity}")
+                    f"main_back_color={self.main_back_color}, "
+                    f"font_color={self.font_color}, "
+                    f"main_font_color={self.main_font_color}, "
+                    f"opacity={self.window_opacity}")
 
     # ================================================================
     #  读取科目配置文件

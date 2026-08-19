@@ -8,6 +8,70 @@
                 "需翻译的中文": "活动",
                 "期望的英文": "Activity",
                 "翻译的英文": ""
+            },
+            {
+                "ts": "2026-08-19 10:37:14",
+                "duration": 8.108,
+                "correct": false,
+                "Need Teanslate": "语文",
+                "Expected English": "Chinese",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-19 10:38:51",
+                "duration": 8.057,
+                "correct": false,
+                "Need Teanslate": "通用技术",
+                "Expected English": "General Technology",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-19 10:46:08",
+                "duration": 8.065,
+                "correct": false,
+                "Need Teanslate": "历史",
+                "Expected English": "History",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-19 12:33:36",
+                "duration": 8.107,
+                "correct": false,
+                "Need Teanslate": "化学",
+                "Expected English": "Chemistry",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-19 13:39:40",
+                "duration": 8.093,
+                "correct": false,
+                "Need Teanslate": "英语",
+                "Expected English": "English",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-19 13:44:25",
+                "duration": 8.07,
+                "correct": false,
+                "Need Teanslate": "政治",
+                "Expected English": "Politics",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-19 13:55:14",
+                "duration": 8.062,
+                "correct": false,
+                "Need Teanslate": "信息",
+                "Expected English": "Information Technology",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-19 14:01:52",
+                "duration": 8.073,
+                "correct": false,
+                "Need Teanslate": "活动",
+                "Expected English": "Activity",
+                "Translation": ""
             }
         ],
         "youdao": [
@@ -18,6 +82,70 @@
                 "需翻译的中文": "活动",
                 "期望的英文": "Activity",
                 "翻译的英文": ""
+            },
+            {
+                "ts": "2026-08-19 10:37:14",
+                "duration": 0.223,
+                "correct": false,
+                "Need Teanslate": "语文",
+                "Expected English": "Chinese",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-19 10:38:51",
+                "duration": 0.19,
+                "correct": false,
+                "Need Teanslate": "通用技术",
+                "Expected English": "General Technology",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-19 10:46:08",
+                "duration": 0.231,
+                "correct": false,
+                "Need Teanslate": "历史",
+                "Expected English": "History",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-19 12:33:36",
+                "duration": 0.25,
+                "correct": false,
+                "Need Teanslate": "化学",
+                "Expected English": "Chemistry",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-19 13:39:40",
+                "duration": 0.248,
+                "correct": false,
+                "Need Teanslate": "英语",
+                "Expected English": "English",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-19 13:44:25",
+                "duration": 0.24,
+                "correct": false,
+                "Need Teanslate": "政治",
+                "Expected English": "Politics",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-19 13:55:14",
+                "duration": 0.205,
+                "correct": false,
+                "Need Teanslate": "信息",
+                "Expected English": "Information Technology",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-19 14:01:52",
+                "duration": 0.295,
+                "correct": false,
+                "Need Teanslate": "活动",
+                "Expected English": "Activity",
+                "Translation": ""
             }
         ],
         "baidu": [
@@ -28,6 +156,70 @@
                 "需翻译的中文": "活动",
                 "期望的英文": "Activity",
                 "翻译的英文": "activity; campaign; exercise; flexible"
+            },
+            {
+                "ts": "2026-08-19 10:37:14",
+                "duration": 0.186,
+                "correct": false,
+                "Need Teanslate": "语文",
+                "Expected English": "Chinese",
+                "Translation": "（中文） Chinese; （语言文字） language ; （语言和文学） language a"
+            },
+            {
+                "ts": "2026-08-19 10:38:51",
+                "duration": 0.243,
+                "correct": false,
+                "Need Teanslate": "通用技术",
+                "Expected English": "General Technology",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-19 10:46:08",
+                "duration": 0.195,
+                "correct": false,
+                "Need Teanslate": "历史",
+                "Expected English": "History",
+                "Translation": "history; past records; annals"
+            },
+            {
+                "ts": "2026-08-19 12:33:36",
+                "duration": 0.225,
+                "correct": false,
+                "Need Teanslate": "化学",
+                "Expected English": "Chemistry",
+                "Translation": "chemistry; chem.; chymist; chymistry"
+            },
+            {
+                "ts": "2026-08-19 13:39:40",
+                "duration": 0.162,
+                "correct": true,
+                "Need Teanslate": "英语",
+                "Expected English": "English",
+                "Translation": "English"
+            },
+            {
+                "ts": "2026-08-19 13:44:25",
+                "duration": 0.195,
+                "correct": false,
+                "Need Teanslate": "政治",
+                "Expected English": "Politics",
+                "Translation": "politics; political affairs; government; polity"
+            },
+            {
+                "ts": "2026-08-19 13:55:14",
+                "duration": 0.173,
+                "correct": false,
+                "Need Teanslate": "信息",
+                "Expected English": "Information Technology",
+                "Translation": "information; message; info ; news; communication"
+            },
+            {
+                "ts": "2026-08-19 14:01:52",
+                "duration": 0.287,
+                "correct": false,
+                "Need Teanslate": "活动",
+                "Expected English": "Activity",
+                "Translation": "activity; campaign; exercise; flexible"
             }
         ],
         "mymemory": [
@@ -38,14 +230,78 @@
                 "需翻译的中文": "活动",
                 "期望的英文": "Activity",
                 "翻译的英文": "Event"
+            },
+            {
+                "ts": "2026-08-19 10:37:14",
+                "duration": 1.156,
+                "correct": true,
+                "Need Teanslate": "语文",
+                "Expected English": "Chinese",
+                "Translation": "Chinese"
+            },
+            {
+                "ts": "2026-08-19 10:38:51",
+                "duration": 0.781,
+                "correct": true,
+                "Need Teanslate": "通用技术",
+                "Expected English": "General Technology",
+                "Translation": "General Technology"
+            },
+            {
+                "ts": "2026-08-19 10:46:08",
+                "duration": 0.721,
+                "correct": true,
+                "Need Teanslate": "历史",
+                "Expected English": "History",
+                "Translation": "HISTORY"
+            },
+            {
+                "ts": "2026-08-19 12:33:36",
+                "duration": 0.763,
+                "correct": true,
+                "Need Teanslate": "化学",
+                "Expected English": "Chemistry",
+                "Translation": "Chemistry"
+            },
+            {
+                "ts": "2026-08-19 13:39:40",
+                "duration": 0.748,
+                "correct": false,
+                "Need Teanslate": "英语",
+                "Expected English": "English",
+                "Translation": "EN."
+            },
+            {
+                "ts": "2026-08-19 13:44:25",
+                "duration": 1.094,
+                "correct": false,
+                "Need Teanslate": "政治",
+                "Expected English": "Politics",
+                "Translation": "Political"
+            },
+            {
+                "ts": "2026-08-19 13:55:14",
+                "duration": 0.858,
+                "correct": false,
+                "Need Teanslate": "信息",
+                "Expected English": "Information Technology",
+                "Translation": "information"
+            },
+            {
+                "ts": "2026-08-19 14:01:52",
+                "duration": 0.996,
+                "correct": false,
+                "Need Teanslate": "活动",
+                "Expected English": "Activity",
+                "Translation": "Event"
             }
         ]
     },
     "scores": {
         "google": 0.0,
         "youdao": 0.0,
-        "baidu": 0.0,
-        "mymemory": 0.0
+        "baidu": 11.008666666666667,
+        "mymemory": 43.99455555555556
     },
-    "updated_at": "2026-08-19 08:50:46"
+    "updated_at": "2026-08-19 14:01:52"
 }
