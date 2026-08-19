@@ -3858,60 +3858,16 @@ class SettingsWindow(ThemedWidget):
         """
 
     def _get_cv_nav_btn_style(self) -> str:
-        """返回导航按钮的 QSS 样式（暗色模式下调整为浅底深字，与操作按钮一致）。"""
-        if self._theme.theme == 'darkcolor':
-            bg: str = '#E0E0E0'
-            fg: str = '#212121'
-            hover_bg: str = '#FFFFFF'
-            border: str = 'rgba(255,255,255,0.30)'
-        else:
-            fg = self._theme.font_color
-            bg = 'rgba(0,0,0,0.04)'
-            hover_bg = 'rgba(0,0,0,0.08)'
-            border = 'rgba(0,0,0,0.10)'
-
-        return f"""
-            QPushButton {{
-                color: {fg};
-                background-color: {bg};
-                border: 1px solid {border};
-                border-radius: 6px;
-                padding: 6px 12px;
-            }}
-            QPushButton:hover {{
-                background-color: {hover_bg};
-            }}
-        """
+        """返回导航按钮的 QSS 样式（与左侧科目按钮一致：暗色模式深底浅字）。"""
+        return self._get_cv_subject_btn_style()
 
     def _get_cv_action_btn_style(self) -> str:
         """返回课程表编辑卡操作按钮（确认保存 / 取消 / 清除）的 QSS 样式。
 
-        暗色模式下按钮调整为浅色（浅底深字），与深色卡片背景形成对比；
-        浅色模式下保持浅底深字。
+        与左侧科目按钮保持一致：暗色模式下深色背景 + 浅色字体，
+        浅色模式下浅色背景 + 深色字体。
         """
-        if self._theme.theme == 'darkcolor':
-            bg: str = '#E0E0E0'
-            fg: str = '#212121'
-            hover_bg: str = '#FFFFFF'
-            border: str = 'rgba(255,255,255,0.30)'
-        else:
-            bg = '#FFFFFF'
-            fg = '#212121'
-            hover_bg = '#F5F5F5'
-            border = 'rgba(0,0,0,0.12)'
-
-        return f"""
-            QPushButton {{
-                color: {fg};
-                background-color: {bg};
-                border: 1px solid {border};
-                border-radius: 6px;
-                padding: 6px 12px;
-            }}
-            QPushButton:hover {{
-                background-color: {hover_bg};
-            }}
-        """
+        return self._get_cv_subject_btn_style()
 
     def _get_cv_subject_btn_style(self) -> str:
         """返回科目按钮的 QSS 样式。"""
