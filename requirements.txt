@@ -1,2 +1,11 @@
+# ============================================================
+#  Schedule 4.0 — Python 依赖清单
+#  Python 版本要求：3.11+（代码使用 StrEnum 与 X | None 联合类型）
+# ============================================================
+
+# GUI 框架（Qt for Python）
 PySide6>=6.0
+
+# KnotLink SDK —— 可选依赖（节点网络接入）
+# 未安装时 knotlink_bridge.py 会静默降级，课表功能不受影响
 knotlink @ git+https://github.com/KnotLink-Protocol/KnotLinkSDK.git#subdirectory=knotlink-sdk-python/knotlink

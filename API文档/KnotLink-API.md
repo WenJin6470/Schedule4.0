@@ -2,7 +2,8 @@
 
 > AppID: `com.github.wenjin6470.schedule4`  
 > 版本: 1.0.0  
-> 作者: WenJin (温谨WenJin)
+> 作者: WenJin (温谨WenJin)  
+> 桥接实现: `knotlink_bridge.py`（`KnotLinkBridge` 类）
 
 ---
 
@@ -11,6 +12,8 @@
 Schedule 4.0（电子课表系统）通过 KnotLink 协议对外开放 **5 个接口** 和 **3 个信号**，供其他节点查询课表状态、执行换课操作、控制全屏模式，并实时接收上课/下课/放学事件推送。
 
 所有接口和信号均使用 KnotLink 标准 KLKVMap 键值对格式进行序列化传输。
+
+> **依赖说明**：KnotLink SDK 为**可选依赖**。桥接层启动时会尝试导入 SDK，若未安装则静默降级——课表系统本身的所有功能不受任何影响，仅对外接口与信号广播不可用。
 
 ---
 
@@ -105,10 +108,10 @@ Schedule 4.0（电子课表系统）通过 KnotLink 协议对外开放 **5 个�
 |--------|------|----------|------|
 | `action` | static | `swap-course` | 命令类型（固定值） |
 | `day_name` | input | `""` | 星期名称，如 `Monday` |
-| `lesson_key` | input | `""` | 课时键名，如 `lesson_2` |
+| `lesson_key` | input | `""` | 课时键名，如 `lesson_2`（必须是当前时间表中已存在的课时） |
 | `old_subject` | input | `""` | 换课前的原始科目名称 |
 | `new_subject` | input | `""` | 换课后的新科目名称 |
-| `swap_date` | input | `""` | 换课生效日期，格式 `YYYY-MM-DD`，留空则取该星期的下一个匹配日期 |
+| `swap_date` | input | `""` | 换课生效日期，格式 `YYYY-MM-DD`，留空则取该星期的下一个匹配日期（若今天恰为该星期则取今天） |
 
 **返回值**:
 
@@ -124,6 +127,7 @@ Schedule 4.0（电子课表系统）通过 KnotLink 协议对外开放 **5 个�
    - `swap_date == 今天` → 将 `curriculum_data` 中对应位置替换为新科目
    - `swap_date < 今天` → 删除过期记录
    - `swap_date > 今天` → 保留记录等待生效
+3. **立即生效**：若 `swap_date` 为今天且主窗口当前正显示 `day_name` 对应星期，换课会立即应用到当前显示界面（无需重启）
 
 ---
 
@@ -178,12 +182,14 @@ Schedule 4.0（电子课表系统）通过 KnotLink 协议对外开放 **5 个�
 
 ## 三、信号（signal）
 
-所有信号共用 `signalID: "events"`，通过 `verification` 字段区分具体事件类型。
+所有信号共用 `signalID: "events"`，通过返回值中的 `event` 字段区分具体事件类型。
+
+信号由桥接层订阅 `TimeManager.time_tick`（每秒一次）进行**状态切换检测**后广播：仅当状态发生切换（如"非上课 → 上课"、"上课 → 课间"、"上课 → 放学"）时才发射，同一状态持续期间不重复推送。
 
 ### 3.1 onClassStart — 上课事件
 
 - **signalID**: `events`
-- **描述**: 当新一节课开始时触发推送。检测逻辑基于时间表 JSON 中的课时起始时间，当系统时间（含调试模拟时间）到达某节课的 `startTime` 时触发。
+- **描述**: 当状态从"非上课"切换为"上课"时触发推送（即系统时间——含调试模拟时间——进入某节课的起止区间）。检测逻辑基于时间表 JSON 中的课时起止时间。
 
 **返回值**:
 
@@ -278,8 +284,12 @@ Schedule 4.0 支持调试模式（通过 `Config/debug_config.ini` 配置），�
 - `status=err`：操作失败，具体原因在 `message` 字段中
 
 常见错误场景：
+- `get-today-schedule` 中 `day` 不是合法星期名（`Monday`~`Sunday`）
 - 换课操作中 `day_name` 不是合法星期名
 - 换课操作中 `lesson_key` 格式无效（非 `lesson_N` 格式）
+- 换课操作中 `lesson_key` 在当前时间表中不存在
 - 换课操作中 `swap_date` 格式无效（非 `YYYY-MM-DD` 格式）
+- `enter-fullscreen` 中 `mode` 不是 `exam` / `creative`
+- 时间表数据为空时查询 `get-lesson-state`（返回 `status=err`）
 - 当前未处于全屏模式时调用 `exit-fullscreen`（静默成功，不报错）
-- 已是全屏模式时再次调用 `enter-fullscreen`（切换模式，不报错）
+- 已是全屏模式时再次调用 `enter-fullscreen`（直接切换模式，不报错）

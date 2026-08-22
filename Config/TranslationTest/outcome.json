@@ -72,6 +72,30 @@
                 "Need Teanslate": "活动",
                 "Expected English": "Activity",
                 "Translation": ""
+            },
+            {
+                "ts": "2026-08-20 18:15:05",
+                "duration": 8.09,
+                "correct": false,
+                "Need Teanslate": "通用技术",
+                "Expected English": "General Technology",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-21 07:24:53",
+                "duration": 8.11,
+                "correct": false,
+                "Need Teanslate": "语文",
+                "Expected English": "Chinese",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-21 22:07:56",
+                "duration": 8.095,
+                "correct": false,
+                "Need Teanslate": "通用技术",
+                "Expected English": "General Technology",
+                "Translation": ""
             }
         ],
         "youdao": [
@@ -145,6 +169,30 @@
                 "correct": false,
                 "Need Teanslate": "活动",
                 "Expected English": "Activity",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-20 18:15:05",
+                "duration": 0.233,
+                "correct": false,
+                "Need Teanslate": "通用技术",
+                "Expected English": "General Technology",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-21 07:24:53",
+                "duration": 0.232,
+                "correct": false,
+                "Need Teanslate": "语文",
+                "Expected English": "Chinese",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-21 22:07:56",
+                "duration": 0.209,
+                "correct": false,
+                "Need Teanslate": "通用技术",
+                "Expected English": "General Technology",
                 "Translation": ""
             }
         ],
@@ -220,6 +268,30 @@
                 "Need Teanslate": "活动",
                 "Expected English": "Activity",
                 "Translation": "activity; campaign; exercise; flexible"
+            },
+            {
+                "ts": "2026-08-20 18:15:05",
+                "duration": 0.209,
+                "correct": false,
+                "Need Teanslate": "通用技术",
+                "Expected English": "General Technology",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-21 07:24:53",
+                "duration": 0.217,
+                "correct": false,
+                "Need Teanslate": "语文",
+                "Expected English": "Chinese",
+                "Translation": "（中文） Chinese; （语言文字） language ; （语言和文学） language a"
+            },
+            {
+                "ts": "2026-08-21 22:07:56",
+                "duration": 0.192,
+                "correct": false,
+                "Need Teanslate": "通用技术",
+                "Expected English": "General Technology",
+                "Translation": ""
             }
         ],
         "mymemory": [
@@ -294,14 +366,38 @@
                 "Need Teanslate": "活动",
                 "Expected English": "Activity",
                 "Translation": "Event"
+            },
+            {
+                "ts": "2026-08-20 18:15:05",
+                "duration": 2.454,
+                "correct": true,
+                "Need Teanslate": "通用技术",
+                "Expected English": "General Technology",
+                "Translation": "General Technology"
+            },
+            {
+                "ts": "2026-08-21 07:24:53",
+                "duration": 1.667,
+                "correct": true,
+                "Need Teanslate": "语文",
+                "Expected English": "Chinese",
+                "Translation": "Chinese"
+            },
+            {
+                "ts": "2026-08-21 22:07:56",
+                "duration": 1.606,
+                "correct": true,
+                "Need Teanslate": "通用技术",
+                "Expected English": "General Technology",
+                "Translation": "General Technology"
             }
         ]
     },
     "scores": {
         "google": 0.0,
         "youdao": 0.0,
-        "baidu": 11.008666666666667,
-        "mymemory": 43.99455555555556
+        "baidu": 8.230749999999999,
+        "mymemory": 57.75729166666667
     },
-    "updated_at": "2026-08-19 14:01:52"
+    "updated_at": "2026-08-21 22:07:56"
 }

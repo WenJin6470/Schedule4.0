@@ -1,268 +1,266 @@
 # 📅 电子课表系统 —— 前后端 API 接口说明文档
 
-> **版本**: v1.0
-> **前端文件**: `schedule_frontend.py`（`ScheduleClassroomFrontend` 类）
-> **后端文件**: `schedule_backend.py`（`TimeManager` 类 / `WindowHelper` 类）
-> **连接器**: `main.py`
-> **技术栈**: PySide6 + Python 3.8+
-> **架构模式**: 前后端分离（信号 / 槽 + 回调机制）
+> **版本**: v2.0（对齐当前代码架构）
+> **技术栈**: PySide6 + Python 3.11+
+> **架构模式**: 前后端分离（Signal / Slot + 统一动作协议 ActionMessage）
+> **入口 / 连接器**: `main.py`
 
 ---
 
 ## 📌 目录
 
 1. [架构概述](#架构概述)
-2. [前端接口 —— schedule_frontend.py](#前端接口--schedule_frontendpy)
-   - [信号（Signal）—— 前端 → 后端](#信号signal--前端--后端)
-   - [公开方法（Public Method）—— 后端 → 前端](#公开方法public-method--后端--前端)
-3. [后端接口 —— schedule_backend.py](#后端接口--schedule_backendpy)
+2. [统一动作协议 —— schedule_actions.py](#统一动作协议--schedule_actionspy)
+3. [前端接口](#前端接口)
+   - [ScheduleMainWindow —— 课表主窗口](#schedulemainwindow--课表主窗口)
+   - [TimeWindow —— 置顶时间窗口](#timewindow--置顶时间窗口)
+   - [FullscreenTimeWindow / ExamFullscreenWindow —— 全屏时间窗口](#fullscreentimewindow--examfullscreenwindow--全屏时间窗口)
+   - [SubjectSelectWindow / TempSwapWindow —— 快捷编辑模块](#subjectselectwindow--tempswapwindow--快捷编辑模块)
+   - [SettingsWindow —— 设置模块](#settingswindow--设置模块)
+4. [后端接口 —— schedule_backend.py](#后端接口--schedule_backendpy)
    - [TimeManager 类](#timemanager-类)
+   - [ScheduleBackend 类](#schedulebackend-类)
+   - [QuickEditHandler 类](#quickedithandler-类)
    - [WindowHelper 类](#windowhelper-类)
-4. [连接器 —— main.py](#连接器--mainpy)
-5. [数据流图](#数据流图)
-6. [使用示例](#使用示例)
-7. [界面结构说明](#界面结构说明)
+   - [LogManager 类](#logmanager-类)
+5. [数据 / 配置层 —— schedule_config.py](#数据--配置层--schedule_configpy)
+   - [ThemeManager](#thememanager)
+   - [ScheduleDataManager](#scheduledatamanager)
+   - [SubjectConfigManager](#subjectconfigmanager)
+   - [SwapManager](#swapmanager)
+   - [DebugConfig](#debugconfig)
+   - [DisplayRulesManager](#displayrulesmanager)
+   - [ThemedWidget](#themedwidget)
+6. [连接器 —— main.py](#连接器--mainpy)
+7. [数据流图](#数据流图)
+8. [使用示例](#使用示例)
 
 ---
 
 ## 架构概述
 
-本系统采用**前后端分离**架构，将界面显示与业务逻辑彻底解耦。
+本系统采用**前后端分离 + 发布订阅**架构，将界面显示、业务逻辑与数据配置彻底解耦：
 
 ```
-┌──────────────────────┐         ┌──────────────┐         ┌──────────────────────┐
-│ schedule_frontend.py │  信号    │   main.py    │  调用   │ schedule_backend.py  │
-│                      │ ──────→ │              │ ──────→ │                      │
-│ ScheduleClassroom    │         │  （连接器）   │         │ TimeManager          │
-│ Frontend             │ ←────── │              │ ←────── │ WindowHelper         │
-│                      │ 公开方法 │              │ 回调    │                      │
-└──────────────────────┘         └──────────────┘         └──────────────────────┘
+┌──────────────────────────────────┐        Signal        ┌──────────────────┐
+│          前端窗口模块              │  backend_signal     │                  │
+│  schedule_frontend（主窗口）       │ ──────────────────→ │  schedule_backend │
+│  schedule_time（时间/全屏窗口）     │   (ActionMessage)   │  TimeManager      │
+│  schedule_quick_edit（快捷编辑）   │ ←────────────────── │  ScheduleBackend  │
+│  schedule_settings（设置）         │   公开方法 / Signal  │  QuickEditHandler │
+└──────────────────────────────────┘                     └────────┬─────────┘
+        │ 统一从 ThemeManager 获取主题                              │ 读写
+        ▼                                                        ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│              schedule_config（数据/配置层）+ knotlink_bridge              │
+│  ThemeManager · ScheduleDataManager · SwapManager · DebugConfig · ...   │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-| 角色 | 文件 | 职责 |
-|------|------|------|
-| 🎨 **前端** | `schedule_frontend.py` | 创建窗口和控件、捕获用户操作、刷新界面显示 |
-| 🔗 **连接器** | `main.py` | 创建前后端实例、连接信号与回调 |
-| 🧠 **后端** | `schedule_backend.py` | 管理实时时间（TimeManager）、处理窗口关闭（WindowHelper） |
+| 层 | 模块 | 职责 |
+|----|------|------|
+| 🎨 **前端** | `schedule_frontend.py` / `schedule_time.py` / `schedule_quick_edit.py` / `schedule_settings.py` | 创建窗口与控件、捕获用户操作、刷新界面 |
+| 📨 **动作协议** | `schedule_actions.py` | `ActionType` 枚举 + 不可变 `ActionMessage`，统一前后端消息格式 |
+| 🧠 **后端** | `schedule_backend.py` | 时间广播（TimeManager）、动作分派（ScheduleBackend）、日志管理（LogManager） |
+| 📦 **数据层** | `schedule_config.py` | 配置读取、课表/时间表数据、换课、调试时间、显示规则 |
+| 🌐 **桥接层** | `knotlink_bridge.py` | KnotLink 协议接口与信号广播 |
+| 🔗 **连接器** | `main.py` | 创建所有实例并连接信号与槽 |
 
 **重要原则**：
-- 前端不包含业务逻辑：不管理定时器、不判断如何关闭窗口
-- 后端不包含 UI 代码：不创建窗口、不设置样式、不画控件
+- 前端不包含业务逻辑：不管理定时器、不直接读写数据文件
+- 后端不包含 UI 代码：不创建窗口、不设置样式
+- 前后端通信**统一走 `ActionMessage`**，通过 Signal 传递，替代裸字符串 + 手动解析
 
 ---
 
-## 前端接口 —— schedule_frontend.py
+## 统一动作协议 —— schedule_actions.py
 
-### 信号（Signal）—— 前端 → 后端
+### ActionType 枚举
 
-信号是前端通知后端的唯一方式。当用户操作界面时，前端发射信号，后端（通过 main.py）监听到信号后处理业务。
+| 枚举值 | 字符串值 | 说明 |
+|--------|----------|------|
+| `CLOSE` | `"close"` | 关闭所有窗口并退出程序 |
+| `FULLSCREEN_TIME` | `"fullscreen_time"` | 显示全屏时间窗口（旧版兼容） |
+| `FULLSCREEN_TIME_EXAM` | `"fullscreen_time_exam"` | 考试模式全屏时间 |
+| `FULLSCREEN_TIME_CREATIVE` | `"fullscreen_time_creative"` | 创意模式全屏时间 |
+| `SETTINGS` | `"settings"` | 打开设置窗口 |
+| `QUICK_EDIT_OPENED` | `"quick_edit_opened"` | 快捷编辑窗口已打开 |
+| `QUICK_EDIT_CLOSED` | `"quick_edit_closed"` | 快捷编辑窗口已关闭 |
+| `CONFIRM` | `"confirm"` | 确认编辑操作 |
+| `MOVE_UP` | `"move_up"` | 光标向上移动 1 步 |
+| `MOVE_DOWN` | `"move_down"` | 光标向下移动 1 步 |
+| `MOVE_DOUBLE_UP` | `"move_double_up"` | 光标向上移动 2 步 |
+| `MOVE_DOUBLE_DOWN` | `"move_double_down"` | 光标向下移动 2 步 |
+| `SUBJECT_SELECTED` | `"subject_selected"` | 用户选择了科目（payload: `name`） |
+| `CURSOR_INFO` | `"cursor_info"` | 光标位置信息（payload: `index`, `text`） |
+| `WEEK_CHANGED` | `"week_changed"` | 星期滚轮切换（payload: `index`, `week_name`） |
+| `TEMP_SWAP_CONFIRMED` | `"temp_swap_confirmed"` | 临时换课确认（payload: `swaps`） |
 
-#### 信号列表
+### ActionMessage
 
-| 信号名称 | 参数 | 触发时机 | 说明 |
-|----------|------|----------|------|
-| `close_requested` | 无 | 点击关闭按钮 | 用户点击科目显示窗口底部关闭按钮 |
-| `fullscreen_time_requested` | 无 | 点击全屏时间按钮 | 用户点击底部全屏时间按钮（⚠️ 功能待实现） |
-| `quick_edit_requested` | 无 | 点击快捷课表编辑按钮 | 用户点击底部快捷课表编辑按钮（⚠️ 功能待实现） |
-| `settings_requested` | 无 | 点击设置按钮 | 用户点击底部设置按钮（⚠️ 功能待实现） |
+```python
+@dataclass(frozen=True)
+class ActionMessage:
+    type: ActionType                      # 动作类型
+    payload: dict[str, Any] = field(default_factory=dict)  # 携带数据
+```
+
+- **不可变**（`frozen=True`），可安全地在 Signal 中传递
+- 提供工厂方法快速构造：`ActionMessage.close()`、`ActionMessage.settings()`、`ActionMessage.subject_selected(name)`、`ActionMessage.move_up()`、`ActionMessage.temp_swap_confirmed(swaps)` 等
 
 ---
 
-#### `close_requested()`
+## 前端接口
 
-用户点击关闭按钮时发射。无参数。
+### ScheduleMainWindow —— 课表主窗口
 
-```
-┌─────────────────────────────────────────┐
-│  触发流程：                              │
-│  1. 用户点击科目窗口右上角的 × 按钮       │
-│  2. QPushButton.clicked 信号触发         │
-│  3. 前端 _on_close_clicked() 槽函数执行   │
-│  4. 发射 close_requested 信号             │
-│  5. main.py 中的连接器收到信号             │
-│  6. 调用 WindowHelper.close_all()          │
-└─────────────────────────────────────────┘
-```
+文件：`schedule_frontend.py`，继承 `ThemedWidget`
+
+#### 构造函数
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `theme_manager` | `ThemeManager` | 全局主题管理器（含配置与颜色） |
+| `schedule_data` | `ScheduleDataManager` | 课表数据管理器（时间表 + 课程表） |
+| `debug_config` | `DebugConfig` | 调试配置管理器 |
+
+#### 信号
+
+| 信号 | 参数 | 说明 |
+|------|------|------|
+| `backend_signal` | `ActionMessage` | **统一后端信号**：所有按钮点击、快捷编辑动作均通过此信号发送给后端 |
+
+#### 公开方法
+
+| 方法 | 参数 | 返回值 | 用途 |
+|------|------|--------|------|
+| `get_period_label(index)` | `index: int`（0-based） | `QLabel \| None` | 获取指定课时标签 |
+| `get_period_label_by_name(name)` | `name: str` | `QLabel \| None` | 按课时键名（如 `lesson_1`）获取标签 |
+| `get_period_count()` | 无 | `int` | 获取课时总数 |
+| `get_all_period_labels()` | 无 | `List[QLabel]` | 获取所有课时标签 |
+| `update_period_highlight(time_str)` | `time_str: str` | 无 | 按当前时间高亮对应课时标签（由 `TimeManager.time_tick` 驱动） |
+| `set_display_week(week_name)` | `week_name: str` | 无 | 切换显示的星期（`Monday`~`Sunday`） |
+| `get_display_week()` | 无 | `str` | 获取当前显示的星期 |
+| `start_cursor_blink(index)` | `index: int = 0` | `str` | 启动指定课时光标闪烁，返回该课时当前文字 |
+| `stop_cursor_blink()` | 无 | 无 | 停止光标闪烁 |
+| `move_cursor(steps)` | `steps: int`（正数向下） | `str` | 移动光标并返回新位置文字 |
+| `set_cursor_subject(subject_name)` | `subject_name: str` | 无 | 设置光标所在课时的科目 |
+| `get_cursor_index()` | 无 | `int` | 获取光标所在课时索引（0-based） |
+| `get_cursor_subject()` | 无 | `str` | 获取光标所在课时科目 |
 
 **连接示例**（在 main.py 中）：
 ```python
-window.close_requested.connect(
-    lambda: window_helper.close_all(
-        [window.get_time_window(), window.get_root_window()],
-        app
+main_window.backend_signal.connect(
+    lambda msg: backend_handler.handle_action(
+        msg, main_window, time_window, fullscreen_window, app,
+        exam_window=exam_window,
+        subject_window=main_window._subject_window,
     )
 )
 ```
 
 ---
 
-#### `fullscreen_time_requested()`
+### TimeWindow —— 置顶时间窗口
 
-用户点击底部全屏时间按钮时发射。无参数。
+文件：`schedule_time.py`，继承 `ThemedWidget`
 
-⚠️ **状态：接口已预留，功能待后续实现。** 该信号目前仅在前端定义并发射，main.py 中暂未连接任何处理逻辑。
+屏幕右上角置顶时钟，显示 `HH:MM:SS` 实时时间。窗口属性：无边框、置顶、工具窗口（不在任务栏显示）、半透明。
 
-```
-┌─────────────────────────────────────────┐
-│  触发流程：                              │
-│  1. 用户点击底部全屏时间按钮              │
-│  2. QPushButton.clicked 信号触发         │
-│  3. 前端 _on_fullscreen_time_clicked()   │
-│  4. 发射 fullscreen_time_requested 信号   │
-│  5. （待实现）main.py 连接器处理          │
-└─────────────────────────────────────────┘
-```
-
-**连接示例**（预留，在 main.py 中）：
-```python
-# TODO: 待后续实现全屏时间功能时取消注释
-# window.fullscreen_time_requested.connect(
-#     lambda: fullscreen_helper.show_fullscreen_time()
-# )
-```
-
----
-
-#### `quick_edit_requested()`
-
-用户点击底部快捷课表编辑按钮时发射。无参数。
-
-⚠️ **状态：接口已预留，功能待后续实现。** 该信号目前仅在前端定义并发射，main.py 中暂未连接任何处理逻辑。
-
-```
-┌─────────────────────────────────────────┐
-│  触发流程：                              │
-│  1. 用户点击底部快捷课表编辑按钮          │
-│  2. QPushButton.clicked 信号触发         │
-│  3. 前端 _on_quick_edit_clicked()        │
-│  4. 发射 quick_edit_requested 信号        │
-│  5. （待实现）main.py 连接器处理          │
-└─────────────────────────────────────────┘
-```
-
-**连接示例**（预留，在 main.py 中）：
-```python
-# TODO: 待后续实现快捷课表编辑功能时取消注释
-# window.quick_edit_requested.connect(
-#     lambda: schedule_editor.open_quick_edit()
-# )
-```
-
----
-
-#### `settings_requested()`
-
-用户点击底部设置按钮时发射。无参数。
-
-⚠️ **状态：接口已预留，功能待后续实现。** 该信号目前仅在前端定义并发射，main.py 中暂未连接任何处理逻辑。
-
-```
-┌─────────────────────────────────────────┐
-│  触发流程：                              │
-│  1. 用户点击底部设置按钮                  │
-│  2. QPushButton.clicked 信号触发         │
-│  3. 前端 _on_settings_clicked()          │
-│  4. 发射 settings_requested 信号          │
-│  5. （待实现）main.py 连接器处理          │
-└─────────────────────────────────────────┘
-```
-
-**连接示例**（预留，在 main.py 中）：
-```python
-# TODO: 待后续实现设置功能时取消注释
-# window.settings_requested.connect(
-#     lambda: settings_dialog.open_settings()
-# )
-```
-
----
-
-### 公开方法（Public Method）—— 后端 → 前端
-
-公开方法是后端更新界面的接口。后端处理完业务后，调用这些方法来刷新界面显示。
-
-#### 方法列表
-
-| 方法名称 | 参数 | 返回值 | 用途 |
-|----------|------|--------|------|
-| `update_time_display(time_str)` | `time_str: str` | 无 | 更新时间标签的显示文字 |
-| `get_root_window()` | 无 | `QWidget \| None` | 获取科目显示窗口引用 |
-| `get_time_window()` | 无 | `ScheduleClassroomFrontend` | 获取时间窗口引用（self） |
-
----
-
-#### `update_time_display(time_str: str)`
-
-**调用时机**：TimeManager 定时器每秒触发时，通过 main.py 连接器调用。
-
-**功能**：将时间标签的文字更新为传入的时间字符串。
+#### 构造函数
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
-| `time_str` | `str` | 时间字符串，格式 `HH:MM:SS`（24小时制），示例: `"14:30:05"` |
+| `theme_manager` | `ThemeManager` | 全局主题管理器 |
 
-**示例**：
-```python
-# 在 main.py 中通过 TimeManager 回调调用
-time_manager.start(lambda t: window.update_time_display(t))
+#### 公开方法
 
-# 或直接调用
-window.update_time_display("14:30:05")
-```
-
----
-
-#### `get_root_window()`
-
-**调用时机**：main.py 需要在关闭程序时同时关闭两个窗口。
-
-**功能**：返回科目显示窗口（self.root）的引用。
-
-| 返回值 | 类型 | 说明 |
-|--------|------|------|
-| root 窗口 | `QWidget \| None` | 科目显示窗口对象；`_setup_ui()` 未调用时返回 `None` |
-
-**示例**：
-```python
-root = window.get_root_window()
-# 在主窗口关闭时需要一并关闭 root 窗口
-```
-
----
-
-#### `get_time_window()`
-
-**调用时机**：main.py 需要在关闭程序时操作时间窗口。
-
-**功能**：返回时间窗口自身的引用。
-
-| 返回值 | 类型 | 说明 |
-|--------|------|------|
-| self | `ScheduleClassroomFrontend` | 时间窗口对象自身 |
-
-**示例**：
-```python
-time_win = window.get_time_window()
-```
-
----
-
-### 构造函数参数
-
-`ScheduleClassroomFrontend` 的构造函数接收两个可选参数：
-
-| 参数 | 类型 | 默认值 | 说明 |
+| 方法 | 参数 | 返回值 | 用途 |
 |------|------|--------|------|
-| `language` | `str` | `'chinese'` | 语言类型。不为 `'image'` 时设置 `language_reflect = True` |
-| `theme` | `str` | `'multicolour'` | 主题类型。可选值见下表 |
+| `update_time_display(time_str)` | `time_str: str`（`HH:MM:SS`） | 无 | 更新时间标签文字 |
+| `set_always_on_top(enabled)` | `enabled: bool` | 无 | 开启/关闭窗口置顶（进入全屏时取消置顶，退出后恢复） |
 
-**theme 可选值**：
+---
 
-| 值 | 说明 | 字体颜色 | 背景颜色 |
-|----|------|----------|----------|
-| `'lightcolour'` | 浅色模式 | 黑色 `#000000` | 白色 `#FFFFFF` |
-| `'deepcolour'` | 深色模式 | 白色 `#FFFFFF` | 黑色 `#000000` |
-| `'multicolour'` | 彩色自适应 | 根据桌面背景自动选择（黑/白） | 桌面背景色 |
+### FullscreenTimeWindow / ExamFullscreenWindow —— 全屏时间窗口
+
+文件：`schedule_time.py`
+
+| 窗口 | 模式 | 说明 |
+|------|------|------|
+| `FullscreenTimeWindow` | 创意模式 `creative` | 随机图片背景 + 屏幕中央红色大字实时时钟 |
+| `ExamFullscreenWindow` | 考试模式 `exam` | 墨绿色纯色背景 + 可编辑考试起止时间与科目 + 底部实时时间 |
+
+两个窗口默认隐藏，通过快捷按钮或 KnotLink 接口触发显示。
+
+#### 构造函数
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `theme_manager` | `ThemeManager` | 全局主题管理器 |
+
+#### 信号
+
+| 信号 | 说明 |
+|------|------|
+| `close_requested` | 用户关闭全屏窗口时发射（main.py 中连接 → 隐藏窗口 + 恢复 TimeWindow 置顶） |
+
+#### 公开方法
+
+| 方法 | 参数 | 用途 |
+|------|------|------|
+| `show_fullscreen(mode='exam')` | `mode: str` | 显示全屏窗口（仅 FullscreenTimeWindow 支持 `creative` / `exam` 参数） |
+| `hide_fullscreen()` | 无 | 隐藏全屏窗口 |
+| `update_time_display(time_str)` | `time_str: str` | 更新时间显示（由 `TimeManager.time_tick` 驱动） |
+| `set_mode(mode)` | `mode: str` | 切换显示模式（FullscreenTimeWindow） |
+
+---
+
+### SubjectSelectWindow / TempSwapWindow —— 快捷编辑模块
+
+文件：`schedule_quick_edit.py`
+
+#### SubjectSelectWindow（科目选择窗口）
+
+用户点击快捷编辑按钮后弹出。布局：左侧按分类展示科目按钮，右侧移动控制区（倍速上/下、上、下）+ 星期滚轮 + 确定按钮。
+
+**构造函数**：
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `parent_signal` | `SignalInstance` | 父窗口的 `backend_signal`（所有动作回传该信号） |
+| `theme_manager` | `ThemeManager` | 全局主题管理器 |
+| `initial_week` | `str = 'Monday'` | 初始显示的星期 |
+| `main_window` | `ScheduleMainWindow` | 课表主窗口引用（用于临时换课比对） |
+
+**公开方法**：
+
+| 方法 | 参数 | 用途 |
+|------|------|------|
+| `update_cursor_info(index, subject_text)` | `index: int`, `subject_text: str` | 保留接口（当前状态栏为静态提示） |
+| `sync_week(week_name)` | `week_name: str` | 同步星期滚轮到指定星期 |
+
+#### TempSwapWindow（临时换课确认窗口）
+
+确认临时换课后弹出，展示变更列表（原科目 → 新科目、生效日期），支持取消单项、确认全部生效。确认后通过 `TEMP_SWAP_CONFIRMED` 动作回传，由后端 `SwapManager` 写入 `Config/swap_schedule.json`。
+
+---
+
+### SettingsWindow —— 设置模块
+
+文件：`schedule_settings.py`，继承 `ThemedWidget`
+
+多页签设置窗口，左侧导航栏 + 右侧内容面板：
+
+| 页签 | 功能 |
+|------|------|
+| 基本设置 | 主题（三模式 + 自定义主题色取色器）、字体、语言、开机自启 |
+| 时间表编辑 | 课时/课间增删改（滚轮时间选择器）、时间表文件新建/加载/切换 |
+| 课程表编辑 | 周一~周日逐格编辑科目（光标闪烁 + 科目按钮点选）、课程表文件管理 |
+| 科目管理 | 科目分类增删改、中英文名编辑、在线翻译（多站点自动择优） |
+| 显示规则 | 按日期区间/每周几切换时间表课程表，支持优先级排序 |
+
+修改采用**暂存 + 统一应用**策略：点击「应用修改」后统一持久化，部分修改（字体、语言）需重启生效。
 
 ---
 
@@ -270,222 +268,318 @@ time_win = window.get_time_window()
 
 ### TimeManager 类
 
-时间管理类，负责实时时间的获取与管理。内部使用 `QTimer` 每秒触发一次，通过**回调函数**将当前时间传递给外部。
+时间管理类，负责实时时间的获取与广播。内部使用 `QTimer` 每秒触发一次，通过 **`time_tick` Signal** 将当前时间广播给所有订阅者（发布-订阅模式）。
 
 #### 方法列表
 
-| 方法名称 | 参数 | 返回值 | 用途 |
-|----------|------|--------|------|
-| `__init__()` | 无 | — | 初始化定时器（间隔 1000ms） |
-| `start(callback)` | `callback: Callable[[str], None]` | 无 | 启动定时器，注册时间更新回调 |
-| `stop()` | 无 | 无 | 停止定时器，断开信号连接 |
-| `get_current_time()` | 无 | `str` | 手动获取当前时间字符串 |
+| 方法 | 参数 | 返回值 | 用途 |
+|------|------|--------|------|
+| `__init__(debug_config)` | `debug_config: Optional[DebugConfig] = None` | — | 初始化定时器（间隔 1000ms），可注入调试配置 |
+| `start()` | 无 | 无 | 启动定时器，立即广播一次时间 |
+| `stop()` | 无 | 无 | 停止定时器 |
+| `get_current_time()` | 无 | `str` | 手动获取当前时间字符串（调试模式下返回模拟时间） |
 
----
+#### 信号
 
-#### `__init__()`
+| 信号 | 参数 | 说明 |
+|------|------|------|
+| `time_tick` | `str`（`HH:MM:SS`） | 每秒发射一次，携带当前时间字符串。**多个订阅者可同时连接** |
 
-初始化时间管理器，创建 `QTimer` 实例并设置间隔为 1000ms（1秒）。
+**行为说明**：
+1. `start()` 后**立即发射一次**时间信号（不等 1 秒），确保界面立刻显示时间
+2. 支持任意数量订阅者，由 Qt Signal 原生管理
+3. `stop()` 仅停止定时器，不自动断开 Signal 连接（订阅者自行管理生命周期）
 
-**内部状态**：
-- `_timer`：`QTimer` 实例，间隔 1000ms
-- `_callback`：初始为 `None`，调用 `start()` 后存储外部回调
-
+**示例**：
 ```python
-tm = TimeManager()  # 创建实例，定时器尚未启动
+tm = TimeManager(debug_config=debug_config)
+tm.time_tick.connect(time_window.update_time_display)        # 订阅者1
+tm.time_tick.connect(fullscreen_window.update_time_display)  # 订阅者2
+tm.time_tick.connect(main_window.update_period_highlight)    # 订阅者3
+tm.start()
 ```
 
 ---
 
-#### `start(callback)`
+### ScheduleBackend 类
 
-启动定时器，开始每秒更新时间。
+后端信号处理器：接收前端统一的 `backend_signal`，根据 `ActionMessage.type` 分派给对应业务逻辑。
+
+| 方法 | 参数 | 返回值 | 用途 |
+|------|------|--------|------|
+| `__init__()` | 无 | — | 初始化，创建 `QuickEditHandler` 实例 |
+| `handle_action(msg, main_window, time_window, fullscreen_window, app, exam_window=None, subject_window=None)` | 见下 | 无 | 处理前端动作消息 |
+
+**handle_action 参数**：
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
-| `callback` | `Callable[[str], None]` | 回调函数，接收一个时间字符串参数 `(time_str: str)` |
+| `msg` | `ActionMessage` | 结构化动作消息 |
+| `main_window` | `ScheduleMainWindow` | 课表主窗口引用 |
+| `time_window` | `TimeWindow` | 置顶时间窗口引用 |
+| `fullscreen_window` | `FullscreenTimeWindow` | 全屏时间窗口引用（创意模式） |
+| `app` | `QApplication` | QApplication 实例 |
+| `exam_window` | `ExamFullscreenWindow` | 考试模式全屏窗口引用（可选） |
+| `subject_window` | `SubjectSelectWindow` | 快捷编辑窗口引用（可选） |
 
-**回调函数签名**：
-```python
-def on_time_update(time_str: str) -> None:
-    """
-    参数:
-        time_str: 当前时间，格式 HH:MM:SS（24小时制），如 "14:30:05"
-    """
-    pass
-```
-
-**行为说明**：
-1. 如果之前已启动，会先停止旧定时器再启动新的
-2. 调用后**立即触发一次回调**（不等 1 秒），确保界面立刻显示时间
-3. 之后每秒触发一次回调
-
-**示例**：
-```python
-tm = TimeManager()
-tm.start(lambda t: print(f"现在时间: {t}"))
-# 输出: 现在时间: 14:30:05
-# 1秒后输出: 现在时间: 14:30:06
-# ...
-```
+**动作分派规则**：
+- 快捷编辑类（`QUICK_EDIT_*`、`SUBJECT_SELECTED`、`MOVE_*`、`CONFIRM`、`CURSOR_INFO`、`WEEK_CHANGED`、`TEMP_SWAP_CONFIRMED`）→ 委托 `QuickEditHandler`
+- `CLOSE` → 停止光标闪烁 + `WindowHelper.close_all()` 关闭所有窗口并退出
+- `FULLSCREEN_TIME` → 显示全屏时间窗口（旧版兼容，考试模式）
+- `FULLSCREEN_TIME_EXAM` → 考试模式全屏（`ExamFullscreenWindow`）
+- `FULLSCREEN_TIME_CREATIVE` → 创意模式全屏（`FullscreenTimeWindow`）
 
 ---
 
-#### `stop()`
+### QuickEditHandler 类
 
-停止定时器并断开信号连接。
+快捷编辑专属后端处理器，持有主窗口引用，通过其公开 API 操作课时标签。
 
-**行为说明**：
-- 停止 `QTimer`
-- 断开 `timeout` 信号与内部 `_on_timeout` 的连接（防止内存泄漏）
-- 清空回调引用
-- 多次调用不会出错
+| 方法 | 参数 | 用途 |
+|------|------|------|
+| `handle(msg, main_window, subject_window=None)` | `ActionMessage`, `ScheduleMainWindow`, `Optional[SubjectSelectWindow]` | 分发快捷编辑动作 |
 
-**示例**：
-```python
-tm.stop()  # 停止时间更新
-```
-
----
-
-#### `get_current_time()`
-
-手动获取当前时间字符串，不依赖定时器。
-
-| 返回值 | 类型 | 说明 |
-|--------|------|------|
-| 当前时间 | `str` | 格式 `HH:MM:SS`（24小时制），示例: `"14:30:05"` |
-
-**示例**：
-```python
-tm = TimeManager()
-print(tm.get_current_time())  # 输出: "14:30:05"
-```
+内部处理流程示例：
+- `QUICK_EDIT_OPENED` → 启动第 1 节光标闪烁
+- `SUBJECT_SELECTED` → 更新光标科目并自动下移光标
+- `MOVE_UP / MOVE_DOWN / MOVE_DOUBLE_*` → 移动光标
+- `CONFIRM` → 同步标签修改回 `curriculum_data` → `save_curriculum()` 写文件 → 停止闪烁 → 隐藏窗口
+- `TEMP_SWAP_CONFIRMED` → `SwapManager.add_swaps()` 写入换课记录并立即应用
 
 ---
 
 ### WindowHelper 类
 
-辅助功能类，提供窗口相关的辅助操作。所有方法均为静态方法。
+辅助功能类，所有方法均为静态方法。
 
-#### 方法列表
+| 方法 | 参数 | 返回值 | 用途 |
+|------|------|--------|------|
+| `close_all(widgets, app)` | `widgets: List[Optional[QWidget]]`, `app: QApplication` | 无 | 关闭所有窗口并退出程序 |
 
-| 方法名称 | 参数 | 返回值 | 用途 |
-|----------|------|--------|------|
-| `close_all(widgets, app)` | `widgets: list[QWidget]`, `app: QApplication` | 无 | 关闭所有窗口并退出程序 |
+**执行流程**：遍历 `widgets` 逐个 `close()`（`None` 自动跳过）→ `app.quit()` 退出事件循环。
+
+```python
+WindowHelper.close_all([time_window, main_window, fullscreen_window, exam_window], app)
+```
 
 ---
 
-#### `close_all(widgets, app)`
+### LogManager 类
 
-**【静态方法】** 关闭所有窗口并退出应用程序。
+日志管理类，负责清理过期日志文件。
 
-| 参数 | 类型 | 说明 |
+| 方法 | 参数 | 返回值 | 用途 |
+|------|------|--------|------|
+| `cleanup_old_logs(log_dir, retention_days, logger=None)` | `str`, `int`, `Optional[Logger]` | `int` | 清理超过保留天数的 `schedule_YYYY-MM-DD.log` 文件，返回删除数量 |
+
+`retention_days ≤ 0` 时跳过清理。启动时由 main.py 调用。
+
+---
+
+## 数据 / 配置层 —— schedule_config.py
+
+### ThemeManager
+
+全局主题管理器，从 `Config/schedule_config.ini` 读取配置并统一提供给所有窗口。
+
+**对外属性**：
+
+| 属性 | 类型 | 说明 |
 |------|------|------|
-| `widgets` | `list[QWidget]` | 需要关闭的 QWidget 列表，每个元素依次调用 `close()` |
-| `app` | `QApplication` | QApplication 实例，用于调用 `quit()` 退出事件循环 |
+| `theme` | `str` | 主题名：`lightcolor` / `darkcolor` / `multicolor` |
+| `theme_color` | `str` | 彩色模式主题色（`#rrggbb`） |
+| `language` | `str` | 显示语言：`Chinese` / `English` |
+| `back_color` / `root_back_color` / `main_back_color` | `str` | 各窗口背景色 |
+| `font_color` / `main_font_color` / `time_color` / `border_color` | `str` | 各区域文字 / 时间 / 分割线颜色 |
+| `subject_font` | `str` | 主窗口科目字体家族名 |
+| `window_opacity` | `float` | 窗口透明度 |
+| `subject_config` | `Dict` | 科目分类配置 |
+| `curriculum_path` / `timetable_path` | `str` | 课程表 / 时间表 JSON 路径 |
+| `log_retention_days` | `int` | 日志保留天数 |
+| `fullscreen_bg_folder` | `str` | 创意模式背景图片文件夹 |
 
-**执行流程**：
-1. 遍历 `widgets` 列表，逐个调用 `close()` 关闭每个窗口
-2. 调用 `app.quit()` 退出 Qt 事件循环，程序正常结束
+**公开方法**：
 
-**安全说明**：
-- 传入 `None` 的 widget 会被自动跳过，不会报错
-- `close()` 只发送关闭事件，窗口资源由 Qt 自动管理
+| 方法 | 返回值 | 用途 |
+|------|--------|------|
+| `get_icon_suffix()` | `str` | 根据主题返回图标后缀（深色主题返回 `-w`） |
 
-**示例**：
-```python
-# 作为静态方法调用
-WindowHelper.close_all([window, root_window], app)
+### ScheduleDataManager
 
-# 或创建实例调用
-helper = WindowHelper()
-helper.close_all([window, root_window], app)
-```
+课表数据管理器，读取课程表与时间表 JSON 到内存。
+
+**对外属性**：`curriculum_data`（`Dict`，星期 → 当日科目）、`timetable_data`（`Dict`，`lesson_N` → `[开始, 结束]`）、`curriculum_path`、`timetable_path`。
+
+| 方法 | 参数 | 返回值 | 用途 |
+|------|------|--------|------|
+| `get_lesson_count()` | 无 | `int` | 实际课时数量（不含分隔线） |
+| `get_divider_indices()` | 无 | `List[int]` | 分隔线前课时索引（0-based） |
+| `get_curriculum_for_day(day_name)` | `str` | `Dict[str, str]` | 指定星期的 `{lesson_key: subject}` |
+| `save_curriculum()` | 无 | `bool` | 保存课程表到文件 |
+| `save_timetable()` | 无 | `bool` | 保存时间表到文件 |
+| `reload_timetable(new_path='')` | `str` | `bool` | 重新加载时间表（可换文件） |
+| `reload_curriculum(new_path='')` | `str` | `bool` | 重新加载课程表（可换文件） |
+| `get_timetable_files()` / `get_curriculum_files()` | 无 | `List[str]` | 列出可用时间表 / 课程表文件 |
+
+### SubjectConfigManager
+
+科目分类配置管理器，读写 `Config/subject_config.json`。
+
+| 方法 | 参数 | 返回值 | 用途 |
+|------|------|--------|------|
+| `load()` | 无 | `Dict` | 加载科目分类数据 |
+| `save(data)` | `Dict` | `bool` | 保存科目分类数据 |
+| `category_names(data)` | `Dict` | `List[str]` | 分类名称列表 |
+| `all_subjects(data)` | `Dict` | `List[Tuple]` | 全部科目（分类, 名称, 英文名） |
+| `find_subject(data, name)` | `Dict`, `str` | `Optional[Tuple]` | 按名称查找科目 |
+
+### SwapManager
+
+临时换课管理器，读写 `Config/swap_schedule.json`。
+
+| 方法 | 参数 | 返回值 | 用途 |
+|------|------|--------|------|
+| `load_swaps()` | 无 | `List[Dict]` | 加载换课记录 |
+| `add_swaps(new_swaps)` | `List[Dict]` | `bool` | 追加换课记录 |
+| `process_on_startup(curriculum_data, debug_config=None)` | `Dict`, `Optional[DebugConfig]` | 无 | 启动时应用今日换课、清理过期记录 |
+
+换课记录字段：`day_name`（`Monday`~`Sunday`）、`lesson_key`（`lesson_N`）、`old_subject`、`new_subject`、`swap_date`（`YYYY-MM-DD`，仅当天生效）。
+
+### DebugConfig
+
+调试配置管理器，读取 `Config/debug_config.ini`，可模拟日期 / 时间 / 星期（各参数独立回退）。
+
+| 方法 | 返回值 | 用途 |
+|------|--------|------|
+| `get_current_datetime()` | `Optional[datetime]` | 模拟（或真实）当前日期时间 |
+| `get_current_time_str()` | `Optional[str]` | 模拟（或真实）当前时间字符串 |
+| `get_weekday_name()` | `Optional[str]` | 模拟（或真实）星期名称 |
+
+### DisplayRulesManager
+
+显示规则管理器，读写 `Config/Display_Rules.json`，按日期区间 / 每周几自动切换时间表与课程表。
+
+| 方法 | 参数 | 返回值 | 用途 |
+|------|------|--------|------|
+| `add_rule(rule_text, timetable_path, curriculum_path)` | `str`, `str`, `str` | `bool` | 新增规则 |
+| `update_rule(tag, rule_text, timetable_path, curriculum_path)` | `str`, `str`, `str`, `str` | `bool` | 更新规则 |
+| `delete_rule(tag)` | `str` | `bool` | 删除规则 |
+| `reorder(ordered_tags)` | `List[str]` | `bool` | 调整规则优先级 |
+| `ensure_default_rule(curriculum_path, timetable_path)` | `str`, `str` | 无 | 无规则时自动创建默认规则（当天起十年） |
+| `resolve_for_today(debug_config=None)` | `Optional[DebugConfig]` | `Optional[Tuple[str, str]]` | 解析今天命中的（timetable, curriculum）路径 |
+| `persist_resolved_paths(curriculum_path, timetable_path)` | `str`, `str` | 无 | 将命中路径写回 INI |
+
+### ThemedWidget
+
+所有窗口的基类，自动应用主题背景色。构造函数：`ThemedWidget(theme_manager, bg_color_attr='back_color')`。
+
+| 方法 | 参数 | 用途 |
+|------|------|------|
+| `set_bg_color(bg_hex)` | `str` | 设置背景色 |
+| `refresh_theme()` | 无 | 刷新主题（设置修改后调用） |
 
 ---
 
 ## 连接器 —— main.py
 
-`main.py` 是程序入口，负责创建所有实例并连接前后端。
+`main.py` 是程序入口，负责配置日志、创建所有实例并连接前后端。
+
+### 启动流程
+
+```
+1. 配置日志系统（文件 + 终端彩色输出）
+2. 创建 QApplication
+3. 创建 ThemeManager（读取 INI 配置）
+3.5 清理过期日志（LogManager.cleanup_old_logs）
+3c. 创建 DebugConfig（调试时间）
+3d. 解析显示规则（DisplayRulesManager，命中则切换时间表/课程表）
+3b. 创建 ScheduleDataManager（读取课程表和时间表）
+3e. 处理换课记录（SwapManager.process_on_startup）
+4. 创建前端窗口：TimeWindow（优先显示）→ ScheduleMainWindow → FullscreenTimeWindow → ExamFullscreenWindow
+5. 创建后端：TimeManager + ScheduleBackend
+5.5 启动 TranslationMonitor（翻译网站监测）
+6. 连接信号与槽
+7. 显示主窗口
+6.5 延迟初始化 KnotLinkBridge（QTimer.singleShot(0, ...)）
+8. 启动事件循环
+```
 
 ### 连接关系
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                          main.py 连接关系                         │
-│                                                                  │
-│  连接1: TimeManager 定时器 → 前端时间显示                          │
-│  ┌─────────────┐   回调(callback)    ┌──────────────────────┐    │
-│  │ TimeManager │ ─────────────────→ │ ScheduleClassroom    │    │
-│  │  .start()   │                    │ Frontend             │    │
-│  │             │                    │ .update_time_display │    │
-│  └─────────────┘                    └──────────────────────┘    │
-│                                                                  │
-│  连接2: 关闭按钮 → 关闭窗口                                        │
-│  ┌──────────────────────┐  信号(Signal)   ┌──────────────┐      │
-│  │ ScheduleClassroom    │ ─────────────→ │ WindowHelper │      │
-│  │ Frontend             │                │ .close_all() │      │
-│  │ .close_requested     │                │              │      │
-│  └──────────────────────┘                └──────────────┘      │
-│                                                                  │
-│  连接3~5: 预留信号（功能待实现）                                    │
-│  ┌──────────────────────┐                                        │
-│  │ ScheduleClassroom    │  fullscreen_time_requested  → (待实现) │
-│  │ Frontend             │  quick_edit_requested       → (待实现) │
-│  │                      │  settings_requested         → (待实现) │
-│  └──────────────────────┘                                        │
-└──────────────────────────────────────────────────────────────────┘
-```
-
-### 完整连接代码
-
-```python
-# 连接1：TimeManager 定时器 → 前端 update_time_display()
-time_manager.start(lambda time_str: window.update_time_display(time_str))
-
-# 连接2：前端 close_requested 信号 → WindowHelper.close_all()
-window.close_requested.connect(
-    lambda: window_helper.close_all(
-        [window.get_time_window(), window.get_root_window()],
-        app
-    )
-)
+┌────────────────────────────────────────────────────────────────────────┐
+│                         main.py 连接关系                                │
+│                                                                        │
+│  连接1：时间广播（发布-订阅，多订阅者）                                    │
+│  ┌──────────────┐ time_tick(str)  ┌────────────────────────────────┐   │
+│  │ TimeManager  │ ──────────────→ │ TimeWindow.update_time_display │   │
+│  │   .start()   │                 │ FullscreenTimeWindow.update... │   │
+│  │              │                 │ ExamFullscreenWindow.update... │   │
+│  │              │                 │ ScheduleMainWindow.update_...  │   │
+│  └──────────────┘                 └────────────────────────────────┘   │
+│                                                                        │
+│  连接2：全屏窗口关闭 → 隐藏 + 恢复置顶                                    │
+│  FullscreenTimeWindow.close_requested → (hide(), time_window.set_top)  │
+│  ExamFullscreenWindow.close_requested  → (hide(), time_window.set_top) │
+│                                                                        │
+│  连接3：主窗口统一动作信号 → 后端分派                                     │
+│  ┌───────────────────┐  backend_signal  ┌────────────────┐           │
+│  │ ScheduleMainWindow│ ───────────────→ │ ScheduleBackend │           │
+│  │  .backend_signal  │   (ActionMessage)│ .handle_action  │           │
+│  └───────────────────┘                  └────────────────┘           │
+│                                                                        │
+│  连接4：KnotLinkBridge 订阅 time_tick → 上课/下课/放学事件检测           │
+│  TimeManager.time_tick → KnotLinkBridge._on_time_tick                  │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## 数据流图
 
-### 时间更新流程（每1秒）
+### 时间更新流程（每 1 秒）
 
 ```
-┌──────────┐  timeout(1000ms)  ┌──────────────┐  callback("14:30:05")  ┌──────────┐  .setText()  ┌──────────┐
-│ QTimer   │ ────────────────→ │ TimeManager  │ ────────────────────→ │ main.py  │ ───────────→ │ QLabel   │
-│ (内部)    │                   │ ._on_timeout │                       │ lambda   │              │ 时间标签  │
-└──────────┘                   └──────────────┘                       └──────────┘              └──────────┘
-                                                                        │
-                                                                        │ window.update_time_display(t)
-                                                                        ↓
-                                                                  ┌──────────────────┐
-                                                                  │ ScheduleClassroom │
-                                                                  │ Frontend          │
-                                                                  └──────────────────┘
+┌──────────┐ timeout(1000ms) ┌──────────────┐ time_tick.emit("14:30:05")
+│  QTimer  │ ──────────────→ │ TimeManager  │ ──────────────────────────┐
+│  (内部)   │                │  ._on_timeout │                          ▼
+└──────────┘                └──────────────┘                ┌──────────────────────┐
+                                                             │  多个订阅者（Signal）  │
+                                                             │ TimeWindow 时间标签    │
+                                                             │ FullscreenTimeWindow  │
+                                                             │ ScheduleMainWindow    │
+                                                             │  课时高亮              │
+                                                             │ KnotLinkBridge        │
+                                                             │  状态切换检测          │
+                                                             └──────────────────────┘
 ```
 
-### 关闭窗口流程
+### 按钮操作流程（以关闭为例）
 
 ```
-┌──────────┐  clicked  ┌──────────────────────┐  close_requested.emit()  ┌──────────┐  .close_all()  ┌──────────────┐
-│ 用户点击  │ ────────→ │ ScheduleClassroom    │ ──────────────────────→ │ main.py  │ ─────────────→ │ WindowHelper │
-│ × 按钮   │           │ Frontend             │                         │ lambda   │               │              │
-└──────────┘           │ ._on_close_clicked() │                         └──────────┘               └──────────────┘
-                       └──────────────────────┘                                                          │
-                                                                                              .close() + .quit()
-                                                                                                         │
-                                                                                                  ┌──────▼──────┐
-                                                                                                  │ 程序退出     │
-                                                                                                  └─────────────┘
+┌──────────┐ clicked ┌───────────────────┐ backend_signal.emit ┌────────────────┐
+│ 用户点击  │ ──────→ │ ScheduleMainWindow │ ──────────────────→ │ ScheduleBackend│
+│ 关闭按钮  │         │ ._on_close_clicked │   (ActionMessage)   │ .handle_action │
+└──────────┘         └───────────────────┘                     └───────┬────────┘
+                                                                       │ CLOSE 分支
+                                                              ┌────────▼────────┐
+                                                              │ WindowHelper    │
+                                                              │ .close_all(...) │ → app.quit()
+                                                              └─────────────────┘
+```
+
+### 快捷编辑流程
+
+```
+用户点击快捷编辑按钮
+      │  ScheduleMainWindow 发射 QUICK_EDIT_OPENED
+      ▼
+ScheduleBackend.handle_action → QuickEditHandler.handle
+      │
+      ├─ 打开 SubjectSelectWindow（科目选择 + 星期滚轮 + 移动控制）
+      ├─ 科目点选 → SUBJECT_SELECTED → 更新光标标签 + 自动下移光标
+      ├─ 临时换课 → TEMP_SWAP_CONFIRMED → SwapManager.add_swaps 写文件 + 立即应用
+      └─ 确定 → CONFIRM → 同步课程表 → save_curriculum() → 停止闪烁 → 关闭窗口
 ```
 
 ---
@@ -499,132 +593,77 @@ window.close_requested.connect(
 venv\Scripts\python main.py
 ```
 
-### main.py 完整代码参考
+### 自定义启动（最小接线示例）
 
 ```python
-"""
-main.py —— 电子课表系统入口
-前后端分离架构 · 中间连接层
-"""
 import sys
 from PySide6.QtWidgets import QApplication
+from schedule_config import ThemeManager, ScheduleDataManager, DebugConfig
+from schedule_time import TimeWindow, FullscreenTimeWindow, ExamFullscreenWindow
+from schedule_frontend import ScheduleMainWindow
+from schedule_backend import TimeManager, ScheduleBackend
 
-from schedule_frontend import ScheduleClassroomFrontend
-from schedule_backend import TimeManager, WindowHelper
+app = QApplication(sys.argv)
 
+theme_manager = ThemeManager()
+schedule_data = ScheduleDataManager(
+    curriculum_path=theme_manager.curriculum_path,
+    timetable_path=theme_manager.timetable_path,
+)
+debug_config = DebugConfig()
 
-def main():
-    # 第1步：创建应用程序
-    app = QApplication(sys.argv)
+time_window = TimeWindow(theme_manager)
+main_window = ScheduleMainWindow(theme_manager, schedule_data, debug_config)
+fullscreen_window = FullscreenTimeWindow(theme_manager)
+exam_window = ExamFullscreenWindow(theme_manager)
 
-    # 第2步：创建前端窗口
-    window = ScheduleClassroomFrontend(language='chinese', theme='multicolour')
+time_manager = TimeManager(debug_config=debug_config)
+backend = ScheduleBackend()
 
-    # 第3步：创建后端实例
-    time_manager = TimeManager()
-    window_helper = WindowHelper()
+# 连接：时间广播（多订阅者）
+time_manager.time_tick.connect(time_window.update_time_display)
+time_manager.time_tick.connect(fullscreen_window.update_time_display)
+time_manager.time_tick.connect(exam_window.update_time_display)
+time_manager.time_tick.connect(main_window.update_period_highlight)
+time_manager.start()
 
-    # 第4步：连接前后端
-    # 连接1：定时器 → 更新时间显示
-    time_manager.start(lambda t: window.update_time_display(t))
-
-    # 连接2：关闭按钮 → 关闭窗口
-    window.close_requested.connect(
-        lambda: window_helper.close_all(
-            [window.get_time_window(), window.get_root_window()],
-            app
-        )
+# 连接：统一动作信号
+main_window.backend_signal.connect(
+    lambda msg: backend.handle_action(
+        msg, main_window, time_window, fullscreen_window, app,
+        exam_window=exam_window,
+        subject_window=main_window._subject_window,
     )
+)
 
-    # 连接3~5：预留信号连接（功能待实现）
-    # window.fullscreen_time_requested.connect(
-    #     lambda: fullscreen_helper.show_fullscreen_time()
-    # )
-    # window.quick_edit_requested.connect(
-    #     lambda: schedule_editor.open_quick_edit()
-    # )
-    # window.settings_requested.connect(
-    #     lambda: settings_dialog.open_settings()
-    # )
+time_window.show()
+main_window.show()
+sys.exit(app.exec())
+```
 
-    # 第5步：显示窗口
-    window.show()
+### 手动驱动后端动作
 
-    # 第6步：启动事件循环
-    sys.exit(app.exec())
+```python
+from schedule_actions import ActionMessage, ActionType
 
-
-if __name__ == "__main__":
-    main()
+# 直接向后端发送一个"全屏时间（考试模式）"动作
+backend.handle_action(
+    ActionMessage.fullscreen_time_exam(),
+    main_window, time_window, fullscreen_window, app,
+    exam_window=exam_window,
+)
 ```
 
 ---
 
-## 界面结构说明
+## 与原版本的对应关系
 
-### 窗口布局
-
-```
-屏幕右上角
-┌──────────────────┐
-│    14:30:05      │  ← 时间窗口 (ScheduleClassroomFrontend / self)
-│   红色大字        │     尺寸: 屏幕宽度×(150/1920) × 屏幕高度/26
-│   半透明背景      │     位置: 屏幕右上角 (left=1765/1920×W, top=45/1080×H)
-├──────────────────┤
-│                  │  ← 科目显示窗口 (self.root)
-│                  │     尺寸: 屏幕宽度×(150/1920) × 屏幕高度/13×11
-│   科目内容区域    │     位置: 时间窗口正下方 (top=屏幕高度/12)
-│                  │
-│                  │
-│ ⏰  📝  ⚙  ✕   │  ← 底部按钮栏（左→右：全屏时间/快捷编辑/设置/关闭）
-└──────────────────┘
-```
-
-### 控件对照表
-
-| 控件名称 | 类型 | 所在窗口 | 说明 |
-|----------|------|----------|------|
-| `time_label` | `QLabel` | 时间窗口（self） | 实时时间显示，红色 Arial 18号字体 |
-| `root` | `QWidget` | —（独立窗口） | 科目显示窗口 |
-| `fullscreen_btn` | `QPushButton` | root 窗口 | 全屏时间按钮（图标按钮，功能待实现） |
-| `edit_btn` | `QPushButton` | root 窗口 | 快捷课表编辑按钮（图标按钮，功能待实现） |
-| `settings_btn` | `QPushButton` | root 窗口 | 设置按钮（图标按钮，功能待实现） |
-| `close_btn` | `QPushButton` | root 窗口 | 关闭按钮（图标按钮，点击关闭程序） |
-
-### 按钮图标说明
-
-底部 4 个按钮使用 SVG 图标作为按钮前景（无文字），根据当前主题自动切换深色/浅色图标：
-
-| 按钮 | 浅色模式图标 | 深色模式图标 | 对应信号 |
-|------|-------------|-------------|----------|
-| 全屏时间 | `FullScreenTime.svg` | `FullScreenTime-w.svg` | `fullscreen_time_requested` |
-| 快捷课表编辑 | `EDIT_S.svg` | `EDIT_S-w.svg` | `quick_edit_requested` |
-| 设置 | `setting.svg` | `setting-w.svg` | `settings_requested` |
-| 关闭 | `EXIT.svg` | `EXIT-w.svg` | `close_requested` |
-
-- **浅色模式**（`lightcolor` 主题 / `multicolor` 浅色背景）：使用不带 `-w` 后缀的图标（深色图标，适合浅色背景）
-- **深色模式**（`darkcolor` 主题 / `multicolor` 深色背景）：使用带 `-w` 后缀的图标（白色图标，适合深色背景）
-
-图标文件位于 `images/` 目录，由 `_get_icon_suffix()` 方法根据 `self.theme` 和背景色自动判断后缀。
-
-### 主题配色说明
-
-| 主题 | 字体颜色 | 背景颜色 | 适用场景 |
-|------|----------|----------|----------|
-| `lightcolour` | `#000000`（黑色） | `#FFFFFF`（白色） | 浅色桌面背景 |
-| `deepcolour` | `#FFFFFF`（白色） | `#000000`（黑色） | 深色桌面背景 |
-| `multicolour` | 自动计算（黑/白） | 桌面背景色 | 自适应，跟随桌面壁纸 |
-
----
-
-## 与原文件的对应关系
-
-| 原 `schedule_classroom.py` | 新架构 |
-|---------------------------|--------|
-| `ScheduleClassroom.__init__()` 中的 UI 创建 | `schedule_frontend.py` → `ScheduleClassroomFrontend._setup_ui()` |
-| `ScheduleClassroom.__init__()` 中的参数/主题计算 | `schedule_frontend.py` → `ScheduleClassroomFrontend.__init__()` |
-| `ScheduleClassroom.update_time()` | `schedule_backend.py` → `TimeManager._on_timeout()` + `get_current_time()` |
-| `ScheduleClassroom.close_all()` | `schedule_backend.py` → `WindowHelper.close_all()` |
-| `QTimer` 的创建和管理 | `schedule_backend.py` → `TimeManager.__init__()` + `start()` / `stop()` |
-| `get_color()` / `RGB_to_Hex()` / `is_color_dark()` | `schedule_frontend.py`（辅助函数，UI 相关） |
-| `if __name__ == '__main__'` 入口 | `main.py` → `main()` |
+| 原 v1.0 架构 | 当前 v2.0 架构 |
+|--------------|----------------|
+| `schedule_frontend.py` → `ScheduleClassroomFrontend` | `schedule_frontend.py` → `ScheduleMainWindow`（主窗口）+ `schedule_time.py` → `TimeWindow`（时间窗口） |
+| `ScheduleClassroomFrontend` 的 4 个独立 Signal | `ScheduleMainWindow.backend_signal` 统一信号 + `ActionMessage` 动作协议 |
+| `TimeManager.start(callback)` 回调式 | `TimeManager.time_tick` Signal 发布-订阅（多订阅者） |
+| `WindowHelper.close_all()` | 保留，由 `ScheduleBackend` 在 `CLOSE` 动作中调用 |
+| 无数据层 | `schedule_config.py`（ThemeManager / ScheduleDataManager / SwapManager / DebugConfig / DisplayRulesManager） |
+| 无外部协议 | `knotlink_bridge.py`（5 接口 + 3 信号） |
+| 功能待实现的占位信号 | 已实现：全屏时间（考试/创意）、快捷编辑、设置 |
