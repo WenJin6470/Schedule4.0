@@ -46,6 +46,7 @@ from schedule_config import (
     ThemeManager, ThemedWidget, ScheduleDataManager,
     DisplayRulesManager, parse_display_rule,
     SubjectConfigManager, parse_subject_entry, is_color_dark,
+    EventRulesManager,
 )
 from schedule_backend import TimeWheelPicker, WheelColumn
 from schedule_translate import TranslateWorker, load_sites, get_default_site
@@ -464,6 +465,13 @@ class SettingsWindow(ThemedWidget):
         # 课程表内联编辑器的科目按钮区布局（重建时使用）
         self._cv_subject_layout: Optional[QVBoxLayout] = None
 
+        # 事件系统引用
+        self._event_manager: EventRulesManager = EventRulesManager()
+        self._event_rules: List[Dict] = []
+        self._event_card: Optional[QFrame] = None
+        self._event_scroll_layout: Optional[QVBoxLayout] = None
+        self._event_buttons: List[QPushButton] = []
+
         logger.info("SettingsWindow 初始化开始")
         self._setup_ui()
         logger.info("SettingsWindow 初始化完成")
@@ -642,8 +650,8 @@ class SettingsWindow(ThemedWidget):
         self._stack.addWidget(self._create_beautify_page())
         # 页面 2：课表编辑（实际编辑器）
         self._stack.addWidget(self._create_timetable_editor_page())
-        # 页面 3：关于（占位）
-        self._stack.addWidget(self._create_placeholder_page("关于"))
+        # 页面 3：关于
+        self._stack.addWidget(self._create_about_page())
 
         # 默认显示第一页
         self._stack.setCurrentIndex(0)
@@ -691,6 +699,97 @@ class SettingsWindow(ThemedWidget):
         """)
         layout.addWidget(hint_label)
 
+        layout.addStretch()
+
+        return page
+
+    # ================================================================
+    #  创建关于页面
+    # ================================================================
+    def _create_about_page(self) -> QWidget:
+        """
+        构建「关于」页面。
+        -----------------
+        三行内容（均位于一张卡片内）：
+          第一行：左侧软件图标 + 右侧 Schedule4.0 文字
+          第二行：作者署名（由 INI 的 LG 参数决定）
+          第三行：软件简介
+        """
+        page: QWidget = QWidget()
+        page.setStyleSheet("background: transparent;")
+
+        layout: QVBoxLayout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        fc: str = self._theme.font_color
+
+        # ---- 页面主标题 ----
+        page_title: QLabel = QLabel("关于")
+        page_title.setFont(QFont("Microsoft YaHei", 22, QFont.Bold))  # type: ignore
+        page_title.setStyleSheet(f"color: {fc}; background: transparent;")
+        page_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
+        layout.addWidget(page_title)
+
+        # ---- 卡片容器 ----
+        card: QFrame = QFrame()
+        card.setStyleSheet(self._get_status_card_style())
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # type: ignore
+        card_layout: QVBoxLayout = QVBoxLayout(card)
+        card_layout.setContentsMargins(28, 24, 28, 24)
+        card_layout.setSpacing(18)
+
+        # ---- 第一行：软件图标 + Schedule4.0 ----
+        row1: QHBoxLayout = QHBoxLayout()
+        row1.setSpacing(18)
+
+        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        icon_path: str = os.path.join(
+            script_dir, 'images', 'Icons', 'DAILY_SCHEDULE.svg'
+        )
+
+        icon_label: QLabel = QLabel()
+        icon_label.setFixedSize(56, 56)
+        if os.path.exists(icon_path):
+            icon_label.setPixmap(QIcon(icon_path).pixmap(56, 56))
+        icon_label.setStyleSheet("background: transparent; border: none;")
+        row1.addWidget(icon_label)
+
+        name_label: QLabel = QLabel("Schedule4.0")
+        name_label.setFont(QFont("Microsoft YaHei", 24, QFont.Bold))  # type: ignore
+        name_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none;"
+        )
+        name_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
+        row1.addWidget(name_label)
+        row1.addStretch()
+
+        card_layout.addLayout(row1)
+
+        # ---- 第二行：作者署名（LG 参数决定）----
+        author_text: str = "高2026届 赵晨羽" if self._theme.lg else "温谨"
+        author_label: QLabel = QLabel(f"作者：{author_text}")
+        author_label.setFont(QFont("Microsoft YaHei", 13))
+        author_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none;"
+        )
+        card_layout.addWidget(author_label)
+
+        # ---- 第三行：软件简介 ----
+        intro_label: QLabel = QLabel(
+            "桌面浮动电子课表系统，半透明置顶窗口实时显示课时科目与当前时间，"
+            "支持快捷编辑、临时换课、考试 / 创意全屏模式，"
+            "并可通过 KnotLink 协议对外广播课表与自定义事件。"
+        )
+        intro_label.setFont(QFont("Microsoft YaHei", 11))
+        intro_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none;"
+        )
+        intro_label.setWordWrap(True)
+        intro_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)  # type: ignore
+        card_layout.addWidget(intro_label)
+
+        layout.addWidget(card)
         layout.addStretch()
 
         return page
@@ -1620,6 +1719,73 @@ class SettingsWindow(ThemedWidget):
 
         layout.addWidget(sj_indent)
 
+        # ════════════════════════════════════════════════════════════
+        #  事件系统
+        # ════════════════════════════════════════════════════════════
+        # ---- 分割线 ----
+        ev_sep_line: QFrame = QFrame()
+        ev_sep_line.setFrameShape(QFrame.HLine)  # type: ignore
+        ev_sep_line.setStyleSheet(f"""
+            border: none;
+            border-top: 1px solid {self._theme.border_color};
+            background: transparent;
+        """)
+        layout.addWidget(ev_sep_line)
+        layout.addSpacing(4)
+
+        # ---- 一级标题：事件系统 ----
+        ev_section_title: QLabel = QLabel("事件系统")
+        ev_section_title.setFont(QFont("Microsoft YaHei", 18, QFont.Bold))  # type: ignore
+        ev_section_title.setStyleSheet(f"color: {fc}; background: transparent;")
+        ev_section_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
+        layout.addWidget(ev_section_title)
+
+        # ---- 缩进容器（事件系统控件统一缩进 28px）----
+        ev_indent: QWidget = QWidget()
+        ev_indent.setStyleSheet("background: transparent;")
+        ev_indent_layout: QVBoxLayout = QVBoxLayout(ev_indent)
+        ev_indent_layout.setContentsMargins(28, 0, 0, 0)
+        ev_indent_layout.setSpacing(12)
+
+        # ---- 新建事件按钮 ----
+        ev_btn_row: QHBoxLayout = QHBoxLayout()
+        ev_btn_row.setSpacing(12)
+
+        new_event_btn: QPushButton = QPushButton("＋ 新建事件")
+        new_event_btn.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))  # type: ignore
+        new_event_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        new_event_btn.setMinimumHeight(38)
+        new_event_btn.setStyleSheet(self._get_add_btn_style())
+        new_event_btn.clicked.connect(self._on_new_event)
+        ev_btn_row.addWidget(new_event_btn)
+
+        ev_btn_row.addStretch()
+        ev_indent_layout.addLayout(ev_btn_row)
+
+        # ---- 事件规则卡片容器（每条规则为一个按钮）----
+        self._event_card = QFrame()
+        self._event_card.setStyleSheet(self._get_status_card_style())
+        ev_card_layout: QVBoxLayout = QVBoxLayout(self._event_card)
+        ev_card_layout.setContentsMargins(12, 10, 12, 10)
+
+        # 事件规则按钮直接放在普通容器中（不使用内部 QScrollArea）：
+        # 卡片高度时刻等于内容高度，所有事件规则按钮完整显示；
+        # 内容超出页面时由页面外层滚动区统一滚动，不会压缩卡片高度。
+        ev_subjects_widget: QWidget = QWidget()
+        ev_subjects_widget.setStyleSheet("background: transparent;")
+        self._event_scroll_layout = QVBoxLayout(ev_subjects_widget)
+        self._event_scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self._event_scroll_layout.setSpacing(6)
+
+        ev_card_layout.addWidget(ev_subjects_widget)
+        ev_indent_layout.addWidget(self._event_card)
+
+        layout.addWidget(ev_indent)
+
+        # 初始加载事件规则并渲染规则按钮
+        self._load_event_rules()
+        self._refresh_event_rules()
+
         # 初始加载科目配置并渲染科目按钮
         self._load_subject_config_data()
         self._refresh_subject_buttons()
@@ -2212,6 +2378,137 @@ class SettingsWindow(ThemedWidget):
         """新建一条显示规则。"""
         if self._rule_list is not None:
             self._rule_list.add_rule_dialog()
+
+    # ================================================================
+    #  事件系统 — 数据加载与渲染
+    # ================================================================
+    def _load_event_rules(self) -> None:
+        """从 event_rules.json 加载事件规则到工作副本。"""
+        self._event_rules = self._event_manager.load_rules()
+
+    def _clear_event_layout(self) -> None:
+        """清空事件卡片内全部旧按钮，避免残留孤儿控件。"""
+        if self._event_scroll_layout is None:
+            return
+        while self._event_scroll_layout.count():
+            item = self._event_scroll_layout.takeAt(0)
+            w = item.widget()  # type: ignore
+            if w is not None:
+                w.deleteLater()
+        self._event_buttons.clear()
+
+    def _get_event_rule_btn_style(self) -> str:
+        """返回事件规则按钮的 QSS 样式。"""
+        fc: str = self._theme.font_color
+        if self._theme.theme == 'darkcolor':
+            bg: str = 'rgba(255, 255, 255, 0.05)'
+            hover_bg: str = 'rgba(255, 255, 255, 0.10)'
+            border: str = 'rgba(255, 255, 255, 0.10)'
+        else:
+            bg = 'rgba(0, 0, 0, 0.04)'
+            hover_bg = 'rgba(0, 0, 0, 0.08)'
+            border = 'rgba(0, 0, 0, 0.08)'
+        return f"""
+            QPushButton {{
+                color: {fc};
+                background-color: {bg};
+                border: 1px solid {border};
+                border-radius: 6px;
+                padding: 8px 12px;
+                text-align: left;
+            }}
+            QPushButton:hover {{
+                background-color: {hover_bg};
+                border: 1px solid #2196F3;
+            }}
+        """
+
+    def _refresh_event_rules(self) -> None:
+        """按当前事件规则重建规则按钮列表。"""
+        if self._event_scroll_layout is None:
+            return
+        self._clear_event_layout()
+
+        btn_style: str = self._get_event_rule_btn_style()
+        dim_color: str = (
+            'rgba(255,255,255,0.50)' if self._theme.theme == 'darkcolor'
+            else 'rgba(0,0,0,0.50)'
+        )
+
+        if not self._event_rules:
+            empty: QLabel = QLabel("这里还没有事件规则")
+            f: QFont = QFont("Microsoft YaHei", 10)
+            f.setItalic(True)
+            empty.setFont(f)
+            empty.setStyleSheet(
+                f"color: {dim_color}; background: transparent;"
+            )
+            empty.setAlignment(Qt.AlignCenter)  # type: ignore
+            self._event_scroll_layout.addStretch()
+            self._event_scroll_layout.addWidget(empty)
+            self._event_scroll_layout.addStretch()
+            return
+
+        for index, rule in enumerate(self._event_rules):
+            date_str: str = str(rule.get('date', '') or '')
+            time_str: str = str(rule.get('time', '') or '')
+            name: str = str(rule.get('name', '') or '')
+            btn: QPushButton = QPushButton(
+                f"{date_str}  ·  {time_str}  ·  {name}"
+            )
+            btn.setFont(QFont("Microsoft YaHei", 11))
+            btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+            btn.setMinimumHeight(36)
+            btn.setStyleSheet(btn_style)
+            btn.clicked.connect(
+                lambda checked=False, i=index: self._on_event_rule_clicked(i)
+            )
+            self._event_buttons.append(btn)
+            self._event_scroll_layout.addWidget(btn)
+
+        self._event_scroll_layout.addStretch()
+
+    # ================================================================
+    #  事件系统 — 事件处理
+    # ================================================================
+    def _on_new_event(self) -> None:
+        """点击「新建事件」→ 打开事件规则子窗口（新建模式）。"""
+        dialog: EventRuleDialog = EventRuleDialog(
+            theme_manager=self._theme,
+            parent=self,
+        )
+        if dialog.exec() == QDialog.Accepted:  # type: ignore
+            result: dict = dialog.result()
+            self._event_manager.add_rule(
+                result['date'], result['time'], result['name']
+            )
+            self._load_event_rules()
+            self._refresh_event_rules()
+            logger.info(
+                f"已新建事件：{result['date']} {result['time']} "
+                f"'{result['name']}'"
+            )
+
+    def _on_event_rule_clicked(self, index: int) -> None:
+        """点击事件规则按钮 → 打开事件规则子窗口（编辑模式）。"""
+        if not (0 <= index < len(self._event_rules)):
+            return
+        rule: Dict = self._event_rules[index]
+        dialog: EventRuleDialog = EventRuleDialog(
+            theme_manager=self._theme,
+            rule=rule,
+            parent=self,
+        )
+        if dialog.exec() == QDialog.Accepted:  # type: ignore
+            if dialog.deleted():
+                self._event_manager.delete_rule(index)
+            else:
+                result: dict = dialog.result()
+                self._event_manager.update_rule(
+                    index, result['date'], result['time'], result['name']
+                )
+            self._load_event_rules()
+            self._refresh_event_rules()
 
     def _refresh_status_label(self) -> None:
         """刷新时间表状态标签文字。"""
@@ -4189,6 +4486,14 @@ class SettingsWindow(ThemedWidget):
         sj_style: str = self._get_cv_subject_btn_style()
         for btn in self._subject_buttons:
             btn.setStyleSheet(sj_style)
+            btn.style().unpolish(btn)  # type: ignore
+            btn.style().polish(btn)  # type: ignore
+        # 刷新事件系统控件
+        if self._event_card is not None:
+            self._event_card.setStyleSheet(self._get_status_card_style())
+        ev_style: str = self._get_event_rule_btn_style()
+        for btn in self._event_buttons:
+            btn.setStyleSheet(ev_style)
             btn.style().unpolish(btn)  # type: ignore
             btn.style().polish(btn)  # type: ignore
 
@@ -6562,4 +6867,328 @@ class RuleEditDialog(ThemedDialog):
         }
 
     def deleted(self) -> bool:
+        return self._deleted
+
+
+# ==================== 事件规则编辑子窗口 ====================
+
+
+class EventRuleDialog(ThemedDialog):
+    """
+    # EventRuleDialog — 事件系统规则编辑子窗口
+
+    用于新增或编辑一条事件规则：
+      - 日期（年/月/日滚轮）
+      - 时间（时/分滚轮）
+      - 名称（文本框）
+      - 编辑模式下提供「删除事件」按钮
+    ---
+    """
+
+    def __init__(self, theme_manager: ThemeManager,
+                 rule: Optional[Dict] = None,
+                 parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._theme: ThemeManager = theme_manager
+        self._rule: Optional[Dict] = rule
+        self._deleted: bool = False
+
+        self.setWindowTitle('编辑事件' if rule else '新建事件')
+        self.setWindowFlags(
+            Qt.Window                         # type: ignore
+            | Qt.WindowCloseButtonHint        # type: ignore
+        )
+        self.setModal(True)
+        self.setMinimumWidth(420)
+
+        self._setup_ui()
+        self._prefill()
+        logger.info(
+            f"EventRuleDialog 初始化完成（rule={'有' if rule else '无'}）"
+        )
+
+    # ================================================================
+    #  主题颜色获取
+    # ================================================================
+    def _get_wheel_colors(self) -> tuple:
+        """根据主题获取滚轮的背景色和文字色。"""
+        if self._theme.theme == 'lightcolor':
+            return '#FFFFFF', '#212121'
+        elif self._theme.theme == 'darkcolor':
+            return '#2d2d2d', '#E0E0E0'
+        else:
+            return self._theme.back_color, self._theme.font_color
+
+    # ================================================================
+    #  UI 构建
+    # ================================================================
+    def _setup_ui(self) -> None:
+        """构造对话框布局。"""
+        layout: QVBoxLayout = QVBoxLayout(self)
+        layout.setSpacing(14)
+        layout.setContentsMargins(24, 20, 24, 20)
+
+        self.setStyleSheet(self._build_qss())
+        bg, tc = self._get_wheel_colors()
+
+        # ---- 卡片1：日期 ----
+        date_card: QVBoxLayout = self._add_card("日期", layout)
+        self._date_wheel: DateWheelPicker = DateWheelPicker(
+            self._theme, date.today()
+        )
+        date_card.addWidget(self._date_wheel, 0, Qt.AlignHCenter)  # type: ignore
+
+        # ---- 卡片2：时间 ----
+        time_card: QVBoxLayout = self._add_card("时间", layout)
+
+        hour_items: List[str] = [f"{i:02d}" for i in range(24)]
+        min_items: List[str] = [f"{i:02d}" for i in range(60)]
+        self._hour_wheel: WheelColumn = WheelColumn(
+            hour_items, 8, bg_color=bg, text_color=tc
+        )
+        self._hour_wheel.setFixedSize(70, 150)
+        self._min_wheel: WheelColumn = WheelColumn(
+            min_items, 0, bg_color=bg, text_color=tc
+        )
+        self._min_wheel.setFixedSize(70, 150)
+
+        wheels_row: QHBoxLayout = QHBoxLayout()
+        wheels_row.setSpacing(4)
+        wheels_row.setAlignment(Qt.AlignCenter)  # type: ignore
+        wheels_row.addWidget(self._hour_wheel)
+        wheels_row.addWidget(self._make_sep(':'))
+        wheels_row.addWidget(self._min_wheel)
+        time_card.addLayout(wheels_row)
+
+        # ---- 卡片3：名称 ----
+        name_card: QVBoxLayout = self._add_card("名称", layout)
+        self._name_edit: QLineEdit = QLineEdit()
+        self._name_edit.setFont(QFont("Microsoft YaHei", 11))
+        self._name_edit.setMinimumHeight(34)
+        self._name_edit.setPlaceholderText("例如：早自习 / 考试 / 班会")
+        name_card.addWidget(self._name_edit)
+
+        # ---- 按钮行 ----
+        btn_row: QHBoxLayout = QHBoxLayout()
+        btn_row.setSpacing(12)
+
+        self._delete_btn: QPushButton = QPushButton("删除事件")
+        self._delete_btn.setFont(QFont("Microsoft YaHei", 11))
+        self._delete_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self._delete_btn.setMinimumHeight(34)
+        self._delete_btn.setMinimumWidth(88)
+        self._delete_btn.setProperty('class', 'danger')
+        self._delete_btn.setVisible(self._rule is not None)
+        self._delete_btn.clicked.connect(self._on_delete)
+        btn_row.addWidget(self._delete_btn)
+
+        btn_row.addStretch()
+
+        cancel_btn: QPushButton = QPushButton("取消")
+        cancel_btn.setFont(QFont("Microsoft YaHei", 11))
+        cancel_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        cancel_btn.setMinimumHeight(34)
+        cancel_btn.setMinimumWidth(88)
+        cancel_btn.setProperty('class', 'secondary')
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+
+        confirm_btn: QPushButton = QPushButton("确定")
+        confirm_btn.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))  # type: ignore
+        confirm_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        confirm_btn.setMinimumHeight(34)
+        confirm_btn.setMinimumWidth(88)
+        confirm_btn.setProperty('class', 'primary')
+        confirm_btn.clicked.connect(self._on_confirm)
+        btn_row.addWidget(confirm_btn)
+
+        layout.addLayout(btn_row)
+        self.setLayout(layout)
+
+    # ================================================================
+    #  样式 / 卡片辅助
+    # ================================================================
+    def _make_sep(self, text: str) -> QLabel:
+        """创建时间滚轮分隔符标签（:）。"""
+        _, tc = self._get_wheel_colors()
+        sep_alpha: str = (
+            "rgba(0,0,0,0.30)" if tc == '#212121'
+            else "rgba(255,255,255,0.35)"
+        )
+        label: QLabel = QLabel(text)
+        label.setFont(QFont('Arial', 22))
+        label.setStyleSheet(
+            f"color: {sep_alpha}; background: transparent;"
+        )
+        label.setAlignment(Qt.AlignCenter)  # type: ignore
+        label.setFixedWidth(20)
+        return label
+
+    def _build_qss(self) -> str:
+        """构建对话框 QSS 样式。"""
+        theme = self._theme
+        fc: str = theme.font_color
+        if theme.theme == 'darkcolor':
+            card_bg: str = 'rgba(255, 255, 255, 0.04)'
+            card_border: str = 'rgba(255, 255, 255, 0.08)'
+            field_bg: str = '#2d2d2d'
+            field_border: str = 'rgba(255, 255, 255, 0.14)'
+            accent: str = '#43A047'
+            accent_hover: str = '#4CAF50'
+            btn_bg: str = 'rgba(255, 255, 255, 0.06)'
+            btn_hover: str = 'rgba(255, 255, 255, 0.12)'
+        else:
+            card_bg = 'rgba(0, 0, 0, 0.03)'
+            card_border = 'rgba(0, 0, 0, 0.06)'
+            field_bg = '#FFFFFF'
+            field_border = 'rgba(0, 0, 0, 0.14)'
+            accent = '#4CAF50'
+            accent_hover = '#43A047'
+            btn_bg = 'rgba(0, 0, 0, 0.04)'
+            btn_hover = 'rgba(0, 0, 0, 0.08)'
+
+        self._card_bg: str = card_bg
+        self._card_border: str = card_border
+
+        return f"""
+            QDialog {{
+                background-color: {theme.root_back_color};
+            }}
+            QLabel {{
+                color: {fc};
+                background: transparent;
+            }}
+            QLineEdit {{
+                background-color: {field_bg};
+                color: {fc};
+                border: 1px solid {field_border};
+                border-radius: 6px;
+                padding: 6px 10px;
+            }}
+            QLineEdit:focus {{
+                border-color: {accent};
+            }}
+            QPushButton {{
+                background-color: {btn_bg};
+                color: {fc};
+                border: 1px solid {field_border};
+                border-radius: 6px;
+                padding: 7px 18px;
+            }}
+            QPushButton:hover {{
+                background-color: {btn_hover};
+            }}
+            QPushButton[class="primary"] {{
+                background-color: {accent};
+                color: #FFFFFF;
+                border: none;
+            }}
+            QPushButton[class="primary"]:hover {{
+                background-color: {accent_hover};
+            }}
+            QPushButton[class="danger"] {{
+                background-color: transparent;
+                color: #E53935;
+                border: 1px solid #E53935;
+            }}
+            QPushButton[class="danger"]:hover {{
+                background-color: rgba(229, 57, 53, 0.12);
+            }}
+        """
+
+    def _add_card(self, title: str, parent_layout: QVBoxLayout) -> QVBoxLayout:
+        """创建带标题的卡片容器，返回卡片内部布局。"""
+        card: QFrame = QFrame()
+        card.setStyleSheet(
+            f'QFrame {{ background-color: {self._card_bg};'
+            f' border: 1px solid {self._card_border}; border-radius: 8px; }}'
+        )
+        card_layout: QVBoxLayout = QVBoxLayout(card)
+        card_layout.setContentsMargins(14, 12, 14, 14)
+        card_layout.setSpacing(10)
+
+        title_label: QLabel = QLabel(title)
+        title_label.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))  # type: ignore
+        title_label.setStyleSheet(
+            f'color: {self._theme.font_color}; background: transparent;'
+        )
+        card_layout.addWidget(title_label)
+
+        sep: QFrame = QFrame()
+        sep.setFrameShape(QFrame.HLine)  # type: ignore
+        sep.setStyleSheet(
+            f'border: none; border-top: 1px solid {self._card_border};'
+            f' background: transparent;'
+        )
+        card_layout.addWidget(sep)
+
+        parent_layout.addWidget(card)
+        return card_layout
+
+    # ================================================================
+    #  预填 / 事件处理
+    # ================================================================
+    def _prefill(self) -> None:
+        """编辑模式下用规则数据预填控件。"""
+        if not self._rule:
+            return
+        date_str: str = str(self._rule.get('date', '') or '')
+        time_str: str = str(self._rule.get('time', '') or '')
+        name: str = str(self._rule.get('name', '') or '')
+
+        try:
+            d: date = date.fromisoformat(date_str)
+            self._date_wheel.set_value(d)
+        except (ValueError, TypeError):
+            pass
+
+        try:
+            h, m = time_str.split(':')
+            self._hour_wheel.set_current_index(int(h))
+            self._min_wheel.set_current_index(int(m))
+        except (ValueError, TypeError):
+            pass
+
+        self._name_edit.setText(name)
+
+    def _on_confirm(self) -> None:
+        """点击确定（校验名称非空）。"""
+        if not self._name_edit.text().strip():
+            QMessageBox.warning(
+                self, "名称为空",
+                "请输入事件名称。",
+            )
+            return
+        logger.info("EventRuleDialog 确认")
+        self.accept()
+
+    def _on_delete(self) -> None:
+        """删除当前事件（编辑模式下）。"""
+        reply: QMessageBox.StandardButton = QMessageBox.question(
+            self, "删除事件",
+            "确定要删除这条事件规则吗？",
+            QMessageBox.No | QMessageBox.Yes,  # type: ignore
+            QMessageBox.No,  # type: ignore
+        )
+        if reply != QMessageBox.Yes:  # type: ignore
+            return
+        self._deleted = True
+        self.accept()
+
+    # ================================================================
+    #  结果
+    # ================================================================
+    def result(self) -> dict:  # type: ignore
+        """返回事件规则编辑结果。"""
+        d: date = self._date_wheel.value()
+        h: int = self._hour_wheel.current_index
+        m: int = self._min_wheel.current_index
+        return {
+            'date': d.strftime('%Y-%m-%d'),
+            'time': f"{h:02d}:{m:02d}",
+            'name': self._name_edit.text().strip(),
+        }
+
+    def deleted(self) -> bool:
+        """返回是否请求删除。"""
         return self._deleted

@@ -125,6 +125,11 @@ class KnotLinkBridge:
     _prev_period_key: str = ""         # 上一秒所在课时的 lesson_key
     _initialized: bool = False
 
+    # ---- 事件系统状态跟踪（用于事件触发检测，防止同一条事件重复广播） ----
+    _event_rules_cache: List[Dict] = []
+    _event_rules_mtime: Optional[float] = None
+    _fired_events: set = set()
+
     # ══════════════════════════════════════════════════════════════════
     #  公开方法：初始化桥接
     # ══════════════════════════════════════════════════════════════════
@@ -583,6 +588,9 @@ class KnotLinkBridge:
             elif current_state == "after_school" and cls._prev_state == "in_class":
                 cls._emit_on_day_end()
 
+        # 事件系统：检测用户自定义事件是否到达触发时刻（独立于上课状态）
+        cls._check_and_emit_events(time_str)
+
         cls._prev_state = current_state
         cls._prev_period_key = current_key if current_state == "in_class" else ""
 
@@ -739,6 +747,93 @@ class KnotLinkBridge:
         logger.info("[KnotLink] 信号发射：onDayEnd")
 
     # ══════════════════════════════════════════════════════════════════
+    #  信号广播：事件系统（用户自定义事件触发）
+    # ══════════════════════════════════════════════════════════════════
+
+    @classmethod
+    def _check_and_emit_events(cls, time_str: str) -> None:
+        """
+        检测用户自定义事件是否到达触发时刻，并广播对应信号。
+        ---------------------------------------------------
+        事件规则来自 Config/event_rules.json，每项含 date/time/name。
+        当「事件日期 == 今天」且「事件时间（HH:MM）== 当前时间」时触发；
+        已触发过的事件（以 date|time|name 为键）在本会话内不再重复广播。
+        """
+        if cls._sender is None:
+            return
+
+        date_str: str = cls._get_current_date_str()
+        current_hm: str = time_str[:5]  # HH:MM
+
+        rules: List[Dict] = cls._load_event_rules_cached()
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            r_date: str = str(rule.get('date', '') or '').strip()
+            r_time: str = str(rule.get('time', '') or '').strip()
+            r_name: str = str(rule.get('name', '') or '').strip()
+            if not r_date or not r_time:
+                continue
+
+            if r_date != date_str or r_time[:5] != current_hm:
+                continue
+
+            key: str = f"{r_date}|{r_time}|{r_name}"
+            if key in cls._fired_events:
+                continue
+            cls._fired_events.add(key)
+            cls._emit_on_event_trigger(r_name, r_date, r_time)
+
+    @classmethod
+    def _load_event_rules_cached(cls) -> List[Dict]:
+        """
+        读取事件规则（带文件修改时间缓存）。
+        ----------------------------------
+        仅当 Config/event_rules.json 的内容发生变化时重新读取，
+        避免每秒一次的文件 IO 与 JSON 解析开销；设置页实时增删改后
+        下一次 tick 即可感知到最新规则。
+        """
+        import os as _os
+        from schedule_config import EventRulesManager
+
+        path: str = _os.path.join(
+            _os.path.dirname(_os.path.abspath(__file__)),
+            'Config', 'event_rules.json',
+        )
+        try:
+            mtime: float = _os.path.getmtime(path)
+        except OSError:
+            cls._event_rules_mtime = None
+            cls._event_rules_cache = []
+            return []
+
+        if cls._event_rules_mtime == mtime and cls._event_rules_cache is not None:
+            return cls._event_rules_cache
+
+        cls._event_rules_mtime = mtime
+        cls._event_rules_cache = EventRulesManager().load_rules()
+        return cls._event_rules_cache
+
+    @classmethod
+    def _emit_on_event_trigger(cls, name: str, date_str: str,
+                               time_str: str) -> None:
+        """发射 onEventTrigger 信号。"""
+        if cls._sender is None:
+            return
+
+        kv: KLKVMap = KLKVMap()
+        kv["event"] = "onEventTrigger"
+        kv["name"] = name
+        kv["date"] = date_str
+        kv["time"] = time_str
+
+        cls._sender.emitt(kv.serialize())
+        logger.info(
+            f"[KnotLink] 信号发射：onEventTrigger name='{name}' "
+            f"date={date_str} time={time_str}"
+        )
+
+    # ══════════════════════════════════════════════════════════════════
     #  工具方法
     # ══════════════════════════════════════════════════════════════════
 
@@ -760,6 +855,15 @@ class KnotLinkBridge:
             if debug_weekday is not None:
                 return debug_weekday
         return datetime.now().strftime('%A')
+
+    @classmethod
+    def _get_current_date_str(cls) -> str:
+        """获取当前日期字符串（优先使用调试模式下的模拟日期，YYYY-MM-DD）。"""
+        if cls._debug_config is not None and cls._debug_config.enabled:
+            debug_dt = cls._debug_config.get_current_datetime()
+            if debug_dt is not None:
+                return debug_dt.strftime('%Y-%m-%d')
+        return datetime.now().strftime('%Y-%m-%d')
 
     @staticmethod
     def _calc_next_date_for_weekday(weekday_name: str) -> str:

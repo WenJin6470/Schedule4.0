@@ -196,6 +196,26 @@
           "verification": "onDayEnd"
         }
       }
+    },
+    "onEventTrigger": {
+      "appID": "com.github.wenjin6470.schedule4",
+      "signalID": "events",
+      "description": "自定义事件触发，系统时间到达事件系统规则（事件系统）设定的日期与时间时推送",
+      "returns": {
+        "event": {
+          "description": "事件标识（固定值onEventTrigger），用于鉴别信号类型",
+          "verification": "onEventTrigger"
+        },
+        "name": {
+          "description": "事件名称"
+        },
+        "date": {
+          "description": "事件日期（YYYY-MM-DD）"
+        },
+        "time": {
+          "description": "事件时间（HH:MM）"
+        }
+      }
     }
   }
 }

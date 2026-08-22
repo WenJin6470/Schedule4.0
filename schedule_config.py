@@ -155,6 +155,9 @@ class ThemeManager:
         # ---- 全屏时间创意模式背景图片文件夹 ----
         self.fullscreen_bg_folder: str = 'images/FullScreenBackgrounds/default'
 
+        # ---- 关于页作者署名开关（LG = true 显示 赵晨羽，false 显示 温谨）----
+        self.lg: bool = False
+
         # ---- 加载配置 ----
         self._load_config()
         self._load_subject_config()
@@ -256,6 +259,10 @@ class ThemeManager:
             subject_font_str: str = parser.get('Schedule', 'subject_font',
                                                 fallback=default_subject_font)
             self.subject_font = subject_font_str.strip() or default_subject_font
+
+            # --- LG（关于页作者署名开关）---
+            lg_str: str = parser.get('Schedule', 'LG', fallback='false')
+            self.lg = lg_str.strip().lower() in ('true', '1', 'yes', 'on')
 
             self._apply_theme()
 
@@ -1238,6 +1245,169 @@ class SwapManager:
             logger.warning(
                 f"课表数据中不存在 {day_name}，无法应用换课"
             )
+
+
+# ==================== 事件规则管理器 ====================
+
+
+class EventRulesManager:
+    """
+    # EventRulesManager — 事件系统规则管理器
+
+    负责 Config/event_rules.json 的读取、保存与增删改。
+    ---
+
+    事件规则文件路径：
+      Config/event_rules.json
+
+    记录格式（列表，每项为一条事件规则）：
+      [
+        {"date": "2026-08-22", "time": "08:00", "name": "早自习"},
+        ...
+      ]
+
+    字段说明：
+      date — 事件日期（YYYY-MM-DD）
+      time — 事件时间（HH:MM，即事件触发时刻）
+      name — 事件名称
+
+    对外接口：
+      - load_rules()                     → 读取所有事件规则
+      - add_rule(date, time, name)       → 追加一条规则，返回其索引
+      - update_rule(index, date, time, name)
+      - delete_rule(index)
+    """
+
+    # 事件规则文件路径（相对于脚本目录）
+    FILE_PATH: str = 'Config/event_rules.json'
+
+    def __init__(self) -> None:
+        """初始化事件规则管理器。"""
+        self._script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        self._file_path: str = os.path.join(self._script_dir, self.FILE_PATH)
+        logger.info("EventRulesManager 初始化完成")
+
+    # ================================================================
+    #  读取
+    # ================================================================
+    def load_rules(self) -> List[Dict]:
+        """
+        读取所有事件规则。
+        ------------------
+        返回值：
+            List[Dict]：事件规则列表，文件缺失 / 非法 / 为空时返回空列表
+        """
+        try:
+            if not os.path.exists(self._file_path):
+                logger.debug("事件规则文件不存在，返回空列表")
+                return []
+            with open(self._file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                return [
+                    rule for rule in data if isinstance(rule, dict)
+                ]
+            logger.warning("事件规则文件格式异常（非列表），返回空列表")
+            return []
+        except json.JSONDecodeError as e:
+            logger.error(f"事件规则 JSON 解析失败：{e}")
+            return []
+        except Exception as e:
+            logger.error(f"读取事件规则文件失败：{e}")
+            return []
+
+    # ================================================================
+    #  保存
+    # ================================================================
+    def _save_rules(self, rules: List[Dict]) -> bool:
+        """
+        将事件规则列表完整写入文件（内部方法）。
+        ------------------------------------
+        参数：
+            rules（List[Dict]）：要保存的事件规则列表
+
+        返回值：
+            bool：True 表示保存成功
+        """
+        try:
+            os.makedirs(os.path.dirname(self._file_path), exist_ok=True)
+            with open(self._file_path, 'w', encoding='utf-8') as f:
+                json.dump(rules, f, ensure_ascii=False, indent=4)
+            logger.info(f"事件规则已保存：{len(rules)} 条")
+            return True
+        except Exception as e:
+            logger.error(f"保存事件规则失败：{e}")
+            return False
+
+    # ================================================================
+    #  增删改
+    # ================================================================
+    def add_rule(self, date_str: str, time_str: str, name: str) -> int:
+        """
+        追加一条事件规则。
+        -----------------
+        参数：
+            date_str（str）：事件日期（YYYY-MM-DD）
+            time_str（str）：事件时间（HH:MM）
+            name     （str）：事件名称
+
+        返回值：
+            int：新规则的索引；保存失败时返回 -1
+        """
+        rules: List[Dict] = self.load_rules()
+        rules.append({
+            'date': date_str.strip(),
+            'time': time_str.strip(),
+            'name': name.strip(),
+        })
+        if self._save_rules(rules):
+            logger.info(
+                f"新增事件规则：{date_str} {time_str} '{name}'"
+            )
+            return len(rules) - 1
+        return -1
+
+    def update_rule(self, index: int, date_str: str,
+                    time_str: str, name: str) -> bool:
+        """
+        更新指定索引的事件规则。
+        ---------------------
+        参数：
+            index    （int）：目标规则索引（0-based）
+            date_str （str）：新日期（YYYY-MM-DD）
+            time_str （str）：新时间（HH:MM）
+            name     （str）：新名称
+
+        返回值：
+            bool：True 表示更新成功
+        """
+        rules: List[Dict] = self.load_rules()
+        if not (0 <= index < len(rules)):
+            logger.warning(f"事件规则索引不存在：{index}")
+            return False
+        rules[index] = {
+            'date': date_str.strip(),
+            'time': time_str.strip(),
+            'name': name.strip(),
+        }
+        return self._save_rules(rules)
+
+    def delete_rule(self, index: int) -> bool:
+        """
+        删除指定索引的事件规则。
+        ---------------------
+        参数：
+            index（int）：目标规则索引（0-based）
+
+        返回值：
+            bool：True 表示删除成功
+        """
+        rules: List[Dict] = self.load_rules()
+        if not (0 <= index < len(rules)):
+            logger.warning(f"事件规则索引不存在：{index}")
+            return False
+        del rules[index]
+        return self._save_rules(rules)
 
 
 # ==================== 调试配置管理器 ====================
