@@ -8488,11 +8488,11 @@ class EventRuleDialog(ThemedDialog):
         """
 
     def _add_card(self, title: str, parent_layout: QVBoxLayout) -> QVBoxLayout:
-        """创建带标题的卡片容器，返回卡片内部布局。"""
+        """创建带标题的卡片容器，返回卡片内部布局（无外边框）。"""
         card: QFrame = QFrame()
         card.setStyleSheet(
             f'QFrame {{ background-color: {self._card_bg};'
-            f' border: 1px solid {self._card_border}; border-radius: 8px; }}'
+            f' border: none; border-radius: 8px; }}'
         )
         card_layout: QVBoxLayout = QVBoxLayout(card)
         card_layout.setContentsMargins(14, 12, 14, 14)
