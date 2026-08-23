@@ -2,30 +2,6 @@
     "history": {
         "google": [
             {
-                "ts": "2026-08-19 08:50:46",
-                "duration": 8.062,
-                "correct": false,
-                "需翻译的中文": "活动",
-                "期望的英文": "Activity",
-                "翻译的英文": ""
-            },
-            {
-                "ts": "2026-08-19 10:37:14",
-                "duration": 8.108,
-                "correct": false,
-                "Need Teanslate": "语文",
-                "Expected English": "Chinese",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-19 10:38:51",
-                "duration": 8.057,
-                "correct": false,
-                "Need Teanslate": "通用技术",
-                "Expected English": "General Technology",
-                "Translation": ""
-            },
-            {
                 "ts": "2026-08-19 10:46:08",
                 "duration": 8.065,
                 "correct": false,
@@ -160,33 +136,33 @@
                 "Need Teanslate": "生物",
                 "Expected English": "Biology",
                 "Translation": ""
-            }
-        ],
-        "youdao": [
-            {
-                "ts": "2026-08-19 08:50:46",
-                "duration": 0.196,
-                "correct": false,
-                "需翻译的中文": "活动",
-                "期望的英文": "Activity",
-                "翻译的英文": ""
             },
             {
-                "ts": "2026-08-19 10:37:14",
-                "duration": 0.223,
-                "correct": false,
-                "Need Teanslate": "语文",
-                "Expected English": "Chinese",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-19 10:38:51",
-                "duration": 0.19,
+                "ts": "2026-08-23 09:42:34",
+                "duration": 8.072,
                 "correct": false,
                 "Need Teanslate": "通用技术",
                 "Expected English": "General Technology",
                 "Translation": ""
             },
+            {
+                "ts": "2026-08-23 10:09:19",
+                "duration": 8.065,
+                "correct": false,
+                "Need Teanslate": "英语",
+                "Expected English": "English",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-23 10:39:06",
+                "duration": 8.044,
+                "correct": false,
+                "Need Teanslate": "自习",
+                "Expected English": "Self-study",
+                "Translation": ""
+            }
+        ],
+        "youdao": [
             {
                 "ts": "2026-08-19 10:46:08",
                 "duration": 0.231,
@@ -322,33 +298,33 @@
                 "Need Teanslate": "生物",
                 "Expected English": "Biology",
                 "Translation": ""
-            }
-        ],
-        "baidu": [
-            {
-                "ts": "2026-08-19 08:50:46",
-                "duration": 0.178,
-                "correct": false,
-                "需翻译的中文": "活动",
-                "期望的英文": "Activity",
-                "翻译的英文": "activity; campaign; exercise; flexible"
             },
             {
-                "ts": "2026-08-19 10:37:14",
-                "duration": 0.186,
-                "correct": false,
-                "Need Teanslate": "语文",
-                "Expected English": "Chinese",
-                "Translation": "（中文） Chinese; （语言文字） language ; （语言和文学） language a"
-            },
-            {
-                "ts": "2026-08-19 10:38:51",
-                "duration": 0.243,
+                "ts": "2026-08-23 09:42:34",
+                "duration": 0.188,
                 "correct": false,
                 "Need Teanslate": "通用技术",
                 "Expected English": "General Technology",
                 "Translation": ""
             },
+            {
+                "ts": "2026-08-23 10:09:19",
+                "duration": 0.23,
+                "correct": false,
+                "Need Teanslate": "英语",
+                "Expected English": "English",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-23 10:39:06",
+                "duration": 0.191,
+                "correct": false,
+                "Need Teanslate": "自习",
+                "Expected English": "Self-study",
+                "Translation": ""
+            }
+        ],
+        "baidu": [
             {
                 "ts": "2026-08-19 10:46:08",
                 "duration": 0.195,
@@ -484,33 +460,33 @@
                 "Need Teanslate": "生物",
                 "Expected English": "Biology",
                 "Translation": "biology; organisms; living things; living beings"
+            },
+            {
+                "ts": "2026-08-23 09:42:34",
+                "duration": 0.185,
+                "correct": false,
+                "Need Teanslate": "通用技术",
+                "Expected English": "General Technology",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-23 10:09:19",
+                "duration": 0.224,
+                "correct": true,
+                "Need Teanslate": "英语",
+                "Expected English": "English",
+                "Translation": "English"
+            },
+            {
+                "ts": "2026-08-23 10:39:06",
+                "duration": 0.17,
+                "correct": false,
+                "Need Teanslate": "自习",
+                "Expected English": "Self-study",
+                "Translation": "(of students) study by oneself in scheduled time o"
             }
         ],
         "mymemory": [
-            {
-                "ts": "2026-08-19 08:50:46",
-                "duration": 0.981,
-                "correct": false,
-                "需翻译的中文": "活动",
-                "期望的英文": "Activity",
-                "翻译的英文": "Event"
-            },
-            {
-                "ts": "2026-08-19 10:37:14",
-                "duration": 1.156,
-                "correct": true,
-                "Need Teanslate": "语文",
-                "Expected English": "Chinese",
-                "Translation": "Chinese"
-            },
-            {
-                "ts": "2026-08-19 10:38:51",
-                "duration": 0.781,
-                "correct": true,
-                "Need Teanslate": "通用技术",
-                "Expected English": "General Technology",
-                "Translation": "General Technology"
-            },
             {
                 "ts": "2026-08-19 10:46:08",
                 "duration": 0.721,
@@ -646,14 +622,38 @@
                 "Need Teanslate": "生物",
                 "Expected English": "Biology",
                 "Translation": "creatures"
+            },
+            {
+                "ts": "2026-08-23 09:42:34",
+                "duration": 1.075,
+                "correct": true,
+                "Need Teanslate": "通用技术",
+                "Expected English": "General Technology",
+                "Translation": "General Technology"
+            },
+            {
+                "ts": "2026-08-23 10:09:19",
+                "duration": 0.933,
+                "correct": false,
+                "Need Teanslate": "英语",
+                "Expected English": "English",
+                "Translation": "EN."
+            },
+            {
+                "ts": "2026-08-23 10:39:06",
+                "duration": 1.585,
+                "correct": true,
+                "Need Teanslate": "自习",
+                "Expected English": "Self-study",
+                "Translation": "self-study"
             }
         ]
     },
     "scores": {
         "google": 0.0,
         "youdao": 0.0,
-        "baidu": 14.8989,
-        "mymemory": 39.4415
+        "baidu": 19.8996,
+        "mymemory": 39.424625
     },
-    "updated_at": "2026-08-23 09:23:17"
+    "updated_at": "2026-08-23 10:39:06"
 }
