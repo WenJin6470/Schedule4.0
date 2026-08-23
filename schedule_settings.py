@@ -1053,9 +1053,10 @@ class SettingsWindow(ThemedWidget):
         """
         构建"KnotLink"页面。
         ------------------
-        页面标题（左侧 KnotLink 图标 + "KnotLink设置"），下方两个卡片分区：
+        页面标题（左侧 KnotLink 图标 + "KnotLink设置"），下方三个卡片分区：
           - 接口（openSocket）：openSocket 接口规则列表
           - 信号（signal）：signal 信号规则列表
+          - 事件系统：自定义事件规则列表（触发时广播 onEventTrigger 信号）
         每条规则是一个按钮，按钮上显示规则名称与简介；
         点击按钮弹出详情对话框，展示接口 / 参数 / 返回值等详细信息。
         页面整体放入滚动区域，内容较多时自动出现滚动条。
@@ -1129,6 +1130,9 @@ class SettingsWindow(ThemedWidget):
         node_card_layout.addWidget(node_id_btn)
 
         inner_layout.addWidget(node_card)
+
+        # ---- 事件系统分区 ----
+        inner_layout.addWidget(self._build_event_section_card())
 
         # ---- 接口（openSocket）分区 ----
         inner_layout.addWidget(self._build_knotlink_section_card(
@@ -1227,6 +1231,73 @@ class SettingsWindow(ThemedWidget):
         table.setFixedHeight(max(34, header_h) + 62 * len(items) + 1)
         table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # type: ignore
         card_layout.addWidget(table)
+
+        return card
+
+    def _build_event_section_card(self) -> QFrame:
+        """
+        构建"事件系统"分区卡片（格式与 KnotLink 其余卡片一致）。
+        -----------------------------------------------------
+        卡片内部：分区标题 + 简短提示 + 事件规则按钮列表 + 新建事件按钮。
+        事件规则到达触发时刻时，KnotLink 会广播 onEventTrigger 信号。
+        """
+        fc: str = self._theme.font_color
+
+        card: QFrame = QFrame()
+        card.setObjectName('knotlinkCard')
+        card.setStyleSheet(self._get_knotlink_card_style())
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # type: ignore
+        self._event_card = card
+
+        card_layout: QVBoxLayout = QVBoxLayout(card)
+        card_layout.setContentsMargins(20, 14, 20, 16)
+        card_layout.setSpacing(10)
+
+        # ---- 分区标题 ----
+        section_title: QLabel = QLabel("事件系统")
+        section_title.setFont(QFont("Microsoft YaHei", 15, QFont.Bold))  # type: ignore
+        section_title.setStyleSheet(f"color: {fc}; background: transparent;")
+        card_layout.addWidget(section_title)
+
+        # ---- 分区提示 ----
+        hint: QLabel = QLabel(
+            "自定义事件到达触发时刻时，KnotLink 将广播 onEventTrigger 信号；"
+            "点击任意一条事件规则查看或编辑，也可新建自定义事件。"
+        )
+        hint.setFont(QFont("Microsoft YaHei", 10))
+        hint.setStyleSheet(f"color: {fc}; background: transparent; opacity: 0.55;")
+        hint.setWordWrap(True)
+        card_layout.addWidget(hint)
+
+        # ---- 事件规则按钮列表 ----
+        # 规则按钮直接放在普通容器中（不使用内部 QScrollArea）：
+        # 卡片高度时刻等于内容高度，所有事件规则按钮完整显示；
+        # 内容超出页面时由页面外层滚动区统一滚动，不会压缩卡片高度。
+        ev_subjects_widget: QWidget = QWidget()
+        ev_subjects_widget.setStyleSheet("background: transparent;")
+        self._event_scroll_layout = QVBoxLayout(ev_subjects_widget)
+        self._event_scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self._event_scroll_layout.setSpacing(6)
+        card_layout.addWidget(ev_subjects_widget)
+
+        # ---- 新建事件按钮 ----
+        ev_btn_row: QHBoxLayout = QHBoxLayout()
+        ev_btn_row.setSpacing(12)
+
+        new_event_btn: QPushButton = QPushButton("＋ 新建事件")
+        new_event_btn.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))  # type: ignore
+        new_event_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        new_event_btn.setMinimumHeight(38)
+        new_event_btn.setStyleSheet(self._get_add_btn_style())
+        new_event_btn.clicked.connect(self._on_new_event)
+        ev_btn_row.addWidget(new_event_btn)
+
+        ev_btn_row.addStretch()
+        card_layout.addLayout(ev_btn_row)
+
+        # 初始加载事件规则并渲染规则按钮
+        self._load_event_rules()
+        self._refresh_event_rules()
 
         return card
 
@@ -2210,73 +2281,6 @@ class SettingsWindow(ThemedWidget):
         layout.addWidget(dr_indent)
 
         # ════════════════════════════════════════════════════════════
-        #  事件系统
-        # ════════════════════════════════════════════════════════════
-        # ---- 分割线 ----
-        ev_sep_line: QFrame = QFrame()
-        ev_sep_line.setFrameShape(QFrame.HLine)  # type: ignore
-        ev_sep_line.setStyleSheet(f"""
-            border: none;
-            border-top: 1px solid {self._theme.border_color};
-            background: transparent;
-        """)
-        layout.addWidget(ev_sep_line)
-        layout.addSpacing(4)
-
-        # ---- 一级标题：事件系统 ----
-        ev_section_title: QLabel = QLabel("事件系统")
-        ev_section_title.setFont(QFont("Microsoft YaHei", 18, QFont.Bold))  # type: ignore
-        ev_section_title.setStyleSheet(f"color: {fc}; background: transparent;")
-        ev_section_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
-        layout.addWidget(ev_section_title)
-
-        # ---- 缩进容器（事件系统控件统一缩进 28px）----
-        ev_indent: QWidget = QWidget()
-        ev_indent.setStyleSheet("background: transparent;")
-        ev_indent_layout: QVBoxLayout = QVBoxLayout(ev_indent)
-        ev_indent_layout.setContentsMargins(28, 0, 0, 0)
-        ev_indent_layout.setSpacing(12)
-
-        # ---- 新建事件按钮 ----
-        ev_btn_row: QHBoxLayout = QHBoxLayout()
-        ev_btn_row.setSpacing(12)
-
-        new_event_btn: QPushButton = QPushButton("＋ 新建事件")
-        new_event_btn.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))  # type: ignore
-        new_event_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
-        new_event_btn.setMinimumHeight(38)
-        new_event_btn.setStyleSheet(self._get_add_btn_style())
-        new_event_btn.clicked.connect(self._on_new_event)
-        ev_btn_row.addWidget(new_event_btn)
-
-        ev_btn_row.addStretch()
-        ev_indent_layout.addLayout(ev_btn_row)
-
-        # ---- 事件规则卡片容器（每条规则为一个按钮）----
-        self._event_card = QFrame()
-        self._event_card.setStyleSheet(self._get_status_card_style())
-        ev_card_layout: QVBoxLayout = QVBoxLayout(self._event_card)
-        ev_card_layout.setContentsMargins(12, 10, 12, 10)
-
-        # 事件规则按钮直接放在普通容器中（不使用内部 QScrollArea）：
-        # 卡片高度时刻等于内容高度，所有事件规则按钮完整显示；
-        # 内容超出页面时由页面外层滚动区统一滚动，不会压缩卡片高度。
-        ev_subjects_widget: QWidget = QWidget()
-        ev_subjects_widget.setStyleSheet("background: transparent;")
-        self._event_scroll_layout = QVBoxLayout(ev_subjects_widget)
-        self._event_scroll_layout.setContentsMargins(0, 0, 0, 0)
-        self._event_scroll_layout.setSpacing(6)
-
-        ev_card_layout.addWidget(ev_subjects_widget)
-        ev_indent_layout.addWidget(self._event_card)
-
-        layout.addWidget(ev_indent)
-
-        # 初始加载事件规则并渲染规则按钮
-        self._load_event_rules()
-        self._refresh_event_rules()
-
-        # ════════════════════════════════════════════════════════════
         #  科目编辑
         # ════════════════════════════════════════════════════════════
         # ---- 分割线 ----
@@ -2974,28 +2978,30 @@ class SettingsWindow(ThemedWidget):
         self._event_buttons.clear()
 
     def _get_event_rule_btn_style(self) -> str:
-        """返回事件规则按钮的 QSS 样式。"""
+        """返回事件规则按钮的 QSS 样式（与 KnotLink 规则按钮一致：无边框、悬浮高亮）。"""
         fc: str = self._theme.font_color
         if self._theme.theme == 'darkcolor':
-            bg: str = 'rgba(255, 255, 255, 0.05)'
-            hover_bg: str = 'rgba(255, 255, 255, 0.10)'
-            border: str = 'rgba(255, 255, 255, 0.10)'
+            btn_bg: str = 'rgba(255,255,255,0.03)'
+            hover_bg: str = 'rgba(255,255,255,0.08)'
+            pressed_bg: str = 'rgba(255,255,255,0.12)'
         else:
-            bg = 'rgba(0, 0, 0, 0.04)'
-            hover_bg = 'rgba(0, 0, 0, 0.08)'
-            border = 'rgba(0, 0, 0, 0.08)'
+            btn_bg = 'rgba(0,0,0,0.02)'
+            hover_bg = 'rgba(0,0,0,0.06)'
+            pressed_bg = 'rgba(0,0,0,0.10)'
         return f"""
             QPushButton {{
                 color: {fc};
-                background-color: {bg};
-                border: 1px solid {border};
-                border-radius: 6px;
+                background-color: {btn_bg};
+                border: none;
+                border-radius: 4px;
                 padding: 8px 12px;
                 text-align: left;
             }}
             QPushButton:hover {{
                 background-color: {hover_bg};
-                border: 1px solid #2196F3;
+            }}
+            QPushButton:pressed {{
+                background-color: {pressed_bg};
             }}
         """
 
@@ -5131,7 +5137,7 @@ class SettingsWindow(ThemedWidget):
             btn.style().polish(btn)  # type: ignore
         # 刷新事件系统控件
         if self._event_card is not None:
-            self._event_card.setStyleSheet(self._get_status_card_style())
+            self._event_card.setStyleSheet(self._get_knotlink_card_style())
         ev_style: str = self._get_event_rule_btn_style()
         for btn in self._event_buttons:
             btn.setStyleSheet(ev_style)

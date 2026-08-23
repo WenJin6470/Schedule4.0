@@ -2,14 +2,6 @@
     "history": {
         "google": [
             {
-                "ts": "2026-08-19 10:46:08",
-                "duration": 8.065,
-                "correct": false,
-                "Need Teanslate": "历史",
-                "Expected English": "History",
-                "Translation": ""
-            },
-            {
                 "ts": "2026-08-19 12:33:36",
                 "duration": 8.107,
                 "correct": false,
@@ -160,17 +152,17 @@
                 "Need Teanslate": "自习",
                 "Expected English": "Self-study",
                 "Translation": ""
+            },
+            {
+                "ts": "2026-08-23 10:49:05",
+                "duration": 8.041,
+                "correct": false,
+                "Need Teanslate": "化学",
+                "Expected English": "Chemistry",
+                "Translation": ""
             }
         ],
         "youdao": [
-            {
-                "ts": "2026-08-19 10:46:08",
-                "duration": 0.231,
-                "correct": false,
-                "Need Teanslate": "历史",
-                "Expected English": "History",
-                "Translation": ""
-            },
             {
                 "ts": "2026-08-19 12:33:36",
                 "duration": 0.25,
@@ -322,17 +314,17 @@
                 "Need Teanslate": "自习",
                 "Expected English": "Self-study",
                 "Translation": ""
+            },
+            {
+                "ts": "2026-08-23 10:49:05",
+                "duration": 0.225,
+                "correct": false,
+                "Need Teanslate": "化学",
+                "Expected English": "Chemistry",
+                "Translation": ""
             }
         ],
         "baidu": [
-            {
-                "ts": "2026-08-19 10:46:08",
-                "duration": 0.195,
-                "correct": false,
-                "Need Teanslate": "历史",
-                "Expected English": "History",
-                "Translation": "history; past records; annals"
-            },
             {
                 "ts": "2026-08-19 12:33:36",
                 "duration": 0.225,
@@ -484,17 +476,17 @@
                 "Need Teanslate": "自习",
                 "Expected English": "Self-study",
                 "Translation": "(of students) study by oneself in scheduled time o"
+            },
+            {
+                "ts": "2026-08-23 10:49:05",
+                "duration": 0.156,
+                "correct": false,
+                "Need Teanslate": "化学",
+                "Expected English": "Chemistry",
+                "Translation": "chemistry; chem.; chymist; chymistry"
             }
         ],
         "mymemory": [
-            {
-                "ts": "2026-08-19 10:46:08",
-                "duration": 0.721,
-                "correct": true,
-                "Need Teanslate": "历史",
-                "Expected English": "History",
-                "Translation": "HISTORY"
-            },
             {
                 "ts": "2026-08-19 12:33:36",
                 "duration": 0.763,
@@ -646,14 +638,22 @@
                 "Need Teanslate": "自习",
                 "Expected English": "Self-study",
                 "Translation": "self-study"
+            },
+            {
+                "ts": "2026-08-23 10:49:05",
+                "duration": 0.699,
+                "correct": true,
+                "Need Teanslate": "化学",
+                "Expected English": "Chemistry",
+                "Translation": "Chemistry"
             }
         ]
     },
     "scores": {
         "google": 0.0,
         "youdao": 0.0,
-        "baidu": 19.8996,
-        "mymemory": 39.424625
+        "baidu": 19.900575,
+        "mymemory": 39.425175
     },
-    "updated_at": "2026-08-23 10:39:06"
+    "updated_at": "2026-08-23 10:49:05"
 }
