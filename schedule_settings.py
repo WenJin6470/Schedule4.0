@@ -1634,6 +1634,73 @@ class SettingsWindow(ThemedWidget):
         layout.addWidget(dr_indent)
 
         # ════════════════════════════════════════════════════════════
+        #  事件系统
+        # ════════════════════════════════════════════════════════════
+        # ---- 分割线 ----
+        ev_sep_line: QFrame = QFrame()
+        ev_sep_line.setFrameShape(QFrame.HLine)  # type: ignore
+        ev_sep_line.setStyleSheet(f"""
+            border: none;
+            border-top: 1px solid {self._theme.border_color};
+            background: transparent;
+        """)
+        layout.addWidget(ev_sep_line)
+        layout.addSpacing(4)
+
+        # ---- 一级标题：事件系统 ----
+        ev_section_title: QLabel = QLabel("事件系统")
+        ev_section_title.setFont(QFont("Microsoft YaHei", 18, QFont.Bold))  # type: ignore
+        ev_section_title.setStyleSheet(f"color: {fc}; background: transparent;")
+        ev_section_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
+        layout.addWidget(ev_section_title)
+
+        # ---- 缩进容器（事件系统控件统一缩进 28px）----
+        ev_indent: QWidget = QWidget()
+        ev_indent.setStyleSheet("background: transparent;")
+        ev_indent_layout: QVBoxLayout = QVBoxLayout(ev_indent)
+        ev_indent_layout.setContentsMargins(28, 0, 0, 0)
+        ev_indent_layout.setSpacing(12)
+
+        # ---- 新建事件按钮 ----
+        ev_btn_row: QHBoxLayout = QHBoxLayout()
+        ev_btn_row.setSpacing(12)
+
+        new_event_btn: QPushButton = QPushButton("＋ 新建事件")
+        new_event_btn.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))  # type: ignore
+        new_event_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        new_event_btn.setMinimumHeight(38)
+        new_event_btn.setStyleSheet(self._get_add_btn_style())
+        new_event_btn.clicked.connect(self._on_new_event)
+        ev_btn_row.addWidget(new_event_btn)
+
+        ev_btn_row.addStretch()
+        ev_indent_layout.addLayout(ev_btn_row)
+
+        # ---- 事件规则卡片容器（每条规则为一个按钮）----
+        self._event_card = QFrame()
+        self._event_card.setStyleSheet(self._get_status_card_style())
+        ev_card_layout: QVBoxLayout = QVBoxLayout(self._event_card)
+        ev_card_layout.setContentsMargins(12, 10, 12, 10)
+
+        # 事件规则按钮直接放在普通容器中（不使用内部 QScrollArea）：
+        # 卡片高度时刻等于内容高度，所有事件规则按钮完整显示；
+        # 内容超出页面时由页面外层滚动区统一滚动，不会压缩卡片高度。
+        ev_subjects_widget: QWidget = QWidget()
+        ev_subjects_widget.setStyleSheet("background: transparent;")
+        self._event_scroll_layout = QVBoxLayout(ev_subjects_widget)
+        self._event_scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self._event_scroll_layout.setSpacing(6)
+
+        ev_card_layout.addWidget(ev_subjects_widget)
+        ev_indent_layout.addWidget(self._event_card)
+
+        layout.addWidget(ev_indent)
+
+        # 初始加载事件规则并渲染规则按钮
+        self._load_event_rules()
+        self._refresh_event_rules()
+
+        # ════════════════════════════════════════════════════════════
         #  科目编辑
         # ════════════════════════════════════════════════════════════
         # ---- 分割线 ----
@@ -1718,73 +1785,6 @@ class SettingsWindow(ThemedWidget):
         sj_indent_layout.addWidget(sj_hint)
 
         layout.addWidget(sj_indent)
-
-        # ════════════════════════════════════════════════════════════
-        #  事件系统
-        # ════════════════════════════════════════════════════════════
-        # ---- 分割线 ----
-        ev_sep_line: QFrame = QFrame()
-        ev_sep_line.setFrameShape(QFrame.HLine)  # type: ignore
-        ev_sep_line.setStyleSheet(f"""
-            border: none;
-            border-top: 1px solid {self._theme.border_color};
-            background: transparent;
-        """)
-        layout.addWidget(ev_sep_line)
-        layout.addSpacing(4)
-
-        # ---- 一级标题：事件系统 ----
-        ev_section_title: QLabel = QLabel("事件系统")
-        ev_section_title.setFont(QFont("Microsoft YaHei", 18, QFont.Bold))  # type: ignore
-        ev_section_title.setStyleSheet(f"color: {fc}; background: transparent;")
-        ev_section_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
-        layout.addWidget(ev_section_title)
-
-        # ---- 缩进容器（事件系统控件统一缩进 28px）----
-        ev_indent: QWidget = QWidget()
-        ev_indent.setStyleSheet("background: transparent;")
-        ev_indent_layout: QVBoxLayout = QVBoxLayout(ev_indent)
-        ev_indent_layout.setContentsMargins(28, 0, 0, 0)
-        ev_indent_layout.setSpacing(12)
-
-        # ---- 新建事件按钮 ----
-        ev_btn_row: QHBoxLayout = QHBoxLayout()
-        ev_btn_row.setSpacing(12)
-
-        new_event_btn: QPushButton = QPushButton("＋ 新建事件")
-        new_event_btn.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))  # type: ignore
-        new_event_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
-        new_event_btn.setMinimumHeight(38)
-        new_event_btn.setStyleSheet(self._get_add_btn_style())
-        new_event_btn.clicked.connect(self._on_new_event)
-        ev_btn_row.addWidget(new_event_btn)
-
-        ev_btn_row.addStretch()
-        ev_indent_layout.addLayout(ev_btn_row)
-
-        # ---- 事件规则卡片容器（每条规则为一个按钮）----
-        self._event_card = QFrame()
-        self._event_card.setStyleSheet(self._get_status_card_style())
-        ev_card_layout: QVBoxLayout = QVBoxLayout(self._event_card)
-        ev_card_layout.setContentsMargins(12, 10, 12, 10)
-
-        # 事件规则按钮直接放在普通容器中（不使用内部 QScrollArea）：
-        # 卡片高度时刻等于内容高度，所有事件规则按钮完整显示；
-        # 内容超出页面时由页面外层滚动区统一滚动，不会压缩卡片高度。
-        ev_subjects_widget: QWidget = QWidget()
-        ev_subjects_widget.setStyleSheet("background: transparent;")
-        self._event_scroll_layout = QVBoxLayout(ev_subjects_widget)
-        self._event_scroll_layout.setContentsMargins(0, 0, 0, 0)
-        self._event_scroll_layout.setSpacing(6)
-
-        ev_card_layout.addWidget(ev_subjects_widget)
-        ev_indent_layout.addWidget(self._event_card)
-
-        layout.addWidget(ev_indent)
-
-        # 初始加载事件规则并渲染规则按钮
-        self._load_event_rules()
-        self._refresh_event_rules()
 
         # 初始加载科目配置并渲染科目按钮
         self._load_subject_config_data()
@@ -2450,11 +2450,11 @@ class SettingsWindow(ThemedWidget):
             return
 
         for index, rule in enumerate(self._event_rules):
-            date_str: str = str(rule.get('date', '') or '')
+            summary: str = _event_rule_summary(rule)
             time_str: str = str(rule.get('time', '') or '')
             name: str = str(rule.get('name', '') or '')
             btn: QPushButton = QPushButton(
-                f"{date_str}  ·  {time_str}  ·  {name}"
+                f"{summary}  ·  {time_str}  ·  {name}"
             )
             btn.setFont(QFont("Microsoft YaHei", 11))
             btn.setCursor(Qt.PointingHandCursor)  # type: ignore
@@ -2479,14 +2479,12 @@ class SettingsWindow(ThemedWidget):
         )
         if dialog.exec() == QDialog.Accepted:  # type: ignore
             result: dict = dialog.result()
-            self._event_manager.add_rule(
-                result['date'], result['time'], result['name']
-            )
+            self._event_manager.add_rule(result)
             self._load_event_rules()
             self._refresh_event_rules()
             logger.info(
-                f"已新建事件：{result['date']} {result['time']} "
-                f"'{result['name']}'"
+                f"已新建事件：{_event_rule_summary(result)} "
+                f"{result['time']} '{result['name']}'"
             )
 
     def _on_event_rule_clicked(self, index: int) -> None:
@@ -2504,9 +2502,7 @@ class SettingsWindow(ThemedWidget):
                 self._event_manager.delete_rule(index)
             else:
                 result: dict = dialog.result()
-                self._event_manager.update_rule(
-                    index, result['date'], result['time'], result['name']
-                )
+                self._event_manager.update_rule(index, result)
             self._load_event_rules()
             self._refresh_event_rules()
 
@@ -6035,6 +6031,41 @@ def _days_in_month(year: int, month: int) -> int:
     return (date(year, month + 1, 1) - date(year, month, 1)).days
 
 
+def _clamp_int(value: Any, lo: int, hi: int) -> int:
+    """把任意值安全转换为 [lo, hi] 区间内的整数；非法时回退到 lo。"""
+    try:
+        v: int = int(value)
+    except (TypeError, ValueError):
+        v = lo
+    return max(lo, min(hi, v))
+
+
+def _event_rule_summary(rule: Dict) -> str:
+    """
+    生成事件规则的可读摘要（用于列表按钮与日志）。
+    -------------------------------------------------
+    按 type 字段返回：
+      daily   → 每天
+      weekly  → 每周一 … 每周日
+      monthly → 每月1日 … 每月31日
+      yearly  → 每年1月1日 … 每年12月31日
+      date    → 具体日期（YYYY-MM-DD）；旧格式规则（无 type）也按此处理
+    """
+    rtype: str = str(rule.get('type', '') or '').strip() or 'date'
+    if rtype == 'daily':
+        return '每天'
+    if rtype == 'weekly':
+        return f"每周{_WEEKDAY_SUFFIX[_clamp_int(rule.get('weekday'), 0, 6)]}"
+    if rtype == 'monthly':
+        return f"每月{_clamp_int(rule.get('day'), 1, 31)}日"
+    if rtype == 'yearly':
+        return (
+            f"每年{_clamp_int(rule.get('month'), 1, 12)}月"
+            f"{_clamp_int(rule.get('day'), 1, 31)}日"
+        )
+    return str(rule.get('date', '') or '')
+
+
 # ==================== 单条规则行 ====================
 
 
@@ -6878,7 +6909,8 @@ class EventRuleDialog(ThemedDialog):
     # EventRuleDialog — 事件系统规则编辑子窗口
 
     用于新增或编辑一条事件规则：
-      - 日期（年/月/日滚轮）
+      - 触发日期：每天 / 每周 / 每月 / 每年 / 具体时间点
+        （参照显示规则子窗口的规则类型；除「每天」外均使用滚轮控件选择）
       - 时间（时/分滚轮）
       - 名称（文本框）
       - 编辑模式下提供「删除事件」按钮
@@ -6899,7 +6931,7 @@ class EventRuleDialog(ThemedDialog):
             | Qt.WindowCloseButtonHint        # type: ignore
         )
         self.setModal(True)
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(500)
 
         self._setup_ui()
         self._prefill()
@@ -6931,8 +6963,68 @@ class EventRuleDialog(ThemedDialog):
         self.setStyleSheet(self._build_qss())
         bg, tc = self._get_wheel_colors()
 
-        # ---- 卡片1：日期 ----
-        date_card: QVBoxLayout = self._add_card("日期", layout)
+        # ---- 卡片1：触发日期 ----
+        date_card: QVBoxLayout = self._add_card("触发日期", layout)
+
+        # 触发类型单选（参照显示规则子窗口的规则类型）
+        self._daily_radio: QRadioButton = QRadioButton("每天")
+        self._weekly_radio: QRadioButton = QRadioButton("每周")
+        self._monthly_radio: QRadioButton = QRadioButton("每月")
+        self._yearly_radio: QRadioButton = QRadioButton("每年")
+        self._date_radio: QRadioButton = QRadioButton("具体时间点")
+        for r in (self._daily_radio, self._weekly_radio, self._monthly_radio,
+                  self._yearly_radio, self._date_radio):
+            r.setFont(QFont("Microsoft YaHei", 11))
+
+        radio_row: QHBoxLayout = QHBoxLayout()
+        radio_row.setSpacing(16)
+        for r in (self._daily_radio, self._weekly_radio, self._monthly_radio,
+                  self._yearly_radio, self._date_radio):
+            radio_row.addWidget(r)
+        radio_row.addStretch()
+        date_card.addLayout(radio_row)
+
+        # 每天：无额外选择，仅提示
+        self._daily_hint: QLabel = self._make_hint(
+            "每天固定时间触发，只需设置下方时间"
+        )
+        date_card.addWidget(self._daily_hint)
+
+        # 每周：星期滚轮（周一～周日）
+        self._weekday_wheel: WheelColumn = WheelColumn(
+            list(_WEEKDAY_LABELS), 0, bg_color=bg, text_color=tc,
+        )
+        self._weekday_wheel.setFixedSize(100, 150)
+        date_card.addWidget(self._weekday_wheel, 0, Qt.AlignHCenter)  # type: ignore
+
+        # 每月：日期滚轮（1日～31日）
+        self._month_day_wheel: WheelColumn = WheelColumn(
+            [f'{d}日' for d in range(1, 32)],
+            0, bg_color=bg, text_color=tc,
+        )
+        self._month_day_wheel.setFixedSize(100, 150)
+        date_card.addWidget(self._month_day_wheel, 0, Qt.AlignHCenter)  # type: ignore
+
+        # 每年：月份 + 日期双滚轮（几月几号）
+        self._year_month_wheel: WheelColumn = WheelColumn(
+            [f'{m}月' for m in range(1, 13)],
+            0, bg_color=bg, text_color=tc,
+        )
+        self._year_month_wheel.setFixedSize(80, 150)
+        self._year_day_wheel: WheelColumn = WheelColumn(
+            [f'{d}日' for d in range(1, 32)],
+            0, bg_color=bg, text_color=tc,
+        )
+        self._year_day_wheel.setFixedSize(100, 150)
+
+        yearly_row: QHBoxLayout = QHBoxLayout()
+        yearly_row.setSpacing(4)
+        yearly_row.setAlignment(Qt.AlignCenter)  # type: ignore
+        yearly_row.addWidget(self._year_month_wheel)
+        yearly_row.addWidget(self._year_day_wheel)
+        date_card.addLayout(yearly_row)
+
+        # 具体时间点：年/月/日滚轮
         self._date_wheel: DateWheelPicker = DateWheelPicker(
             self._theme, date.today()
         )
@@ -7005,6 +7097,14 @@ class EventRuleDialog(ThemedDialog):
         layout.addLayout(btn_row)
         self.setLayout(layout)
 
+        # ---- 联动：类型单选切换可见控件 ----
+        for r in (self._daily_radio, self._weekly_radio, self._monthly_radio,
+                  self._yearly_radio, self._date_radio):
+            r.toggled.connect(self._on_type_changed)
+
+        self._daily_radio.setChecked(True)
+        self._on_type_changed()
+
     # ================================================================
     #  样式 / 卡片辅助
     # ================================================================
@@ -7024,6 +7124,19 @@ class EventRuleDialog(ThemedDialog):
         label.setFixedWidth(20)
         return label
 
+    def _make_hint(self, text: str) -> QLabel:
+        """斜体小字提示标签。"""
+        lbl: QLabel = QLabel(text)
+        f: QFont = QFont("Microsoft YaHei", 9)
+        f.setItalic(True)
+        lbl.setFont(f)
+        lbl.setStyleSheet(
+            f'color: {self._dim}; background: transparent;'
+        )
+        lbl.setWordWrap(True)
+        lbl.setAlignment(Qt.AlignCenter)  # type: ignore
+        return lbl
+
     def _build_qss(self) -> str:
         """构建对话框 QSS 样式。"""
         theme = self._theme
@@ -7037,6 +7150,7 @@ class EventRuleDialog(ThemedDialog):
             accent_hover: str = '#4CAF50'
             btn_bg: str = 'rgba(255, 255, 255, 0.06)'
             btn_hover: str = 'rgba(255, 255, 255, 0.12)'
+            dim: str = 'rgba(255, 255, 255, 0.55)'
         else:
             card_bg = 'rgba(0, 0, 0, 0.03)'
             card_border = 'rgba(0, 0, 0, 0.06)'
@@ -7046,9 +7160,11 @@ class EventRuleDialog(ThemedDialog):
             accent_hover = '#43A047'
             btn_bg = 'rgba(0, 0, 0, 0.04)'
             btn_hover = 'rgba(0, 0, 0, 0.08)'
+            dim = 'rgba(0, 0, 0, 0.50)'
 
         self._card_bg: str = card_bg
         self._card_border: str = card_border
+        self._dim: str = dim
 
         return f"""
             QDialog {{
@@ -7057,6 +7173,22 @@ class EventRuleDialog(ThemedDialog):
             QLabel {{
                 color: {fc};
                 background: transparent;
+            }}
+            QRadioButton {{
+                color: {fc};
+                background: transparent;
+                spacing: 6px;
+            }}
+            QRadioButton::indicator {{
+                width: 16px;
+                height: 16px;
+                border: 2px solid {field_border};
+                border-radius: 9px;
+                background: {field_bg};
+            }}
+            QRadioButton::indicator:checked {{
+                border: 2px solid {accent};
+                background: {accent};
             }}
             QLineEdit {{
                 background-color: {field_bg};
@@ -7132,16 +7264,39 @@ class EventRuleDialog(ThemedDialog):
         """编辑模式下用规则数据预填控件。"""
         if not self._rule:
             return
-        date_str: str = str(self._rule.get('date', '') or '')
-        time_str: str = str(self._rule.get('time', '') or '')
-        name: str = str(self._rule.get('name', '') or '')
+        rule: Dict = self._rule
+        rtype: str = str(rule.get('type', '') or '').strip() or 'date'
 
-        try:
-            d: date = date.fromisoformat(date_str)
-            self._date_wheel.set_value(d)
-        except (ValueError, TypeError):
-            pass
+        if rtype == 'daily':
+            self._daily_radio.setChecked(True)
+        elif rtype == 'weekly':
+            self._weekly_radio.setChecked(True)
+            self._weekday_wheel.set_current_index(
+                _clamp_int(rule.get('weekday'), 0, 6)
+            )
+        elif rtype == 'monthly':
+            self._monthly_radio.setChecked(True)
+            self._month_day_wheel.set_current_index(
+                _clamp_int(rule.get('day'), 1, 31) - 1
+            )
+        elif rtype == 'yearly':
+            self._yearly_radio.setChecked(True)
+            self._year_month_wheel.set_current_index(
+                _clamp_int(rule.get('month'), 1, 12) - 1
+            )
+            self._year_day_wheel.set_current_index(
+                _clamp_int(rule.get('day'), 1, 31) - 1
+            )
+        else:
+            self._date_radio.setChecked(True)
+            date_str: str = str(rule.get('date', '') or '')
+            try:
+                d: date = date.fromisoformat(date_str)
+                self._date_wheel.set_value(d)
+            except (ValueError, TypeError):
+                pass
 
+        time_str: str = str(rule.get('time', '') or '')
         try:
             h, m = time_str.split(':')
             self._hour_wheel.set_current_index(int(h))
@@ -7149,7 +7304,35 @@ class EventRuleDialog(ThemedDialog):
         except (ValueError, TypeError):
             pass
 
-        self._name_edit.setText(name)
+        self._name_edit.setText(str(rule.get('name', '') or ''))
+        self._on_type_changed()
+
+    def _on_type_changed(self, _checked: bool = False) -> None:
+        """按当前选中的触发类型显示对应的日期控件。"""
+        daily: bool = self._daily_radio.isChecked()
+        weekly: bool = self._weekly_radio.isChecked()
+        monthly: bool = self._monthly_radio.isChecked()
+        yearly: bool = self._yearly_radio.isChecked()
+        specific: bool = self._date_radio.isChecked()
+
+        self._daily_hint.setVisible(daily)
+        self._weekday_wheel.setVisible(weekly)
+        self._month_day_wheel.setVisible(monthly)
+        self._year_month_wheel.setVisible(yearly)
+        self._year_day_wheel.setVisible(yearly)
+        self._date_wheel.setVisible(specific)
+
+    def _current_type(self) -> str:
+        """返回当前选中的触发类型标识。"""
+        if self._weekly_radio.isChecked():
+            return 'weekly'
+        if self._monthly_radio.isChecked():
+            return 'monthly'
+        if self._yearly_radio.isChecked():
+            return 'yearly'
+        if self._date_radio.isChecked():
+            return 'date'
+        return 'daily'
 
     def _on_confirm(self) -> None:
         """点击确定（校验名称非空）。"""
@@ -7179,15 +7362,30 @@ class EventRuleDialog(ThemedDialog):
     #  结果
     # ================================================================
     def result(self) -> dict:  # type: ignore
-        """返回事件规则编辑结果。"""
-        d: date = self._date_wheel.value()
+        """返回事件规则编辑结果（完整规则字典）。"""
         h: int = self._hour_wheel.current_index
         m: int = self._min_wheel.current_index
-        return {
-            'date': d.strftime('%Y-%m-%d'),
+        rtype: str = self._current_type()
+        rule: Dict = {
+            'type': rtype,
+            'date': '',
+            'weekday': 0,
+            'month': 1,
+            'day': 1,
             'time': f"{h:02d}:{m:02d}",
             'name': self._name_edit.text().strip(),
         }
+        if rtype == 'weekly':
+            rule['weekday'] = self._weekday_wheel.current_index
+        elif rtype == 'monthly':
+            rule['day'] = self._month_day_wheel.current_index + 1
+        elif rtype == 'yearly':
+            rule['month'] = self._year_month_wheel.current_index + 1
+            rule['day'] = self._year_day_wheel.current_index + 1
+        elif rtype == 'date':
+            d: date = self._date_wheel.value()
+            rule['date'] = d.strftime('%Y-%m-%d')
+        return rule
 
     def deleted(self) -> bool:
         """返回是否请求删除。"""

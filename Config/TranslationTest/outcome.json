@@ -120,6 +120,22 @@
                 "Need Teanslate": "英语",
                 "Expected English": "English",
                 "Translation": ""
+            },
+            {
+                "ts": "2026-08-23 08:07:56",
+                "duration": 8.096,
+                "correct": false,
+                "Need Teanslate": "英语",
+                "Expected English": "English",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-23 08:10:28",
+                "duration": 8.038,
+                "correct": false,
+                "Need Teanslate": "地理",
+                "Expected English": "Geography",
+                "Translation": ""
             }
         ],
         "youdao": [
@@ -241,6 +257,22 @@
                 "correct": false,
                 "Need Teanslate": "英语",
                 "Expected English": "English",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-23 08:07:56",
+                "duration": 0.238,
+                "correct": false,
+                "Need Teanslate": "英语",
+                "Expected English": "English",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-23 08:10:28",
+                "duration": 0.247,
+                "correct": false,
+                "Need Teanslate": "地理",
+                "Expected English": "Geography",
                 "Translation": ""
             }
         ],
@@ -364,6 +396,22 @@
                 "Need Teanslate": "英语",
                 "Expected English": "English",
                 "Translation": "English"
+            },
+            {
+                "ts": "2026-08-23 08:07:56",
+                "duration": 0.208,
+                "correct": true,
+                "Need Teanslate": "英语",
+                "Expected English": "English",
+                "Translation": "English"
+            },
+            {
+                "ts": "2026-08-23 08:10:28",
+                "duration": 0.217,
+                "correct": false,
+                "Need Teanslate": "地理",
+                "Expected English": "Geography",
+                "Translation": "geography ; geographical features of a place"
             }
         ],
         "mymemory": [
@@ -486,14 +534,30 @@
                 "Need Teanslate": "英语",
                 "Expected English": "English",
                 "Translation": "EN."
+            },
+            {
+                "ts": "2026-08-23 08:07:56",
+                "duration": 0.896,
+                "correct": false,
+                "Need Teanslate": "英语",
+                "Expected English": "English",
+                "Translation": "EN."
+            },
+            {
+                "ts": "2026-08-23 08:10:28",
+                "duration": 0.776,
+                "correct": false,
+                "Need Teanslate": "地理",
+                "Expected English": "Geography",
+                "Translation": "geographic"
             }
         ]
     },
     "scores": {
         "google": 0.0,
         "youdao": 0.0,
-        "baidu": 13.231533333333333,
-        "mymemory": 46.05976666666666
+        "baidu": 17.544735294117647,
+        "mymemory": 40.591794117647055
     },
-    "updated_at": "2026-08-22 18:19:30"
+    "updated_at": "2026-08-23 08:10:28"
 }

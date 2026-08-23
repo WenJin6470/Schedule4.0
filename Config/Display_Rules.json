@@ -10,5 +10,11 @@
         "每周一",
         "Config/timetable/timetable_2.json",
         "Config/curriculum/table_2.json"
+    ],
+    "rule_3": [
+        3,
+        "每年8月23日",
+        "Config/timetable/timetable_1.json",
+        "Config/curriculum/table_1.json"
     ]
 }

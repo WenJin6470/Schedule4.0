@@ -1262,19 +1262,26 @@ class EventRulesManager:
 
     记录格式（列表，每项为一条事件规则）：
       [
-        {"date": "2026-08-22", "time": "08:00", "name": "早自习"},
+        {"type": "weekly", "date": "", "weekday": 1, "month": 1,
+         "day": 1, "time": "08:00", "name": "早自习"},
         ...
       ]
 
     字段说明：
-      date — 事件日期（YYYY-MM-DD）
-      time — 事件时间（HH:MM，即事件触发时刻）
-      name — 事件名称
+      type    — 触发类型：daily（每天）/ weekly（每周）/
+                monthly（每月）/ yearly（每年）/ date（具体时间点）
+                （旧格式规则没有 type 字段，视为 date 类型）
+      date    — 具体时间点日期（YYYY-MM-DD，仅 type=date 使用）
+      weekday — 星期索引（0=周一 … 6=周日，仅 type=weekly 使用）
+      month   — 月份（1-12，仅 type=yearly 使用）
+      day     — 日期（1-31，type=monthly / type=yearly 使用）
+      time    — 事件时间（HH:MM，即事件触发时刻）
+      name    — 事件名称
 
     对外接口：
-      - load_rules()                     → 读取所有事件规则
-      - add_rule(date, time, name)       → 追加一条规则，返回其索引
-      - update_rule(index, date, time, name)
+      - load_rules()           → 读取所有事件规则
+      - add_rule(rule)         → 追加一条规则（完整字典），返回其索引
+      - update_rule(index, rule)
       - delete_rule(index)
     """
 
@@ -1342,41 +1349,38 @@ class EventRulesManager:
     # ================================================================
     #  增删改
     # ================================================================
-    def add_rule(self, date_str: str, time_str: str, name: str) -> int:
+    def add_rule(self, rule: Dict) -> int:
         """
         追加一条事件规则。
         -----------------
         参数：
-            date_str（str）：事件日期（YYYY-MM-DD）
-            time_str（str）：事件时间（HH:MM）
-            name     （str）：事件名称
+            rule（Dict）：完整事件规则字典，至少包含 type/time/name，
+                          以及各类型对应的字段：
+                          type='daily'   → 每天固定时间触发
+                          type='weekly'  → 每周（weekday：0=周一 … 6=周日）
+                          type='monthly' → 每月（day：1-31）
+                          type='yearly'  → 每年（month：1-12，day：1-31）
+                          type='date'    → 具体时间点（date：YYYY-MM-DD）
 
         返回值：
             int：新规则的索引；保存失败时返回 -1
         """
         rules: List[Dict] = self.load_rules()
-        rules.append({
-            'date': date_str.strip(),
-            'time': time_str.strip(),
-            'name': name.strip(),
-        })
+        rules.append(rule)
         if self._save_rules(rules):
             logger.info(
-                f"新增事件规则：{date_str} {time_str} '{name}'"
+                f"新增事件规则：{rule}"
             )
             return len(rules) - 1
         return -1
 
-    def update_rule(self, index: int, date_str: str,
-                    time_str: str, name: str) -> bool:
+    def update_rule(self, index: int, rule: Dict) -> bool:
         """
         更新指定索引的事件规则。
         ---------------------
         参数：
-            index    （int）：目标规则索引（0-based）
-            date_str （str）：新日期（YYYY-MM-DD）
-            time_str （str）：新时间（HH:MM）
-            name     （str）：新名称
+            index（int）：目标规则索引（0-based）
+            rule （Dict）：完整事件规则字典（格式同 add_rule）
 
         返回值：
             bool：True 表示更新成功
@@ -1385,11 +1389,7 @@ class EventRulesManager:
         if not (0 <= index < len(rules)):
             logger.warning(f"事件规则索引不存在：{index}")
             return False
-        rules[index] = {
-            'date': date_str.strip(),
-            'time': time_str.strip(),
-            'name': name.strip(),
-        }
+        rules[index] = rule
         return self._save_rules(rules)
 
     def delete_rule(self, index: int) -> bool:

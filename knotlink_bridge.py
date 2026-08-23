@@ -755,9 +755,16 @@ class KnotLinkBridge:
         """
         检测用户自定义事件是否到达触发时刻，并广播对应信号。
         ---------------------------------------------------
-        事件规则来自 Config/event_rules.json，每项含 date/time/name。
-        当「事件日期 == 今天」且「事件时间（HH:MM）== 当前时间」时触发；
-        已触发过的事件（以 date|time|name 为键）在本会话内不再重复广播。
+        事件规则来自 Config/event_rules.json，每项含 type/time/name 及
+        类型相关字段，支持五种触发类型：
+          daily   → 每天固定时间触发
+          weekly  → 每周指定星期触发（weekday：0=周一 … 6=周日）
+          monthly → 每月指定日期触发（day：1-31）
+          yearly  → 每年指定月日触发（month：1-12，day：1-31）
+          date    → 具体日期触发（date：YYYY-MM-DD；旧格式规则视为该类型）
+        当「规则命中今天」且「事件时间（HH:MM）== 当前时间」时触发；
+        已触发过的事件（以 日期|时间|名称|类型等 为键）在本会话内不再重复广播，
+        循环规则每天使用新的日期键，因此每天都会重新触发一次。
         """
         if cls._sender is None:
             return
@@ -769,20 +776,55 @@ class KnotLinkBridge:
         for rule in rules:
             if not isinstance(rule, dict):
                 continue
-            r_date: str = str(rule.get('date', '') or '').strip()
             r_time: str = str(rule.get('time', '') or '').strip()
             r_name: str = str(rule.get('name', '') or '').strip()
-            if not r_date or not r_time:
+            if not r_time or r_time[:5] != current_hm:
+                continue
+            if not cls._rule_matches_date(rule, date_str):
                 continue
 
-            if r_date != date_str or r_time[:5] != current_hm:
-                continue
-
-            key: str = f"{r_date}|{r_time}|{r_name}"
+            key: str = (
+                f"{date_str}|{r_time}|{r_name}|{rule.get('type', 'date')}|"
+                f"{rule.get('weekday', '')}|{rule.get('month', '')}|"
+                f"{rule.get('day', '')}|{rule.get('date', '')}"
+            )
             if key in cls._fired_events:
                 continue
             cls._fired_events.add(key)
-            cls._emit_on_event_trigger(r_name, r_date, r_time)
+            cls._emit_on_event_trigger(r_name, date_str, r_time)
+
+    @classmethod
+    def _rule_matches_date(cls, rule: Dict, date_str: str) -> bool:
+        """
+        判断事件规则是否命中指定日期。
+        ---------------------------
+        旧格式规则（无 type 字段）视为具体时间点（date 类型）。
+        """
+        rtype: str = str(rule.get('type', '') or '').strip() or 'date'
+        if rtype == 'daily':
+            return True
+        try:
+            today_dt: datetime = datetime.strptime(date_str, '%Y-%m-%d')
+        except (ValueError, TypeError):
+            return False
+        if rtype == 'weekly':
+            try:
+                return today_dt.weekday() == int(rule.get('weekday'))
+            except (TypeError, ValueError):
+                return False
+        if rtype == 'monthly':
+            try:
+                return today_dt.day == int(rule.get('day'))
+            except (TypeError, ValueError):
+                return False
+        if rtype == 'yearly':
+            try:
+                return (today_dt.month == int(rule.get('month'))
+                        and today_dt.day == int(rule.get('day')))
+            except (TypeError, ValueError):
+                return False
+        # 具体时间点（date）
+        return str(rule.get('date', '') or '').strip() == date_str
 
     @classmethod
     def _load_event_rules_cached(cls) -> List[Dict]:
