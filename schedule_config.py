@@ -1449,6 +1449,315 @@ class EventRulesManager:
         return self._save_rules(rules)
 
 
+# ==================== KnotLink 接口 / 信号目录 ====================
+#
+# KnotLink 接口（openSocket）与信号（signal）的参考目录数据，
+# 供设置页 "KnotLink" 标签页展示。
+#
+# 规则已硬编码为内置默认目录（下方 _DEFAULT_*），Config/knotlink/*.json
+# 仅作为可选的「自定义覆盖层」保留：
+#   - 文件缺失     → 生成空占位文件（[]，保留 JSON 列表格式），使用内置默认
+#   - 文件为空列表 → 使用内置默认目录
+#   - 文件非空     → 使用文件中的自定义目录（增删改条目后重启窗口生效）
+#   - 文件损坏     → 回退内置默认并记录日志，不影响程序运行
+#
+# 接口条目字段：
+#   name / title / intro / params / returns / req_example / resp_example
+#   params  每项：{"name", "type", "required"(bool), "desc"}
+#   returns 每项：{"name", "type", "desc"}
+# 信号条目字段：
+#   name / title / intro / trigger / fields / example
+#   fields  每项：{"name", "type", "desc"}
+# （读取时兼容旧式元组形态：params=(名, 类型, 是否必填, 说明)，
+#   returns/fields=(名, 类型, 说明)，统一标准化为对象数组）
+
+_DEFAULT_KNOTLINK_INTERFACES: List[Dict[str, Any]] = [
+    {
+        "name": "get-lesson-state",
+        "title": "查询实时上课状态",
+        "intro": "根据当前时间判断是否在上课 / 课间 / 放学，并返回当前课时与下一节课的详细信息。",
+        "params": [],
+        "returns": [
+            {"name": "status", "type": "string", "desc": "响应状态：ok（成功）/ err（失败）"},
+            {"name": "message", "type": "string", "desc": "错误信息（仅在失败时返回）"},
+            {"name": "isInClass", "type": "string", "desc": "是否正在上课：true / false"},
+            {"name": "isBreak", "type": "string", "desc": "是否处于课间：true / false"},
+            {"name": "isAfterSchool", "type": "string", "desc": "是否已放学：true / false"},
+            {"name": "currentPeriod", "type": "string", "desc": "当前第几节课（非上课状态为 -1）"},
+            {"name": "currentSubject", "type": "string", "desc": "当前科目名称"},
+            {"name": "currentStartTime", "type": "string", "desc": "当前课时开始时间（HH:MM:SS）"},
+            {"name": "currentEndTime", "type": "string", "desc": "当前课时结束时间（HH:MM:SS）"},
+            {"name": "remainingTime", "type": "string", "desc": "距离下课剩余时间（HH:MM:SS）"},
+            {"name": "nextPeriod", "type": "string", "desc": "下一节课序号（无下一节为 -1）"},
+            {"name": "nextSubject", "type": "string", "desc": "下一节课科目名称"},
+            {"name": "nextStartTime", "type": "string", "desc": "下一节课开始时间（HH:MM:SS）"},
+        ],
+        "req_example": '{"action": "get-lesson-state"}',
+        "resp_example": (
+            '{"status": "ok", "isInClass": "true", "isBreak": "false", '
+            '"isAfterSchool": "false", "currentPeriod": "3", '
+            '"currentSubject": "数学", "currentStartTime": "10:10:00", '
+            '"currentEndTime": "10:50:00", "remainingTime": "00:20:00", '
+            '"nextPeriod": "4", "nextSubject": "英语", '
+            '"nextStartTime": "11:00:00"}'
+        ),
+    },
+    {
+        "name": "get-today-schedule",
+        "title": "获取当天（或指定星期）完整课表",
+        "intro": "获取当天或指定星期（Monday~Sunday）的完整课表，包含每节课的科目、起止时间与分隔线位置。",
+        "params": [
+            {"name": "day", "type": "string", "required": False,
+             "desc": "英文星期名 Monday~Sunday；缺省时为今天"},
+        ],
+        "returns": [
+            {"name": "status", "type": "string", "desc": "响应状态：ok（成功）/ err（失败）"},
+            {"name": "message", "type": "string", "desc": "错误信息（仅在失败时返回）"},
+            {"name": "day", "type": "string", "desc": "实际查询的星期名称"},
+            {"name": "lessons", "type": "json", "desc": "课程数组（JSON 字符串），每项含 period / key / subject / startTime / endTime"},
+            {"name": "dividerIndices", "type": "json", "desc": "分隔线位置数组（JSON 字符串）"},
+            {"name": "totalPeriods", "type": "string", "desc": "总课时数"},
+        ],
+        "req_example": '{"action": "get-today-schedule", "day": "Monday"}',
+        "resp_example": (
+            '{"status": "ok", "day": "Monday", "lessons": '
+            '"[{\\"period\\":1,\\"key\\":\\"lesson_1\\",\\"subject\\":\\"语文\\",'
+            '\\"startTime\\":\\"08:00:00\\",\\"endTime\\":\\"08:40:00\\"}, ...]", '
+            '"dividerIndices": "[2, 4]", "totalPeriods": "8"}'
+        ),
+    },
+    {
+        "name": "get-date-schedule",
+        "title": "获取当天或指定日期的完整时间表",
+        "intro": "获取当天或指定日期（YYYY-MM-DD）的完整时间表，包含每节课的科目、起止时间与分隔线位置。",
+        "params": [
+            {"name": "date", "type": "string", "required": False,
+             "desc": "日期 YYYY-MM-DD；缺省时为今天"},
+        ],
+        "returns": [
+            {"name": "status", "type": "string", "desc": "响应状态：ok（成功）/ err（失败）"},
+            {"name": "message", "type": "string", "desc": "错误信息（仅在失败时返回）"},
+            {"name": "day", "type": "string", "desc": "实际查询的日期（YYYY-MM-DD）"},
+            {"name": "lessons", "type": "json", "desc": "课程数组（JSON 字符串），每项含 period / key / subject / startTime / endTime"},
+            {"name": "dividerIndices", "type": "json", "desc": "分隔线位置数组（JSON 字符串）"},
+            {"name": "totalPeriods", "type": "string", "desc": "总课时数"},
+        ],
+        "req_example": '{"action": "get-date-schedule", "date": "2025-07-07"}',
+        "resp_example": (
+            '{"status": "ok", "day": "2025-07-07", "lessons": '
+            '"[{\\"period\\":1,\\"key\\":\\"lesson_1\\",\\"subject\\":\\"语文\\",'
+            '\\"startTime\\":\\"08:00:00\\",\\"endTime\\":\\"08:40:00\\"}, ...]", '
+            '"dividerIndices": "[2, 4]", "totalPeriods": "8"}'
+        ),
+    },
+    {
+        "name": "swap-course",
+        "title": "临时换课",
+        "intro": "将某天某节课临时替换为其他科目并写入换课记录；若换课日期是今天且主窗口正在显示该星期，立即刷新显示。",
+        "params": [
+            {"name": "day_name", "type": "string", "required": True,
+             "desc": "英文星期名 Monday~Sunday"},
+            {"name": "lesson_key", "type": "string", "required": True,
+             "desc": "课时键名 lesson_N（如 lesson_2）"},
+            {"name": "old_subject", "type": "string", "required": False,
+             "desc": "原科目名称"},
+            {"name": "new_subject", "type": "string", "required": False,
+             "desc": "新科目名称"},
+            {"name": "swap_date", "type": "string", "required": False,
+             "desc": "换课日期 YYYY-MM-DD；缺省时自动计算该星期下一个匹配日期"},
+        ],
+        "returns": [
+            {"name": "status", "type": "string", "desc": "响应状态：ok（成功）/ err（失败）"},
+            {"name": "message", "type": "string", "desc": "错误信息（仅在失败时返回）"},
+            {"name": "swap_date", "type": "string", "desc": "实际生效的换课日期（YYYY-MM-DD）"},
+        ],
+        "req_example": (
+            '{"action": "swap-course", "day_name": "Monday", '
+            '"lesson_key": "lesson_2", "old_subject": "数学", '
+            '"new_subject": "体育", "swap_date": "2025-07-07"}'
+        ),
+        "resp_example": '{"status": "ok", "swap_date": "2025-07-07"}',
+    },
+]
+
+_DEFAULT_KNOTLINK_SIGNALS: List[Dict[str, Any]] = [
+    {
+        "name": "onClassStart",
+        "title": "上课开始",
+        "intro": "状态从「非上课」切换为「上课」（上课铃响）时广播，携带当前课时信息。",
+        "trigger": "每节课开始时（从课间或放学状态进入上课状态）",
+        "fields": [
+            {"name": "event", "type": "string", "desc": "固定为 onClassStart"},
+            {"name": "period", "type": "string", "desc": "当前第几节课"},
+            {"name": "subject", "type": "string", "desc": "当前科目名称"},
+            {"name": "startTime", "type": "string", "desc": "本节课开始时间（HH:MM:SS）"},
+            {"name": "endTime", "type": "string", "desc": "本节课结束时间（HH:MM:SS）"},
+        ],
+        "example": (
+            '{"event": "onClassStart", "period": "3", "subject": "数学", '
+            '"startTime": "10:10:00", "endTime": "10:50:00"}'
+        ),
+    },
+    {
+        "name": "onClassEnd",
+        "title": "下课（进入课间）",
+        "intro": "状态从「上课中」切换为「课间」时广播，携带下一节课信息与距离下节课的剩余时间。",
+        "trigger": "本节课结束时（从上课状态进入课间状态）",
+        "fields": [
+            {"name": "event", "type": "string", "desc": "固定为 onClassEnd"},
+            {"name": "nextPeriod", "type": "string", "desc": "下一节课序号（无下一节为 -1）"},
+            {"name": "nextSubject", "type": "string", "desc": "下一节课科目名称"},
+            {"name": "nextStartTime", "type": "string", "desc": "下一节课开始时间（HH:MM:SS）"},
+            {"name": "leftTime", "type": "string", "desc": "距离下一节课开始剩余时间（HH:MM:SS）"},
+        ],
+        "example": (
+            '{"event": "onClassEnd", "nextPeriod": "4", "nextSubject": "英语", '
+            '"nextStartTime": "11:00:00", "leftTime": "00:10:00"}'
+        ),
+    },
+]
+
+
+class KnotLinkCatalogManager:
+    """
+    # KnotLinkCatalogManager — KnotLink 接口 / 信号目录管理器
+
+    负责 Config/knotlink/interfaces.json 与 signals.json 的读取与标准化：
+      - 规则已硬编码为内置默认目录（_DEFAULT_*），JSON 文件仅作可选自定义层
+      - 文件缺失 → 生成空占位文件（[]），使用内置默认目录
+      - 文件为空列表 → 使用内置默认目录
+      - 文件非空 → 使用文件中的自定义目录
+      - 文件损坏 / 格式非法 → 回退内置默认数据并记录日志
+    """
+
+    # 目录文件路径（相对于脚本目录）
+    INTERFACES_PATH: str = 'Config/knotlink/interfaces.json'
+    SIGNALS_PATH: str = 'Config/knotlink/signals.json'
+
+    def __init__(self) -> None:
+        """初始化目录管理器。"""
+        self._script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        logger.info("KnotLinkCatalogManager 初始化完成")
+
+    # ================================================================
+    #  对外读取
+    # ================================================================
+    def load_interfaces(self) -> List[Dict]:
+        """读取接口目录（缺失 / 为空 / 损坏时回退内置默认）。"""
+        return self._load(self.INTERFACES_PATH, _DEFAULT_KNOTLINK_INTERFACES)
+
+    def load_signals(self) -> List[Dict]:
+        """读取信号目录（缺失 / 为空 / 损坏时回退内置默认）。"""
+        return self._load(self.SIGNALS_PATH, _DEFAULT_KNOTLINK_SIGNALS)
+
+    # ================================================================
+    #  内部：读取与标准化
+    # ================================================================
+    def _load(self, rel_path: str, defaults: List[Dict]) -> List[Dict]:
+        """
+        读取指定目录文件并标准化。
+
+        规则已硬编码为内置默认目录（defaults）：
+          - 文件缺失     → 生成空占位文件（保留 JSON 列表格式），返回内置默认
+          - 文件为空列表 → 使用内置默认目录（便于直接编辑文件自定义覆盖）
+          - 文件非空     → 使用文件中的自定义目录
+          - 文件损坏     → 回退内置默认并记录日志
+        """
+        path: str = os.path.join(self._script_dir, rel_path)
+
+        if not os.path.exists(path):
+            self._write_placeholder(path)
+            return [self._normalize_rule(rule) for rule in defaults]
+
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data: Any = json.load(f)
+            if not isinstance(data, list):
+                raise ValueError('目录文件内容不是列表')
+            if not data:
+                # 空列表：规则已硬编码在代码中，使用内置默认目录
+                return [self._normalize_rule(rule) for rule in defaults]
+            return [
+                self._normalize_rule(rule)
+                for rule in data if isinstance(rule, dict)
+            ]
+        except (json.JSONDecodeError, ValueError, OSError) as e:
+            logger.error(
+                f"读取 KnotLink 目录文件失败（{rel_path}）：{e}，回退内置默认"
+            )
+            return [self._normalize_rule(rule) for rule in defaults]
+
+    def _normalize_rule(self, rule: Dict) -> Dict:
+        """标准化一条目录条目（补齐缺省字段、统一对象数组结构）。"""
+        name: str = str(rule.get('name', '') or '')
+        title: str = str(rule.get('title', '') or '')
+        intro: str = str(rule.get('intro', '') or '')
+
+        if 'trigger' in rule or 'fields' in rule:
+            # ---- 信号条目 ----
+            return {
+                "name": name,
+                "title": title,
+                "intro": intro,
+                "trigger": str(rule.get('trigger', '') or ''),
+                "fields": self._normalize_field_list(
+                    rule.get('fields'), has_required=False,
+                ),
+                "example": str(rule.get('example', '') or ''),
+            }
+        # ---- 接口条目 ----
+        return {
+            "name": name,
+            "title": title,
+            "intro": intro,
+            "params": self._normalize_field_list(
+                rule.get('params'), has_required=True,
+            ),
+            "returns": self._normalize_field_list(
+                rule.get('returns'), has_required=False,
+            ),
+            "req_example": str(rule.get('req_example', '') or ''),
+            "resp_example": str(rule.get('resp_example', '') or ''),
+        }
+
+    def _normalize_field_list(self, raw: Any, has_required: bool) -> List[Dict]:
+        """标准化字段列表：字典或旧式元组形态统一为对象数组。"""
+        out: List[Dict] = []
+        for item in raw or []:
+            if isinstance(item, dict):
+                out.append({
+                    "name": str(item.get('name', '') or ''),
+                    "type": str(item.get('type', 'string') or 'string'),
+                    "required": bool(item.get('required', False))
+                    if has_required else False,
+                    "desc": str(item.get('desc', '') or ''),
+                })
+            elif isinstance(item, (list, tuple)) and len(item) >= 2:
+                fname: str = str(item[0] or '')
+                ftype: str = str(item[1] or 'string')
+                fdesc: str = str(item[-1] or '')
+                frequired: bool = False
+                if has_required and len(item) >= 3:
+                    frequired = bool(item[2])
+                out.append({
+                    "name": fname,
+                    "type": ftype,
+                    "required": frequired,
+                    "desc": fdesc,
+                })
+        return out
+
+    def _write_placeholder(self, path: str) -> None:
+        """目录文件缺失时生成空占位文件（保留 JSON 列表格式，规则内置在代码中）。"""
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write('[]\n')
+            logger.info(f"已生成空的 KnotLink 目录占位文件：{path}")
+        except OSError as e:
+            logger.error(f"生成 KnotLink 目录占位文件失败（{path}）：{e}")
+
+
 # ==================== 调试配置管理器 ====================
 
 

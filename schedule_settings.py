@@ -47,7 +47,7 @@ from schedule_config import (
     ThemeManager, ThemedWidget, ScheduleDataManager,
     DisplayRulesManager, parse_display_rule,
     SubjectConfigManager, parse_subject_entry, is_color_dark,
-    EventRulesManager, SwapManager,
+    EventRulesManager, SwapManager, KnotLinkCatalogManager,
 )
 from schedule_backend import TimeWheelPicker, WheelColumn
 from schedule_translate import TranslateWorker, load_sites, get_default_site
@@ -101,196 +101,12 @@ _AUTOSTART_REG_KEY: str = r'Software\Microsoft\Windows\CurrentVersion\Run'
 _AUTOSTART_VALUE_NAME: str = 'Schedule4.0'
 
 
-# ==================== KnotLink 接口 / 信号参考数据 ====================
+# ==================== KnotLink 接口 / 信号目录 ====================
 #
-# 以下数据与 knotlink_bridge.py 中的实现一一对应，
-# 用于设置页 "KnotLink" 标签页展示接口规则（openSocket）与信号规则（signal）。
-#
-# 接口规则字段：
-#   name         接口动作名（action）
-#   title        接口标题
-#   intro        一句话简介
-#   params       参数列表：(字段名, 类型, 是否必填(bool), 说明)
-#   returns      返回值列表：(字段名, 类型, 说明)
-#   req_example  请求示例（KLKVMap 序列化字符串）
-#   resp_example 响应示例（KLKVMap 序列化字符串）
-#
-# 信号规则字段：
-#   name     信号名
-#   title    信号标题
-#   intro    一句话简介
-#   trigger  触发时机
-#   fields   载荷字段列表：(字段名, 类型, 说明)
-#   example  广播示例（KLKVMap 序列化字符串）
-
-_KNOTLINK_INTERFACES: List[Dict[str, Any]] = [
-    {
-        "name": "get-lesson-state",
-        "title": "查询实时上课状态",
-        "intro": "根据当前时间判断是否在上课 / 课间 / 放学，并返回当前课时与下一节课的详细信息。",
-        "params": [],
-        "returns": [
-            ("status", "string", "响应状态：ok（成功）/ err（失败）"),
-            ("message", "string", "错误信息（仅在失败时返回）"),
-            ("isInClass", "string", "是否正在上课：true / false"),
-            ("isBreak", "string", "是否处于课间：true / false"),
-            ("isAfterSchool", "string", "是否已放学：true / false"),
-            ("currentPeriod", "string", "当前第几节课（非上课状态为 -1）"),
-            ("currentSubject", "string", "当前科目名称"),
-            ("currentStartTime", "string", "当前课时开始时间（HH:MM:SS）"),
-            ("currentEndTime", "string", "当前课时结束时间（HH:MM:SS）"),
-            ("remainingTime", "string", "距离下课剩余时间（HH:MM:SS）"),
-            ("nextPeriod", "string", "下一节课序号（无下一节为 -1）"),
-            ("nextSubject", "string", "下一节课科目名称"),
-            ("nextStartTime", "string", "下一节课开始时间（HH:MM:SS）"),
-        ],
-        "req_example": '{"action": "get-lesson-state"}',
-        "resp_example": (
-            '{"status": "ok", "isInClass": "true", "isBreak": "false", '
-            '"isAfterSchool": "false", "currentPeriod": "3", '
-            '"currentSubject": "数学", "currentStartTime": "10:10:00", '
-            '"currentEndTime": "10:50:00", "remainingTime": "00:20:00", '
-            '"nextPeriod": "4", "nextSubject": "英语", '
-            '"nextStartTime": "11:00:00"}'
-        ),
-    },
-    {
-        "name": "get-today-schedule",
-        "title": "获取当天（或指定星期）完整课表",
-        "intro": "获取当天或指定星期（Monday~Sunday）的完整课表，包含每节课的科目、起止时间与分隔线位置。",
-        "params": [
-            ("day", "string", False, "英文星期名 Monday~Sunday；缺省时为今天"),
-        ],
-        "returns": [
-            ("status", "string", "响应状态：ok（成功）/ err（失败）"),
-            ("message", "string", "错误信息（仅在失败时返回）"),
-            ("day", "string", "实际查询的星期名称"),
-            ("lessons", "json", "课程数组（JSON 字符串），每项含 period / key / subject / startTime / endTime"),
-            ("dividerIndices", "json", "分隔线位置数组（JSON 字符串）"),
-            ("totalPeriods", "string", "总课时数"),
-        ],
-        "req_example": '{"action": "get-today-schedule", "day": "Monday"}',
-        "resp_example": (
-            '{"status": "ok", "day": "Monday", "lessons": '
-            '"[{\\"period\\":1,\\"key\\":\\"lesson_1\\",\\"subject\\":\\"语文\\",'
-            '\\"startTime\\":\\"08:00:00\\",\\"endTime\\":\\"08:40:00\\"}, ...]", '
-            '"dividerIndices": "[2, 4]", "totalPeriods": "8"}'
-        ),
-    },
-    {
-        "name": "swap-course",
-        "title": "临时换课",
-        "intro": "将某天某节课临时替换为其他科目并写入换课记录；若换课日期是今天且主窗口正在显示该星期，立即刷新显示。",
-        "params": [
-            ("day_name", "string", True, "英文星期名 Monday~Sunday"),
-            ("lesson_key", "string", True, "课时键名 lesson_N（如 lesson_2）"),
-            ("old_subject", "string", False, "原科目名称"),
-            ("new_subject", "string", False, "新科目名称"),
-            ("swap_date", "string", False, "换课日期 YYYY-MM-DD；缺省时自动计算该星期下一个匹配日期"),
-        ],
-        "returns": [
-            ("status", "string", "响应状态：ok（成功）/ err（失败）"),
-            ("message", "string", "错误信息（仅在失败时返回）"),
-            ("swap_date", "string", "实际生效的换课日期（YYYY-MM-DD）"),
-        ],
-        "req_example": (
-            '{"action": "swap-course", "day_name": "Monday", '
-            '"lesson_key": "lesson_2", "old_subject": "数学", '
-            '"new_subject": "体育", "swap_date": "2025-07-07"}'
-        ),
-        "resp_example": '{"status": "ok", "swap_date": "2025-07-07"}',
-    },
-    {
-        "name": "enter-fullscreen",
-        "title": "进入全屏时间模式",
-        "intro": "进入考试模式或创意模式的全屏时间显示；进入前会取消浮动时间窗口的置顶状态。",
-        "params": [
-            ("mode", "string", False, "全屏模式：exam（考试模式，缺省）/ creative（创意模式）"),
-        ],
-        "returns": [
-            ("status", "string", "响应状态：ok（成功）/ err（失败）"),
-            ("message", "string", "错误信息（仅在失败时返回）"),
-            ("mode", "string", "实际进入的全屏模式：exam / creative"),
-        ],
-        "req_example": '{"action": "enter-fullscreen", "mode": "exam"}',
-        "resp_example": '{"status": "ok", "mode": "exam"}',
-    },
-    {
-        "name": "exit-fullscreen",
-        "title": "退出全屏时间模式",
-        "intro": "退出全屏模式并隐藏对应窗口，恢复浮动时间窗口的置顶状态。",
-        "params": [],
-        "returns": [
-            ("status", "string", "响应状态：ok（成功）/ err（失败）"),
-            ("message", "string", "错误信息（仅在失败时返回）"),
-        ],
-        "req_example": '{"action": "exit-fullscreen"}',
-        "resp_example": '{"status": "ok"}',
-    },
-]
-
-_KNOTLINK_SIGNALS: List[Dict[str, Any]] = [
-    {
-        "name": "onClassStart",
-        "title": "上课开始",
-        "intro": "状态从「非上课」切换为「上课」（上课铃响）时广播，携带当前课时信息。",
-        "trigger": "每节课开始时（从课间或放学状态进入上课状态）",
-        "fields": [
-            ("event", "string", "固定为 onClassStart"),
-            ("period", "string", "当前第几节课"),
-            ("subject", "string", "当前科目名称"),
-            ("startTime", "string", "本节课开始时间（HH:MM:SS）"),
-            ("endTime", "string", "本节课结束时间（HH:MM:SS）"),
-        ],
-        "example": (
-            '{"event": "onClassStart", "period": "3", "subject": "数学", '
-            '"startTime": "10:10:00", "endTime": "10:50:00"}'
-        ),
-    },
-    {
-        "name": "onClassEnd",
-        "title": "下课（进入课间）",
-        "intro": "状态从「上课中」切换为「课间」时广播，携带下一节课信息与距离下节课的剩余时间。",
-        "trigger": "本节课结束时（从上课状态进入课间状态）",
-        "fields": [
-            ("event", "string", "固定为 onClassEnd"),
-            ("nextPeriod", "string", "下一节课序号（无下一节为 -1）"),
-            ("nextSubject", "string", "下一节课科目名称"),
-            ("nextStartTime", "string", "下一节课开始时间（HH:MM:SS）"),
-            ("leftTime", "string", "距离下一节课开始剩余时间（HH:MM:SS）"),
-        ],
-        "example": (
-            '{"event": "onClassEnd", "nextPeriod": "4", "nextSubject": "英语", '
-            '"nextStartTime": "11:00:00", "leftTime": "00:10:00"}'
-        ),
-    },
-    {
-        "name": "onDayEnd",
-        "title": "放学",
-        "intro": "最后一节课结束、状态切换为「放学」时广播。",
-        "trigger": "当天最后一节课结束时（从上课状态进入放学状态）",
-        "fields": [
-            ("event", "string", "固定为 onDayEnd"),
-        ],
-        "example": '{"event": "onDayEnd"}',
-    },
-    {
-        "name": "onEventTrigger",
-        "title": "自定义事件触发",
-        "intro": "用户自定义事件规则（Config/event_rules.json）到达触发时刻时广播。",
-        "trigger": "事件规则命中今天且事件时间（HH:MM）与当前时间一致；同一条事件每天只广播一次",
-        "fields": [
-            ("event", "string", "固定为 onEventTrigger"),
-            ("name", "string", "事件名称"),
-            ("date", "string", "触发日期（YYYY-MM-DD）"),
-            ("time", "string", "触发时间（HH:MM）"),
-        ],
-        "example": (
-            '{"event": "onEventTrigger", "name": "午休提醒", '
-            '"date": "2025-07-07", "time": "12:00"}'
-        ),
-    },
-]
+# KnotLink 接口（openSocket）与信号（signal）的参考目录数据现已外置到
+# Config/knotlink/interfaces.json 与 signals.json（由 KnotLinkCatalogManager
+# 负责读取与标准化，缺失时自动生成默认文件），
+# 设置页 "KnotLink" 标签页的表格内容直接取自这两个文件，便于自定义。
 
 
 def _html_escape(text: str) -> str:
@@ -1131,17 +947,22 @@ class SettingsWindow(ThemedWidget):
 
         inner_layout.addWidget(node_card)
 
+        # 从 Config/knotlink/*.json 加载接口与信号目录（缺失时自动生成默认文件）
+        catalog: KnotLinkCatalogManager = KnotLinkCatalogManager()
+        interfaces: List[Dict] = catalog.load_interfaces()
+        signals: List[Dict] = catalog.load_signals()
+
         # ---- 事件系统分区 ----
         inner_layout.addWidget(self._build_event_section_card())
 
         # ---- 接口（openSocket）分区 ----
         inner_layout.addWidget(self._build_knotlink_section_card(
-            "接口（openSocket）", _KNOTLINK_INTERFACES, is_signal=False,
+            "接口（openSocket）", interfaces, is_signal=False,
         ))
 
         # ---- 信号（signal）分区 ----
         inner_layout.addWidget(self._build_knotlink_section_card(
-            "信号（signal）", _KNOTLINK_SIGNALS, is_signal=True,
+            "信号（signal）", signals, is_signal=True,
         ))
 
         inner_layout.addStretch()
@@ -1185,20 +1006,20 @@ class SettingsWindow(ThemedWidget):
         hint.setStyleSheet(f"color: {fc}; background: transparent; opacity: 0.55;")
         card_layout.addWidget(hint)
 
-        # ---- 规则表格：每行一个按钮（名称 + 简介）----
+        # ---- 规则表格：每行（名称 + 简介）后带操作列（详情 / 编辑）----
         table: QTableWidget = QTableWidget()
         table.setFrameShape(QFrame.NoFrame)  # type: ignore
-        table.setColumnCount(2)
-        table.setHorizontalHeaderLabels(["名称", "简介"])
+        table.setColumnCount(3)
+        table.setHorizontalHeaderLabels(["名称", "简介", "操作"])
         table.setShowGrid(False)
         table.setEditTriggers(QAbstractItemView.NoEditTriggers)  # type: ignore
         table.setSelectionMode(QAbstractItemView.NoSelection)  # type: ignore
         table.setFocusPolicy(Qt.NoFocus)  # type: ignore
         table.verticalHeader().setVisible(False)
-        table.horizontalHeader().setStretchLastSection(True)
-        table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.Stretch  # type: ignore
-        )
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)  # type: ignore
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)  # type: ignore
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)  # type: ignore
+        table.setColumnWidth(2, 132)
         self._style_knotlink_table(table)
 
         row: int = 0
@@ -1208,21 +1029,24 @@ class SettingsWindow(ThemedWidget):
             intro: str = str(item.get('intro', ''))
             intro_short: str = intro if len(intro) <= 50 else intro[:50] + "…"
 
-            btn_text: str = f"{name} — {item_title}\n{intro_short}"
-            btn: QPushButton = QPushButton(btn_text)
-            btn.setFont(QFont("Microsoft YaHei", 11))
-            btn.setCursor(Qt.PointingHandCursor)  # type: ignore
-            btn.setMinimumHeight(60)
-            self._style_knotlink_row_button(btn)
-
-            btn.clicked.connect(
-                lambda checked=False, it=item, sig=is_signal:
+            row_widget: KnotLinkRuleRow = KnotLinkRuleRow(
+                name=name, title=item_title, intro=intro_short,
+                theme_manager=self._theme,
+            )
+            row_widget.clicked.connect(
+                lambda it=item, sig=is_signal:
                 self._on_knotlink_item_clicked(it, sig)
+            )
+
+            # ---- 操作列：详情 / 编辑 按钮 ----
+            ops_widget: QWidget = self._build_knotlink_ops_widget(
+                item, is_signal=is_signal,
             )
 
             table.insertRow(row)
             table.setSpan(row, 0, 1, 2)
-            table.setCellWidget(row, 0, btn)
+            table.setCellWidget(row, 0, row_widget)
+            table.setCellWidget(row, 2, ops_widget)
             table.setRowHeight(row, 62)
             row += 1
 
@@ -1233,6 +1057,95 @@ class SettingsWindow(ThemedWidget):
         card_layout.addWidget(table)
 
         return card
+
+    def _build_knotlink_ops_widget(self, item: Dict, is_signal: bool) -> QWidget:
+        """
+        构建规则操作列（详情 / 编辑 两个柔和按钮）。
+        ------------------------------------------
+        详情按钮：与点击规则行行为一致，弹出规则详情对话框；
+        编辑按钮：弹出占位编辑子窗口（功能正在开发中）。
+        """
+        ops_widget: QWidget = QWidget()
+        # 操作列区域背景：与左侧规则按钮相同的灰色
+        if self._theme.theme == 'darkcolor':
+            area_bg: str = 'rgba(255,255,255,0.03)'
+        else:
+            area_bg = 'rgba(0,0,0,0.02)'
+        ops_widget.setStyleSheet(
+            f"background-color: {area_bg}; border-radius: 4px;"
+        )
+        ops_layout: QHBoxLayout = QHBoxLayout(ops_widget)
+        ops_layout.setContentsMargins(4, 0, 4, 0)
+        ops_layout.setSpacing(6)
+        ops_layout.addStretch()
+
+        btn_style: str = self._get_knotlink_ops_btn_style()
+
+        detail_btn: QPushButton = QPushButton("详情")
+        detail_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        detail_btn.setFixedHeight(26)
+        detail_btn.setMinimumWidth(52)
+        detail_btn.setStyleSheet(btn_style)
+        detail_btn.clicked.connect(
+            lambda checked=False, it=item, sig=is_signal:
+            self._on_knotlink_item_clicked(it, sig)
+        )
+
+        edit_btn: QPushButton = QPushButton("编辑")
+        edit_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        edit_btn.setFixedHeight(26)
+        edit_btn.setMinimumWidth(52)
+        edit_btn.setStyleSheet(btn_style)
+        edit_btn.clicked.connect(
+            lambda checked=False, it=item: self._on_knotlink_edit_clicked(it)
+        )
+
+        ops_layout.addWidget(detail_btn)
+        ops_layout.addWidget(edit_btn)
+        ops_layout.addStretch()
+
+        return ops_widget
+
+    def _get_knotlink_ops_btn_style(self) -> str:
+        """返回操作列按钮样式（浅蓝色背景，柔和不鲜艳）。"""
+        if self._theme.theme == 'darkcolor':
+            btn_bg: str = '#223A52'
+            hover_bg: str = '#2C4A66'
+            border: str = '#3A5C7E'
+            fc: str = '#CFE4F5'
+        else:
+            btn_bg = '#E3F2FD'
+            hover_bg = '#D3E9FA'
+            border = '#9EC5E8'
+            fc = '#1E3A5F'
+
+        return f"""
+            QPushButton {{
+                color: {fc};
+                background-color: {btn_bg};
+                border: 1px solid {border};
+                border-radius: 4px;
+                padding: 4px 10px;
+                font-size: 10px;
+            }}
+            QPushButton:hover {{
+                background-color: {hover_bg};
+            }}
+            QPushButton:pressed {{
+                background-color: {hover_bg};
+            }}
+        """
+
+    def _on_knotlink_edit_clicked(self, item: Dict) -> None:
+        """点击操作列「编辑」按钮：弹出占位编辑子窗口（功能正在开发中）。"""
+        logger.info(f"[SettingsWindow] 点击 KnotLink 规则编辑：{item.get('name')}")
+        dialog: KnotLinkPlaceholderDialog = KnotLinkPlaceholderDialog(
+            title=f"编辑：{item.get('name', '')}",
+            message="功能正在开发中",
+            theme_manager=self._theme,
+            parent=self,
+        )
+        dialog.exec()
 
     def _build_event_section_card(self) -> QFrame:
         """
@@ -1331,36 +1244,6 @@ class SettingsWindow(ThemedWidget):
                 padding: 8px 12px;
                 font-weight: bold;
                 font-size: 12px;
-            }}
-        """)
-
-    def _style_knotlink_row_button(self, btn: QPushButton) -> None:
-        """设置 KnotLink 规则按钮的样式（左对齐、悬浮高亮）。"""
-        fc: str = self._theme.font_color
-
-        if self._theme.theme == 'darkcolor':
-            btn_bg: str = 'rgba(255,255,255,0.03)'
-            hover_bg: str = 'rgba(255,255,255,0.08)'
-            pressed_bg: str = 'rgba(255,255,255,0.12)'
-        else:
-            btn_bg = 'rgba(0,0,0,0.02)'
-            hover_bg = 'rgba(0,0,0,0.06)'
-            pressed_bg = 'rgba(0,0,0,0.10)'
-
-        btn.setStyleSheet(f"""
-            QPushButton {{
-                color: {fc};
-                background-color: {btn_bg};
-                border: none;
-                border-radius: 4px;
-                padding: 10px 14px;
-                text-align: left;
-            }}
-            QPushButton:hover {{
-                background-color: {hover_bg};
-            }}
-            QPushButton:pressed {{
-                background-color: {pressed_bg};
             }}
         """)
 
@@ -5388,7 +5271,137 @@ class ThemedDialog(QDialog):
         painter.fillRect(self.rect(), QColor(self._dialog_bg()))
 
 
+def _dialog_button_style(theme: Optional[ThemeManager]) -> str:
+    """返回对话框底部按钮样式（柔和灰色）。"""
+    fc: str = theme.font_color if theme else '#212121'
+    border: str = theme.border_color if theme else 'rgba(0,0,0,0.12)'
+    if theme is not None and theme.theme == 'darkcolor':
+        btn_bg: str = 'rgba(255,255,255,0.06)'
+        hover_bg: str = 'rgba(255,255,255,0.12)'
+    else:
+        btn_bg = 'rgba(0,0,0,0.04)'
+        hover_bg = 'rgba(0,0,0,0.08)'
+    return f"""
+        QPushButton {{
+            color: {fc};
+            background-color: {btn_bg};
+            border: 1px solid {border};
+            border-radius: 6px;
+            padding: 6px 16px;
+        }}
+        QPushButton:hover {{
+            background-color: {hover_bg};
+        }}
+    """
+
+
 # ==================== KnotLink 接口 / 信号详情对话框 ====================
+
+
+class KnotLinkRuleRow(QFrame):
+    """
+    # KnotLinkRuleRow — KnotLink 规则行按钮
+
+    用于 KnotLink 页面接口 / 信号规则表格中的每一行：
+      - 第一行：英文规则名称（Consolas 加粗）+ 标题
+      - 第二行：规则简介（常规样式）
+    整行可点击（悬浮 / 按下高亮），点击后发射 clicked 信号。
+    """
+
+    clicked = Signal()
+
+    def __init__(self, name: str, title: str, intro: str,
+                 theme_manager: ThemeManager,
+                 parent: Optional[QWidget] = None) -> None:
+        """初始化规则行按钮（name=英文名称，title=标题，intro=简介）。"""
+        super().__init__(parent)
+        self._theme: ThemeManager = theme_manager
+        self._hovered: bool = False
+        self._pressed: bool = False
+
+        self.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self.setMinimumHeight(60)
+
+        fc: str = theme_manager.font_color
+
+        lay: QVBoxLayout = QVBoxLayout(self)
+        lay.setContentsMargins(14, 10, 14, 10)
+        lay.setSpacing(2)
+
+        # ---- 第一行：英文名称（加粗）+ 标题 ----
+        line1: QLabel = QLabel()
+        line1.setTextFormat(Qt.RichText)  # type: ignore
+        line1.setStyleSheet("background: transparent;")
+        line1.setText(
+            f'<span style="font-family:Consolas; font-size:11pt; font-weight:bold; '
+            f'color:{fc};">{_html_escape(name)}</span>'
+            f'<span style="font-size:11pt; color:{fc};"> — {_html_escape(title)}</span>'
+        )
+        lay.addWidget(line1)
+
+        # ---- 第二行：简介 ----
+        intro_label: QLabel = QLabel(intro)
+        intro_label.setFont(QFont("Microsoft YaHei", 10))
+        intro_label.setStyleSheet(
+            f"color: {fc}; background: transparent; opacity: 0.7;"
+        )
+        lay.addWidget(intro_label)
+
+        self._apply_style()
+
+    # ================================================================
+    #  鼠标交互
+    # ================================================================
+    def enterEvent(self, event) -> None:  # noqa: ANN001
+        """鼠标进入：显示悬浮高亮。"""
+        self._hovered = True
+        self._apply_style()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: ANN001
+        """鼠标离开：恢复默认背景。"""
+        self._hovered = False
+        self._apply_style()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event) -> None:  # noqa: ANN001
+        """鼠标按下：显示按下高亮。"""
+        if event.button() == Qt.LeftButton:  # type: ignore
+            self._pressed = True
+            self._apply_style()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: ANN001
+        """鼠标松开：在行内松开时发射 clicked 信号。"""
+        if event.button() == Qt.LeftButton and self._pressed:  # type: ignore
+            self._pressed = False
+            self._apply_style()
+            if self.rect().contains(event.position().toPoint()):  # type: ignore
+                self.clicked.emit()
+        super().mouseReleaseEvent(event)
+
+    # ================================================================
+    #  样式
+    # ================================================================
+    def _apply_style(self) -> None:
+        """按主题与交互状态刷新背景样式（无边框）。"""
+        if self._theme.theme == 'darkcolor':
+            bg: str = 'rgba(255,255,255,0.03)'
+            hover_bg: str = 'rgba(255,255,255,0.08)'
+            pressed_bg: str = 'rgba(255,255,255,0.12)'
+        else:
+            bg = 'rgba(0,0,0,0.02)'
+            hover_bg = 'rgba(0,0,0,0.06)'
+            pressed_bg = 'rgba(0,0,0,0.10)'
+
+        cur: str = pressed_bg if self._pressed else (hover_bg if self._hovered else bg)
+        self.setStyleSheet(f"""
+            QFrame {{
+                background-color: {cur};
+                border: none;
+                border-radius: 4px;
+            }}
+        """)
 
 
 class KnotLinkDetailDialog(ThemedDialog):
@@ -5494,8 +5507,11 @@ class KnotLinkDetailDialog(ThemedDialog):
 
             # ---- 载荷字段 ----
             self._add_section_header(lay, "载荷字段", tc, fc)
-            fields: List[tuple] = item.get('fields', []) or []
-            for fname, ftype, fdesc in fields:
+            fields: List[Dict] = item.get('fields', []) or []
+            for f in fields:
+                fname: str = str(f.get('name', ''))
+                ftype: str = str(f.get('type', 'string'))
+                fdesc: str = str(f.get('desc', ''))
                 lay.addWidget(self._make_kv_label(fname, ftype, fdesc, tc, fc))
             if not fields:
                 lay.addWidget(self._make_empty_label("无载荷字段", fc))
@@ -5506,8 +5522,12 @@ class KnotLinkDetailDialog(ThemedDialog):
         else:
             # ---- 参数 ----
             self._add_section_header(lay, "参数", tc, fc)
-            params: List[tuple] = item.get('params', []) or []
-            for pname, ptype, required, pdesc in params:
+            params: List[Dict] = item.get('params', []) or []
+            for p in params:
+                pname: str = str(p.get('name', ''))
+                ptype: str = str(p.get('type', 'string'))
+                required: bool = bool(p.get('required', False))
+                pdesc: str = str(p.get('desc', ''))
                 meta: str = f"{ptype} · {'必填' if required else '可选'}"
                 lay.addWidget(self._make_kv_label(pname, meta, pdesc, tc, fc))
             if not params:
@@ -5515,8 +5535,11 @@ class KnotLinkDetailDialog(ThemedDialog):
 
             # ---- 返回值 ----
             self._add_section_header(lay, "返回值", tc, fc)
-            returns: List[tuple] = item.get('returns', []) or []
-            for rname, rtype, rdesc in returns:
+            returns: List[Dict] = item.get('returns', []) or []
+            for r in returns:
+                rname: str = str(r.get('name', ''))
+                rtype: str = str(r.get('type', 'string'))
+                rdesc: str = str(r.get('desc', ''))
                 lay.addWidget(self._make_kv_label(rname, rtype, rdesc, tc, fc))
             if not returns:
                 lay.addWidget(self._make_empty_label("无返回值", fc))
@@ -5607,27 +5630,65 @@ class KnotLinkDetailDialog(ThemedDialog):
         return label
 
     def _dialog_button_style(self) -> str:
-        """返回对话框底部按钮样式。"""
-        fc: str = self._theme.font_color if self._theme else '#212121'
-        border: str = self._theme.border_color if self._theme else 'rgba(0,0,0,0.12)'
-        if self._theme is not None and self._theme.theme == 'darkcolor':
-            btn_bg: str = 'rgba(255,255,255,0.06)'
-            hover_bg: str = 'rgba(255,255,255,0.12)'
-        else:
-            btn_bg = 'rgba(0,0,0,0.04)'
-            hover_bg = 'rgba(0,0,0,0.08)'
-        return f"""
-            QPushButton {{
-                color: {fc};
-                background-color: {btn_bg};
-                border: 1px solid {border};
-                border-radius: 6px;
-                padding: 6px 16px;
-            }}
-            QPushButton:hover {{
-                background-color: {hover_bg};
-            }}
-        """
+        """返回对话框底部按钮样式（柔和灰色）。"""
+        return _dialog_button_style(self._theme)
+
+
+# ==================== KnotLink 占位子窗口（功能开发中） ====================
+
+
+class KnotLinkPlaceholderDialog(ThemedDialog):
+    """
+    # KnotLinkPlaceholderDialog — KnotLink 占位子窗口
+
+    用于规则「编辑」按钮：
+    当前仅提示功能正在开发中（标题与提示文字可定制）。
+    """
+
+    def __init__(self, title: str, message: str, theme_manager: ThemeManager,
+                 parent: Optional[QWidget] = None) -> None:
+        """初始化占位子窗口（title 为窗口标题，message 为居中提示文字）。"""
+        super().__init__(parent)
+        self._theme: ThemeManager = theme_manager  # type: ignore
+
+        self.setWindowTitle(title)
+        self.setWindowFlags(
+            Qt.Window                         # type: ignore
+            | Qt.WindowCloseButtonHint        # type: ignore
+        )
+        self.setModal(True)
+        self.setFixedSize(380, 220)
+
+        self._setup_ui(message)
+        logger.info(f"KnotLinkPlaceholderDialog 初始化完成：{title}（占位）")
+
+    def _setup_ui(self, message: str) -> None:
+        """构造对话框内容（居中提示 + 底部关闭按钮）。"""
+        fc: str = self._theme.font_color
+
+        layout: QVBoxLayout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+
+        layout.addStretch()
+        hint: QLabel = QLabel(message)
+        hint.setFont(QFont("Microsoft YaHei", 14))
+        hint.setAlignment(Qt.AlignCenter)  # type: ignore
+        hint.setStyleSheet(f"color: {fc}; background: transparent;")
+        layout.addWidget(hint)
+        layout.addStretch()
+
+        btn_row: QHBoxLayout = QHBoxLayout()
+        btn_row.addStretch()
+        close_btn: QPushButton = QPushButton("关闭")
+        close_btn.setFont(QFont("Microsoft YaHei", 11))
+        close_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        close_btn.setMinimumHeight(32)
+        close_btn.setMinimumWidth(88)
+        close_btn.setStyleSheet(_dialog_button_style(self._theme))
+        close_btn.clicked.connect(self.accept)
+        btn_row.addWidget(close_btn)
+        layout.addLayout(btn_row)
 
 
 # ==================== 时间表条目编辑对话框 ====================

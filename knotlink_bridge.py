@@ -809,18 +809,18 @@ class KnotLinkBridge:
             return False
         if rtype == 'weekly':
             try:
-                return today_dt.weekday() == int(rule.get('weekday'))
+                return today_dt.weekday() == int(rule.get('weekday')) # type: ignore
             except (TypeError, ValueError):
                 return False
         if rtype == 'monthly':
             try:
-                return today_dt.day == int(rule.get('day'))
+                return today_dt.day == int(rule.get('day')) # type: ignore
             except (TypeError, ValueError):
                 return False
         if rtype == 'yearly':
             try:
-                return (today_dt.month == int(rule.get('month'))
-                        and today_dt.day == int(rule.get('day')))
+                return (today_dt.month == int(rule.get('month')) # type: ignore
+                        and today_dt.day == int(rule.get('day'))) # type: ignore
             except (TypeError, ValueError):
                 return False
         # 具体时间点（date）
