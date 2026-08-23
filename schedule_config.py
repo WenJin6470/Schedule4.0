@@ -126,6 +126,21 @@ class ThemeManager:
             self.screen_height: int = screen.size().height()
         logger.info(f"屏幕分辨率：{self.screen_width}×{self.screen_height}")
 
+        # 界面缩放系数：以 1920×1080 为基准，按实际屏幕分辨率等比放大
+        # 字号与控件尺寸（2K 2560×1440 ≈ 1.33×；限制在 [1.0, 1.75]，
+        # 避免超大屏失控，小屏（缩放 < 1）保持原尺寸不回缩）。
+        self.ui_scale: float = max(
+            1.0,
+            min(
+                min(
+                    self.screen_width / 1920.0,
+                    self.screen_height / 1080.0,
+                ),
+                1.75,
+            ),
+        )
+        logger.info(f"界面缩放系数：{self.ui_scale:.3f}")
+
         # ---- 默认值 ----
         self.theme: str = fallback_theme
         self.language: str = fallback_language

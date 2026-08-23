@@ -172,6 +172,7 @@ class ScheduleMainWindow(ThemedWidget):
             display_text,
             self._win_width,
             label_height,
+            base_size=round(16 * self._theme.ui_scale),  # 英文科目字号随分辨率缩放
         ))
 
     # ================================================================
@@ -196,7 +197,8 @@ class ScheduleMainWindow(ThemedWidget):
         self.move(self._pos_x, self._pos_y)
 
         # ===== 课时标签区域 =====
-        close_btn_height: int = 36
+        ui_scale: float = self._theme.ui_scale  # 分辨率缩放系数（2K ≈ 1.33）
+        close_btn_height: int = round(36 * ui_scale)
         divider_height: int = 6
         # 从时间表数据中获取实际课时数和分隔线位置
         lesson_count: int = self._schedule_data.get_lesson_count()
@@ -276,7 +278,7 @@ class ScheduleMainWindow(ThemedWidget):
             ('_close_btn',      'EXIT',          self._on_close_clicked),
         ]
 
-        btn_size: int = 20
+        btn_size: int = round(20 * ui_scale)
         btn_count: int = len(button_configs)
         total_btn_width: int = btn_count * btn_size
         spacing: int = (self._win_width - total_btn_width) // (btn_count + 1)

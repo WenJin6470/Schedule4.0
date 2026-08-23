@@ -78,7 +78,9 @@ class TimeWindow(ThemedWidget):
 
         # ---- 时间标签 ----
         self._time_label: QLabel = QLabel(self)
-        self._time_label.setFont(QFont("Arial", 18))
+        self._time_label.setFont(QFont(
+            "Arial", round(18 * self._theme.ui_scale)
+        ))
         self._time_label.setStyleSheet(
             f"color: {self._theme.time_color}; background: transparent;"
         )
@@ -177,7 +179,9 @@ class FullscreenTimeWindow(ThemedWidget):
 
         # ---- 居中时间标签（红色，始终显示）----
         self._time_label: QLabel = QLabel(self)
-        self._time_label.setFont(QFont("Arial", 180))
+        self._time_label.setFont(QFont(
+            "Arial", round(180 * self._theme.ui_scale)
+        ))
         self._time_label.setStyleSheet(
             f"color: {self._theme.time_color}; background: transparent;"
         )
@@ -189,7 +193,9 @@ class FullscreenTimeWindow(ThemedWidget):
 
         # ---- 提示文字 ----
         self._hint_label: QLabel = QLabel(self)
-        self._hint_label.setFont(QFont("Arial", 14))
+        self._hint_label.setFont(QFont(
+            "Arial", round(14 * self._theme.ui_scale)
+        ))
         self._hint_label.setStyleSheet(
             f"color: {self._theme.font_color}; background: transparent;"
         )
@@ -480,6 +486,8 @@ class ExamFullscreenWindow(QWidget):
     # ================================================================
     def _setup_ui(self) -> None:
         """构造考试模式全屏窗口布局."""
+        scale: float = self._theme.ui_scale  # 分辨率缩放系数（2K ≈ 1.33）
+
         root: QGridLayout = QGridLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
@@ -496,28 +504,28 @@ class ExamFullscreenWindow(QWidget):
 
         # ---- 1. 顶部横向标语 ----
         slogan_top = QLabel('以学品证人品 不抄袭不作弊', self)
-        slogan_top.setFont(QFont('宋体', 55))
+        slogan_top.setFont(QFont('宋体', round(55 * scale)))
         slogan_top.setStyleSheet(f"color: {EXAM_TEXT_COLOR}; background: transparent;")
         slogan_top.setAlignment(Qt.AlignCenter)  # type: ignore
         root.addWidget(slogan_top, 0, 0, 1, 3)
 
         # ---- 2. 左侧纵向标语 ----
         left_slogan = QLabel('缜\n\n密\n\n思\n\n考', self)
-        left_slogan.setFont(QFont('宋体', 40))
+        left_slogan.setFont(QFont('宋体', round(40 * scale)))
         left_slogan.setStyleSheet(f"color: {EXAM_TEXT_COLOR}; background: transparent;")
         left_slogan.setAlignment(Qt.AlignCenter)  # type: ignore
         root.addWidget(left_slogan, 1, 0, 3, 1)
 
         # ---- 3. 右侧纵向标语 ----
         right_slogan = QLabel('细\n\n心\n\n作\n\n答', self)
-        right_slogan.setFont(QFont('宋体', 40))
+        right_slogan.setFont(QFont('宋体', round(40 * scale)))
         right_slogan.setStyleSheet(f"color: {EXAM_TEXT_COLOR}; background: transparent;")
         right_slogan.setAlignment(Qt.AlignCenter)  # type: ignore
         root.addWidget(right_slogan, 1, 2, 3, 1)
 
         # ---- 4. 中央实时时钟 ----
         self._time_label = QLabel('--:--:--', self)
-        self._time_label.setFont(QFont('Arial', 150))
+        self._time_label.setFont(QFont('Arial', round(150 * scale)))
         self._time_label.setStyleSheet(
             f"color: {EXAM_CLOCK_COLOR}; background: transparent;"
         )
@@ -533,8 +541,8 @@ class ExamFullscreenWindow(QWidget):
         edit_layout.setContentsMargins(10, 5, 10, 5)
         edit_layout.setAlignment(Qt.AlignCenter)  # type: ignore
 
-        font_label = QFont('宋体', 30)
-        font_time_btn = QFont('宋体', 25)
+        font_label = QFont('宋体', round(30 * scale))
+        font_time_btn = QFont('宋体', round(25 * scale))
 
         # —— 科目行 ——
         subj_label = QLabel('科目:', self)

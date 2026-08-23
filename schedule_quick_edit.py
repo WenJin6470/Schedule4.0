@@ -101,9 +101,10 @@ class WeekScrollWheel(QWidget):
     def _setup_ui(self) -> None:
         """创建滚轮的三个标签区域并布局。"""
 
-        # ---- 确定滚轮尺寸 ----
-        wheel_width: int = 132
-        wheel_height: int = 148
+        # ---- 确定滚轮尺寸（随分辨率缩放，2K ≈ 1.33×）----
+        scale: float = self._theme.ui_scale
+        wheel_width: int = round(132 * scale)
+        wheel_height: int = round(148 * scale)
         self.setFixedSize(wheel_width, wheel_height)
         self.setMouseTracking(True)
 
@@ -132,23 +133,23 @@ class WeekScrollWheel(QWidget):
         self._upper_btn: QPushButton = QPushButton(self._get_week_text(-1))
         self._upper_btn.setFlat(True)
         self._upper_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
-        self._upper_btn.setFixedHeight(40)
-        self._upper_btn.setFont(QFont("Arial", 8))
+        self._upper_btn.setFixedHeight(round(40 * scale))
+        self._upper_btn.setFont(QFont("Arial", round(8 * scale)))
         self._upper_btn.pressed.connect(self._on_upper_pressed)
         self._upper_btn.released.connect(self._on_scroll_released)
 
         # ---- 中间星期标签（当前星期 / 加粗突出）----
         self._current_label: QLabel = QLabel(self.WEEKS[self._current_index])
         self._current_label.setAlignment(Qt.AlignCenter)  # type: ignore
-        self._current_label.setFont(QFont("Arial", 12, QFont.Bold)) # type: ignore
-        self._current_label.setFixedHeight(44)
+        self._current_label.setFont(QFont("Arial", round(12 * scale), QFont.Bold)) # type: ignore
+        self._current_label.setFixedHeight(round(44 * scale))
 
         # ---- 下方星期按钮（下一星期 / 颜色稍淡）----
         self._lower_btn: QPushButton = QPushButton(self._get_week_text(1))
         self._lower_btn.setFlat(True)
         self._lower_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
-        self._lower_btn.setFixedHeight(40)
-        self._lower_btn.setFont(QFont("Arial", 8))
+        self._lower_btn.setFixedHeight(round(40 * scale))
+        self._lower_btn.setFont(QFont("Arial", round(8 * scale)))
         self._lower_btn.pressed.connect(self._on_lower_pressed)
         self._lower_btn.released.connect(self._on_scroll_released)
 
@@ -420,7 +421,7 @@ class SubjectSelectWindow(ThemedWidget):
         self._status_label: QLabel = QLabel(
             "上下移动光标，点击左侧科目即可完成修改，点击 确定 保存一周七天完整课表"
         )
-        hint_font = QFont("Microsoft YaHei", 8)
+        hint_font = QFont("Microsoft YaHei", round(8 * self._theme.ui_scale))
         hint_font.setItalic(True)
         self._status_label.setFont(hint_font)
         self._status_label.setFixedHeight(24)
@@ -499,7 +500,8 @@ class SubjectSelectWindow(ThemedWidget):
         inner_layout.setContentsMargins(4, 4, 8, 4)
         inner_layout.setSpacing(4)
 
-        # 按钮样式
+        # 按钮样式（字号随分辨率缩放）
+        scale: float = self._theme.ui_scale
         btn_style: str = f"""
             QPushButton {{
                 color: {self._theme.font_color};
@@ -507,7 +509,7 @@ class SubjectSelectWindow(ThemedWidget):
                 border: 1px solid {self._theme.border_color};
                 border-radius: 4px;
                 padding: 6px 10px;
-                font-size: 13px;
+                font-size: {round(13 * scale)}px;
             }}
             QPushButton:hover {{
                 background: rgba(128, 128, 128, 0.25);
@@ -546,7 +548,7 @@ class SubjectSelectWindow(ThemedWidget):
                             border: 1px solid rgba(128, 128, 128, 0.1);
                             border-radius: 4px;
                             padding: 6px 10px;
-                            font-size: 13px;
+                            font-size: {round(13 * scale)}px;
                         }}
                     """)
                     inner_layout.addWidget(btn)
@@ -594,7 +596,7 @@ class SubjectSelectWindow(ThemedWidget):
         （文字坐落在线上，后面跟着横线）
         """
         widget: QWidget = QWidget()
-        widget.setFixedHeight(20)
+        widget.setFixedHeight(round(20 * self._theme.ui_scale))
 
         layout: QHBoxLayout = QHBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -602,14 +604,16 @@ class SubjectSelectWindow(ThemedWidget):
 
         # Category 名称标签 — 左侧
         cat_label: QLabel = QLabel(category_key)
-        cat_label.setFont(QFont("Arial", 9))
+        cat_label.setFont(QFont(
+            "Arial", round(9 * self._theme.ui_scale)
+        ))
         cat_label.setStyleSheet(f"""
             color: {self._theme.font_color};
             background: transparent;
             padding-right: 6px;
             font-weight: bold;
         """)
-        cat_label.setFixedHeight(20)
+        cat_label.setFixedHeight(round(20 * self._theme.ui_scale))
         layout.addWidget(cat_label)
 
         # 分割线 — 填充剩余空间
@@ -620,7 +624,7 @@ class SubjectSelectWindow(ThemedWidget):
             border-top: 1px solid {self._theme.border_color};
             background: transparent;
         """)
-        line.setFixedHeight(20)
+        line.setFixedHeight(round(20 * self._theme.ui_scale))
         layout.addWidget(line, stretch=1)
 
         return widget
@@ -633,7 +637,7 @@ class SubjectSelectWindow(ThemedWidget):
         btn: QPushButton = QPushButton(subject_name)
         btn.setStyleSheet(style)
         btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # type: ignore
-        btn.setMinimumHeight(32)
+        btn.setMinimumHeight(round(32 * self._theme.ui_scale))
         btn.clicked.connect(
             lambda checked=False, name=subject_name: self._emit_action(
                 ActionMessage.subject_selected(name)
@@ -669,6 +673,8 @@ class SubjectSelectWindow(ThemedWidget):
         layout.setContentsMargins(6, 8, 6, 8)
         layout.setSpacing(6)
 
+        scale: float = self._theme.ui_scale  # 分辨率缩放系数
+
         ctrl_btn_style: str = f"""
             QPushButton {{
                 color: {self._theme.font_color};
@@ -676,7 +682,7 @@ class SubjectSelectWindow(ThemedWidget):
                 border: 1px solid {self._theme.border_color};
                 border-radius: 4px;
                 padding: 8px 4px;
-                font-size: 12px;
+                font-size: {round(12 * scale)}px;
                 font-weight: bold;
             }}
             QPushButton:hover {{
@@ -695,7 +701,7 @@ class SubjectSelectWindow(ThemedWidget):
                 border: 1px solid rgba(33, 150, 243, 0.5);
                 border-radius: 4px;
                 padding: 8px 4px;
-                font-size: 12px;
+                font-size: {round(12 * scale)}px;
                 font-weight: bold;
             }}
             QPushButton:hover {{
