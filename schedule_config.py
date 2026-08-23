@@ -1491,7 +1491,6 @@ _DEFAULT_KNOTLINK_INTERFACES: List[Dict[str, Any]] = [
             {"name": "message", "type": "string", "desc": "错误信息（仅在失败时返回）"},
             {"name": "isInClass", "type": "string", "desc": "是否正在上课：true / false"},
             {"name": "isBreak", "type": "string", "desc": "是否处于课间：true / false"},
-            {"name": "isAfterSchool", "type": "string", "desc": "是否已放学：true / false"},
             {"name": "currentPeriod", "type": "string", "desc": "当前第几节课（非上课状态为 -1）"},
             {"name": "currentSubject", "type": "string", "desc": "当前科目名称"},
             {"name": "currentStartTime", "type": "string", "desc": "当前课时开始时间（HH:MM:SS）"},
@@ -1504,7 +1503,7 @@ _DEFAULT_KNOTLINK_INTERFACES: List[Dict[str, Any]] = [
         "req_example": '{"action": "get-lesson-state"}',
         "resp_example": (
             '{"status": "ok", "isInClass": "true", "isBreak": "false", '
-            '"isAfterSchool": "false", "currentPeriod": "3", '
+            '"currentPeriod": "3", '
             '"currentSubject": "数学", "currentStartTime": "10:10:00", '
             '"currentEndTime": "10:50:00", "remainingTime": "00:20:00", '
             '"nextPeriod": "4", "nextSubject": "英语", '

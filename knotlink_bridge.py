@@ -7,8 +7,8 @@
 📌 本文件的角色
 ═══════════════════════════════════════════════════════════════════════════
   本文件是 Schedule 4.0 与 KnotLink 协议之间的桥接层，负责：
-    ✅ 接收其他节点发来的请求（5 个 openSocket 接口）
-    ✅ 向外广播课表事件（3 个 signal 信号）
+    ✅ 接收其他节点发来的请求（3 个 openSocket 接口）
+    ✅ 向外广播课表事件（2 个 signal 信号：onClassStart / onClassEnd）
     ✅ 完全解耦：knotlink SDK 未安装时静默降级，不影响课表正常运行
 
 📌 架构
@@ -25,9 +25,6 @@
           time_manager=time_manager,
           schedule_data=schedule_data,
           main_window=main_window,
-          time_window=time_window,
-          fullscreen_window=fullscreen_window,
-          exam_window=exam_window,
           debug_config=debug_config,
       )
 """
@@ -111,9 +108,6 @@ class KnotLinkBridge:
     _time_manager: Optional[Any] = None
     _schedule_data: Optional[Any] = None
     _main_window: Optional[Any] = None
-    _time_window: Optional[Any] = None
-    _fullscreen_window: Optional[Any] = None
-    _exam_window: Optional[Any] = None
     _debug_config: Optional[Any] = None
 
     # ---- KnotLink SDK 实例 ----
@@ -122,13 +116,7 @@ class KnotLinkBridge:
 
     # ---- 信号状态跟踪（用于检测上课/下课/放学切换） ----
     _prev_state: str = "unknown"       # "in_class" | "break" | "after_school" | "unknown"
-    _prev_period_key: str = ""         # 上一秒所在课时的 lesson_key
     _initialized: bool = False
-
-    # ---- 事件系统状态跟踪（用于事件触发检测，防止同一条事件重复广播） ----
-    _event_rules_cache: List[Dict] = []
-    _event_rules_mtime: Optional[float] = None
-    _fired_events: set = set()
 
     # ══════════════════════════════════════════════════════════════════
     #  公开方法：初始化桥接
@@ -139,9 +127,6 @@ class KnotLinkBridge:
               time_manager: Any,
               schedule_data: Any,
               main_window: Any,
-              time_window: Any,
-              fullscreen_window: Any,
-              exam_window: Any = None,
               debug_config: Any = None) -> None:
         """
         初始化 KnotLink 桥接，注入所有需要的组件引用。
@@ -159,9 +144,6 @@ class KnotLinkBridge:
         cls._time_manager = time_manager
         cls._schedule_data = schedule_data
         cls._main_window = main_window
-        cls._time_window = time_window
-        cls._fullscreen_window = fullscreen_window
-        cls._exam_window = exam_window
         cls._debug_config = debug_config
 
         if not _HAS_KNOTLINK:
@@ -213,10 +195,6 @@ class KnotLinkBridge:
             return cls._handle_get_today_schedule(req)
         elif action == "swap-course":
             return cls._handle_swap_course(req)
-        elif action == "enter-fullscreen":
-            return cls._handle_enter_fullscreen(req)
-        elif action == "exit-fullscreen":
-            return cls._handle_exit_fullscreen()
         else:
             logger.warning(f"[KnotLink] 未知 action：{action}")
             resp: KLKVMap = KLKVMap()
@@ -306,7 +284,6 @@ class KnotLinkBridge:
 
             resp["isInClass"] = "true"
             resp["isBreak"] = "false"
-            resp["isAfterSchool"] = "false"
             resp["currentPeriod"] = str(period_num)
             resp["currentSubject"] = curriculum.get(key, "")
             resp["currentStartTime"] = start_str
@@ -323,10 +300,8 @@ class KnotLinkBridge:
             # 判断是课间还是放学
             if next_lesson is not None:
                 resp["isBreak"] = "true"
-                resp["isAfterSchool"] = "false"
             else:
                 resp["isBreak"] = "false"
-                resp["isAfterSchool"] = "true"
 
         # 下一节课信息
         if next_lesson is not None:
@@ -492,68 +467,6 @@ class KnotLinkBridge:
         return resp.serialize()
 
     # ══════════════════════════════════════════════════════════════════
-    #  请求处理：enter-fullscreen
-    # ══════════════════════════════════════════════════════════════════
-
-    @classmethod
-    def _handle_enter_fullscreen(cls, req: KLKVMap) -> str:
-        """
-        进入全屏时间模式（考试模式或创意模式）。
-        """
-        resp: KLKVMap = KLKVMap()
-        mode: str = req.get("mode", "exam").strip().lower()
-
-        if mode not in ("exam", "creative"):
-            resp["status"] = "err"
-            resp["message"] = f"无效的模式：'{mode}'，合法值：exam / creative"
-            return resp.serialize()
-
-        # 取消 TimeWindow 置顶
-        if cls._time_window is not None:
-            cls._time_window.set_always_on_top(False)
-
-        if mode == "exam" and cls._exam_window is not None:
-            cls._exam_window.show_fullscreen()
-            resp["mode"] = "exam"
-            logger.info("[KnotLink] 已进入考试模式全屏")
-        elif mode == "creative" and cls._fullscreen_window is not None:
-            cls._fullscreen_window.show_fullscreen(mode='creative')
-            resp["mode"] = "creative"
-            logger.info("[KnotLink] 已进入创意模式全屏")
-        else:
-            resp["status"] = "err"
-            resp["message"] = "对应模式的窗口未初始化"
-            return resp.serialize()
-
-        resp["status"] = "ok"
-        return resp.serialize()
-
-    # ══════════════════════════════════════════════════════════════════
-    #  请求处理：exit-fullscreen
-    # ══════════════════════════════════════════════════════════════════
-
-    @classmethod
-    def _handle_exit_fullscreen(cls) -> str:
-        """
-        退出全屏模式，恢复浮动窗口。
-        """
-        resp: KLKVMap = KLKVMap()
-
-        # 隐藏全屏窗口
-        if cls._fullscreen_window is not None:
-            cls._fullscreen_window.hide()
-        if cls._exam_window is not None:
-            cls._exam_window.hide()
-
-        # 恢复 TimeWindow 置顶
-        if cls._time_window is not None:
-            cls._time_window.set_always_on_top(True)
-
-        resp["status"] = "ok"
-        logger.info("[KnotLink] 已退出全屏模式，恢复浮动窗口")
-        return resp.serialize()
-
-    # ══════════════════════════════════════════════════════════════════
     #  信号广播：时间滴答回调
     # ══════════════════════════════════════════════════════════════════
 
@@ -562,12 +475,11 @@ class KnotLinkBridge:
         """
         TimeManager.time_tick 回调（每秒一次）。
         ---------------------------------------
-        检测上课/下课/放学状态切换，并在切换时广播对应信号。
+        检测上课/下课状态切换，并在切换时广播对应信号。
 
         状态切换规则：
           - 从"非上课"进入某节课 → 发射 onClassStart
           - 从"上课中"进入课间   → 发射 onClassEnd
-          - 从"上课中"进入放学   → 发射 onDayEnd（最后一节课结束后）
         """
         if cls._sender is None:
             return
@@ -585,14 +497,8 @@ class KnotLinkBridge:
                 cls._emit_on_class_start(current_key, time_str)
             elif current_state == "break" and cls._prev_state == "in_class":
                 cls._emit_on_class_end(current_key, time_str)
-            elif current_state == "after_school" and cls._prev_state == "in_class":
-                cls._emit_on_day_end()
-
-        # 事件系统：检测用户自定义事件是否到达触发时刻（独立于上课状态）
-        cls._check_and_emit_events(time_str)
 
         cls._prev_state = current_state
-        cls._prev_period_key = current_key if current_state == "in_class" else ""
 
     @classmethod
     def _detect_period_state(cls, time_str: str) -> Tuple[str, str]:
@@ -735,146 +641,6 @@ class KnotLinkBridge:
             f"nextSubject='{next_subject}' leftTime={left_time_str}"
         )
 
-    @classmethod
-    def _emit_on_day_end(cls) -> None:
-        """发射 onDayEnd 信号。"""
-        if cls._sender is None:
-            return
-
-        kv: KLKVMap = KLKVMap()
-        kv["event"] = "onDayEnd"
-        cls._sender.emitt(kv.serialize())
-        logger.info("[KnotLink] 信号发射：onDayEnd")
-
-    # ══════════════════════════════════════════════════════════════════
-    #  信号广播：事件系统（用户自定义事件触发）
-    # ══════════════════════════════════════════════════════════════════
-
-    @classmethod
-    def _check_and_emit_events(cls, time_str: str) -> None:
-        """
-        检测用户自定义事件是否到达触发时刻，并广播对应信号。
-        ---------------------------------------------------
-        事件规则来自 Config/event_rules.json，每项含 type/time/name 及
-        类型相关字段，支持五种触发类型：
-          daily   → 每天固定时间触发
-          weekly  → 每周指定星期触发（weekday：0=周一 … 6=周日）
-          monthly → 每月指定日期触发（day：1-31）
-          yearly  → 每年指定月日触发（month：1-12，day：1-31）
-          date    → 具体日期触发（date：YYYY-MM-DD；旧格式规则视为该类型）
-        当「规则命中今天」且「事件时间（HH:MM）== 当前时间」时触发；
-        已触发过的事件（以 日期|时间|名称|类型等 为键）在本会话内不再重复广播，
-        循环规则每天使用新的日期键，因此每天都会重新触发一次。
-        """
-        if cls._sender is None:
-            return
-
-        date_str: str = cls._get_current_date_str()
-        current_hm: str = time_str[:5]  # HH:MM
-
-        rules: List[Dict] = cls._load_event_rules_cached()
-        for rule in rules:
-            if not isinstance(rule, dict):
-                continue
-            r_time: str = str(rule.get('time', '') or '').strip()
-            r_name: str = str(rule.get('name', '') or '').strip()
-            if not r_time or r_time[:5] != current_hm:
-                continue
-            if not cls._rule_matches_date(rule, date_str):
-                continue
-
-            key: str = (
-                f"{date_str}|{r_time}|{r_name}|{rule.get('type', 'date')}|"
-                f"{rule.get('weekday', '')}|{rule.get('month', '')}|"
-                f"{rule.get('day', '')}|{rule.get('date', '')}"
-            )
-            if key in cls._fired_events:
-                continue
-            cls._fired_events.add(key)
-            cls._emit_on_event_trigger(r_name, date_str, r_time)
-
-    @classmethod
-    def _rule_matches_date(cls, rule: Dict, date_str: str) -> bool:
-        """
-        判断事件规则是否命中指定日期。
-        ---------------------------
-        旧格式规则（无 type 字段）视为具体时间点（date 类型）。
-        """
-        rtype: str = str(rule.get('type', '') or '').strip() or 'date'
-        if rtype == 'daily':
-            return True
-        try:
-            today_dt: datetime = datetime.strptime(date_str, '%Y-%m-%d')
-        except (ValueError, TypeError):
-            return False
-        if rtype == 'weekly':
-            try:
-                return today_dt.weekday() == int(rule.get('weekday')) # type: ignore
-            except (TypeError, ValueError):
-                return False
-        if rtype == 'monthly':
-            try:
-                return today_dt.day == int(rule.get('day')) # type: ignore
-            except (TypeError, ValueError):
-                return False
-        if rtype == 'yearly':
-            try:
-                return (today_dt.month == int(rule.get('month')) # type: ignore
-                        and today_dt.day == int(rule.get('day'))) # type: ignore
-            except (TypeError, ValueError):
-                return False
-        # 具体时间点（date）
-        return str(rule.get('date', '') or '').strip() == date_str
-
-    @classmethod
-    def _load_event_rules_cached(cls) -> List[Dict]:
-        """
-        读取事件规则（带文件修改时间缓存）。
-        ----------------------------------
-        仅当 Config/event_rules.json 的内容发生变化时重新读取，
-        避免每秒一次的文件 IO 与 JSON 解析开销；设置页实时增删改后
-        下一次 tick 即可感知到最新规则。
-        """
-        import os as _os
-        from schedule_config import EventRulesManager
-
-        path: str = _os.path.join(
-            _os.path.dirname(_os.path.abspath(__file__)),
-            'Config', 'event_rules.json',
-        )
-        try:
-            mtime: float = _os.path.getmtime(path)
-        except OSError:
-            cls._event_rules_mtime = None
-            cls._event_rules_cache = []
-            return []
-
-        if cls._event_rules_mtime == mtime and cls._event_rules_cache is not None:
-            return cls._event_rules_cache
-
-        cls._event_rules_mtime = mtime
-        cls._event_rules_cache = EventRulesManager().load_rules()
-        return cls._event_rules_cache
-
-    @classmethod
-    def _emit_on_event_trigger(cls, name: str, date_str: str,
-                               time_str: str) -> None:
-        """发射 onEventTrigger 信号。"""
-        if cls._sender is None:
-            return
-
-        kv: KLKVMap = KLKVMap()
-        kv["event"] = "onEventTrigger"
-        kv["name"] = name
-        kv["date"] = date_str
-        kv["time"] = time_str
-
-        cls._sender.emitt(kv.serialize())
-        logger.info(
-            f"[KnotLink] 信号发射：onEventTrigger name='{name}' "
-            f"date={date_str} time={time_str}"
-        )
-
     # ══════════════════════════════════════════════════════════════════
     #  工具方法
     # ══════════════════════════════════════════════════════════════════
@@ -897,15 +663,6 @@ class KnotLinkBridge:
             if debug_weekday is not None:
                 return debug_weekday
         return datetime.now().strftime('%A')
-
-    @classmethod
-    def _get_current_date_str(cls) -> str:
-        """获取当前日期字符串（优先使用调试模式下的模拟日期，YYYY-MM-DD）。"""
-        if cls._debug_config is not None and cls._debug_config.enabled:
-            debug_dt = cls._debug_config.get_current_datetime()
-            if debug_dt is not None:
-                return debug_dt.strftime('%Y-%m-%d')
-        return datetime.now().strftime('%Y-%m-%d')
 
     @staticmethod
     def _calc_next_date_for_weekday(weekday_name: str) -> str:

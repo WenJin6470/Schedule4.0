@@ -60,6 +60,25 @@ logger: logging.Logger = logging.getLogger(__name__)
 # 防止 QThread 对象在后台线程仍在运行时被销毁导致 Qt 崩溃。
 _ORPHAN_WORKERS: List = []
 
+# 自定义事件信号文档（相对脚本目录）与文件头模板：
+# 新建事件时除把信号规则写入 Config/knotlink/signals.json 外，
+# 还会把该信号的信息追加到本文档（见 _append_signal_doc），
+# 保证《KnotLink 信号目录》文档与 signals.json 保持一致。
+SIGNAL_DOC_REL_PATH: str = os.path.join('API文档', 'KnotLink-Signals.md')
+SIGNAL_DOC_HEADER: str = (
+    "# Schedule 4.0 — KnotLink 信号目录（自定义事件信号）\n"
+    "\n"
+    "> 本文件由程序自动维护：在设置页「KnotLink → 事件系统」中新建事件时，\n"
+    "> 除把信号规则追加写入 `Config/knotlink/signals.json` 外，\n"
+    "> 也会自动把该信号的信息追加到本文档（与 signals.json 保持一致）。\n"
+    ">\n"
+    "> 代码内置信号（`onClassStart` / `onClassEnd`）\n"
+    "> 记录在《KnotLink-API.md》三、信号 章节，不在本文档中。\n"
+    "\n"
+    "---\n"
+    "\n"
+)
+
 
 def _cleanup_orphan_worker(worker: Optional[TranslateWorker]) -> None:
     """翻译线程结束后从孤儿池移除并释放对象。"""
@@ -887,7 +906,7 @@ class SettingsWindow(ThemedWidget):
         页面标题（左侧 KnotLink 图标 + "KnotLink设置"），下方三个卡片分区：
           - 接口（openSocket）：openSocket 接口规则列表
           - 信号（signal）：signal 信号规则列表
-          - 事件系统：自定义事件规则列表（触发时广播 onEventTrigger 信号）
+          - 事件系统：自定义事件规则列表（新建事件时自动生成对应信号写入信号目录）
         每条规则是一个按钮，按钮上显示规则名称与简介；
         点击按钮弹出详情对话框，展示接口 / 参数 / 返回值等详细信息。
         页面整体放入滚动区域，内容较多时自动出现滚动条。
@@ -984,6 +1003,11 @@ class SettingsWindow(ThemedWidget):
 
         scroll.setWidget(inner)
         layout.addWidget(scroll)
+
+        # 支持按住鼠标左键拖动页面上下翻动（拖拽滚动）：
+        # Qt 内置 QScroller 的 LeftMouseButtonGesture 手势会接管左键拖拽，
+        # 拖拽时滚动页面，快速点击时仍正常触发下方按钮（与触摸滚动一致）。
+        QScroller.grabGesture(scroll, QScroller.LeftMouseButtonGesture) # type: ignore
 
         return page
 
@@ -1186,7 +1210,8 @@ class SettingsWindow(ThemedWidget):
         构建"事件系统"分区卡片（格式与 KnotLink 其余卡片一致）。
         -----------------------------------------------------
         卡片内部：分区标题 + 简短提示 + 事件规则按钮列表 + 新建事件按钮。
-        事件规则到达触发时刻时，KnotLink 会广播 onEventTrigger 信号。
+        新建事件时自动生成对应信号：写入 Config/knotlink/signals.json，
+        并同步追加到《KnotLink 信号目录》文档（KnotLink-Signals.md）。
         """
         fc: str = self._theme.font_color
 
@@ -1208,7 +1233,8 @@ class SettingsWindow(ThemedWidget):
 
         # ---- 分区提示 ----
         hint: QLabel = QLabel(
-            "自定义事件到达触发时刻时，KnotLink 将广播 onEventTrigger 信号；"
+            "新建事件时自动生成对应信号，写入 KnotLink 信号目录（signals.json）"
+            "并同步到《KnotLink 信号目录》文档；"
             "点击任意一条事件规则查看或编辑，也可新建自定义事件。"
         )
         hint.setFont(QFont("Microsoft YaHei", 10))
@@ -2974,7 +3000,8 @@ class SettingsWindow(ThemedWidget):
         """点击「新建事件」→ 打开事件规则子窗口（新建模式）。
 
         确认后除写入事件规则外，还按 KnotLink 信号规则把新信号
-        写入 Config/knotlink/signals.json，并同步刷新信号列表。
+        写入 Config/knotlink/signals.json，并把信号信息同步追加到
+        《KnotLink 信号目录》文档（KnotLink-Signals.md），随后刷新信号列表。
         """
         dialog: EventRuleDialog = EventRuleDialog(
             theme_manager=self._theme,
@@ -3024,8 +3051,88 @@ class SettingsWindow(ThemedWidget):
         manager: KnotLinkCatalogManager = KnotLinkCatalogManager()
         if manager.add_signal(entry):
             logger.info(f"已写入 KnotLink 信号目录：{var}")
+            # 同步把该信号追加到《KnotLink 信号目录》文档（与 signals.json 保持一致）
+            self._append_signal_doc(entry)
         else:
             logger.warning("写入 KnotLink 信号目录失败")
+
+    # ================================================================
+    #  事件系统 — 信号文档同步（KnotLink-Signals.md）
+    # ================================================================
+    def _append_signal_doc(self, entry: Dict) -> bool:
+        """把新建事件信号追加写入《KnotLink 信号目录》文档（与 signals.json 同步）。
+
+        文档不存在时自动创建（带文件头模板）；同名信号已存在时跳过，
+        避免重复追加。写入失败只记录日志，不影响事件创建流程。
+        """
+        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        doc_path: str = os.path.join(script_dir, SIGNAL_DOC_REL_PATH)
+        name: str = str(entry.get('name', '') or '').strip()
+        if not name:
+            return False
+        try:
+            block: str = self._signal_doc_block(entry)
+            if os.path.exists(doc_path):
+                with open(doc_path, 'r', encoding='utf-8') as f:
+                    existing: str = f.read()
+                if f"## {name}" in existing:
+                    logger.info(f"信号文档已存在条目 {name}，跳过追加")
+                    return True
+                content: str = existing.rstrip() + "\n\n" + block
+            else:
+                os.makedirs(os.path.dirname(doc_path), exist_ok=True)
+                content = SIGNAL_DOC_HEADER + block
+            with open(doc_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            logger.info(f"已把信号 {name} 追加到信号文档：{SIGNAL_DOC_REL_PATH}")
+            return True
+        except OSError as e:
+            logger.error(f"写入信号文档失败：{e}")
+            return False
+
+    def _signal_doc_block(self, entry: Dict) -> str:
+        """生成一条信号的 Markdown 文档片段（与 KnotLink-Signals.md 格式一致）。"""
+        name: str = str(entry.get('name', '') or '').strip()
+        title: str = str(entry.get('title', '') or '').strip()
+        intro: str = str(entry.get('intro', '') or '').replace('\n', ' ').strip()
+        trigger: str = str(entry.get('trigger', '') or '').strip()
+        example: str = str(entry.get('example', '') or '').strip()
+
+        lines: List[str] = [
+            f"## {name} — {title or name}",
+            "",
+            f"- **信号变量名**: `{name}`",
+            f"- **触发时间**: `{trigger}`",
+            f"- **描述**: {intro}",
+            "",
+            "**载荷字段**:",
+            "",
+            "| 字段 | 类型 | 说明 |",
+            "|------|------|------|",
+        ]
+        fields: Any = entry.get('fields') or []
+        if isinstance(fields, list):
+            for f in fields:
+                if not isinstance(f, dict):
+                    continue
+                fname: str = str(f.get('name', '') or '').replace('|', '\\|')
+                ftype: str = str(f.get('type', '') or '').replace('|', '\\|')
+                fdesc: str = (
+                    str(f.get('desc', '') or '').replace('|', '\\|').replace('\n', ' ')
+                )
+                lines.append(f"| `{fname}` | {ftype} | {fdesc} |")
+        lines += [
+            "",
+            "**示例**:",
+            "",
+            "```json",
+            example,
+            "```",
+            "",
+            "---",
+            "",
+        ]
+        return "\n".join(lines)
 
     def _on_event_rule_clicked(self, index: int) -> None:
         """点击事件规则按钮 → 打开事件规则子窗口（编辑模式）。"""
@@ -4286,24 +4393,10 @@ class SettingsWindow(ThemedWidget):
         """)
         right_layout.addWidget(sep)
 
-        # -- 操作按钮（垂直排列）--
+        # -- 操作按钮（垂直排列：清除 / 完成）--
+        # 修改采用即时保存：点击科目按钮即写入课程表文件，
+        # 因此不再需要「确认保存 / 取消」，仅保留「清除」并新增「完成」（收起编辑器）。
         action_style: str = self._get_cv_action_btn_style()
-
-        confirm_btn: QPushButton = QPushButton("确认保存")
-        confirm_btn.setFont(QFont("Microsoft YaHei", 10, QFont.Bold))  # type: ignore
-        confirm_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
-        confirm_btn.setMinimumHeight(34)
-        confirm_btn.setStyleSheet(action_style)
-        confirm_btn.clicked.connect(self._on_cv_confirm)
-        right_layout.addWidget(confirm_btn)
-
-        cancel_btn: QPushButton = QPushButton("取消")
-        cancel_btn.setFont(QFont("Microsoft YaHei", 10))
-        cancel_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
-        cancel_btn.setMinimumHeight(32)
-        cancel_btn.setStyleSheet(action_style)
-        cancel_btn.clicked.connect(self._on_cv_cancel)
-        right_layout.addWidget(cancel_btn)
 
         clear_btn: QPushButton = QPushButton("清除")
         clear_btn.setFont(QFont("Microsoft YaHei", 10))
@@ -4312,6 +4405,14 @@ class SettingsWindow(ThemedWidget):
         clear_btn.setStyleSheet(action_style)
         clear_btn.clicked.connect(self._on_cv_clear)
         right_layout.addWidget(clear_btn)
+
+        done_btn: QPushButton = QPushButton("完成")
+        done_btn.setFont(QFont("Microsoft YaHei", 10, QFont.Bold))  # type: ignore
+        done_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        done_btn.setMinimumHeight(34)
+        done_btn.setStyleSheet(action_style)
+        done_btn.clicked.connect(self._on_cv_done)
+        right_layout.addWidget(done_btn)
 
         right_layout.addStretch()
 
@@ -4540,8 +4641,17 @@ class SettingsWindow(ThemedWidget):
         # 高亮当前科目按钮
         self._highlight_cv_subject_btn(subject)
 
+        # ── 即时保存：修改直接写入课程表文件（无需确认 / 取消）──
+        # 把待编辑数据同步到编辑副本并写盘；编辑器保持打开，可继续编辑其他单元格。
+        self._editing_curriculum_data = copy.deepcopy(
+            self._pending_curriculum_data
+        )
+        self._has_unsaved_changes = True
+        self._save_editing_curriculum_file()
+        self._refresh_apply_button()
+
         logger.info(
-            f"课程表内联编辑：{day} {lesson} → "
+            f"课程表内联编辑（已即时保存）：{day} {lesson} → "
             f"{new_subject or '（清除）'}"
         )
 
@@ -4630,48 +4740,12 @@ class SettingsWindow(ThemedWidget):
         self._on_cv_subject_clicked('None')
 
     # ================================================================
-    #  课程表内联编辑器 — 确认保存
+    #  课程表内联编辑器 — 完成（收起编辑器）
     # ================================================================
-    def _on_cv_confirm(self) -> None:
-        """弹出二次确认对话框，确认后直接保存课程表到本地文件并关闭编辑器。"""
-        reply: QMessageBox.StandardButton = QMessageBox.question(
-            self,
-            "确认保存",
-            "是否保存课程表修改？\n\n"
-            "修改将直接保存到本地文件，"
-            "点击「应用修改」后重启软件才会同步到主窗口。",
-            QMessageBox.No | QMessageBox.Yes,  # type: ignore
-            QMessageBox.Yes,  # type: ignore
-        )
-
-        if reply == QMessageBox.Yes:  # type: ignore
-            # 将待编辑数据写回课程表编辑副本
-            self._editing_curriculum_data = copy.deepcopy(
-                self._pending_curriculum_data
-            )
-            self._has_unsaved_changes = True
-            # 直接保存到本地文件（不入缓存）
-            self._save_editing_curriculum_file()
-            self._refresh_apply_button()
-            logger.info("课程表修改已确认（已直接保存到本地文件）")
-
-            # 停止光标并隐藏编辑器
-            self._stop_cv_blink()
-            # 刷新课程表 UI
-            self._refresh_curriculum_table()
-            self._refresh_curriculum_status()
-        else:
-            logger.info("课程表修改：用户取消确认，保持编辑状态")
-
-    # ================================================================
-    #  课程表内联编辑器 — 取消
-    # ================================================================
-    def _on_cv_cancel(self) -> None:
-        """取消编辑：丢弃待编辑数据，恢复表格显示，关闭编辑器。"""
-        logger.info("课程表修改已取消，丢弃待编辑数据")
+    def _on_cv_done(self) -> None:
+        """完成编辑：所有修改已即时保存到文件，这里仅收起编辑器卡片。"""
+        logger.info("课程表编辑完成（修改已即时保存）")
         self._stop_cv_blink()
-        # 从原始数据刷新表格
-        self._refresh_curriculum_table()
 
     # ================================================================
     #  课程表内联编辑器 — 刷新状态显示
@@ -4721,6 +4795,7 @@ class SettingsWindow(ThemedWidget):
             status_text += f"\n当前科目：{current_subject}"
         else:
             status_text += "\n当前科目：（未设置）"
+        status_text += "\n（点击科目即自动保存到文件）"
 
         self._cv_status_label.setText(status_text)
 
@@ -4764,7 +4839,7 @@ class SettingsWindow(ThemedWidget):
         return self._get_cv_subject_btn_style()
 
     def _get_cv_action_btn_style(self) -> str:
-        """返回课程表编辑卡操作按钮（确认保存 / 取消 / 清除）的 QSS 样式。
+        """返回课程表编辑卡操作按钮（清除 / 完成）的 QSS 样式。
 
         与左侧科目按钮保持一致：暗色模式下深色背景 + 浅色字体，
         浅色模式下浅色背景 + 深色字体。

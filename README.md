@@ -19,7 +19,7 @@ Schedule 4.0 是一款**桌面悬浮电子课表**应用。它在屏幕右上角
 - 🎨 **三种主题** — 浅色 / 深色 / 彩色模式，彩色模式支持自定义主题色
 - ⚙️ **配置文件驱动** — 主题、语言、字体、时间表/课程表路径等全部通过 INI/JSON 配置
 - 🔗 **前后端分离** — 基于 PySide6 Signal/Slot + 统一动作协议（ActionMessage）的解耦架构
-- 🌐 **KnotLink 接入** — 对外提供 5 个接口 + 3 个事件信号，SDK 缺失时静默降级
+- 🌐 **KnotLink 接入** — 对外提供 3 个接口 + 2 个事件信号，SDK 缺失时静默降级
 - 📝 **完整日志系统** — 按天生成日志文件，终端彩色输出，支持保留天数自动清理
 - ⚡ **启动优化** — 时间窗口优先渲染，用户可立即看到时间，无需等待主窗口构造
 - 🏷️ **完整类型注解** — 所有函数签名、实例变量均标注类型
@@ -51,7 +51,7 @@ Schedule 4.0 是一款**桌面悬浮电子课表**应用。它在屏幕右上角
 | 🧠 **后端逻辑** | `schedule_backend.py` | `TimeManager`（时间广播）、`ScheduleBackend`（动作分派）、`WindowHelper`、`LogManager`、`QuickEditHandler` |
 | 📦 **数据/配置层** | `schedule_config.py` | `ThemeManager`、`ScheduleDataManager`、`SubjectConfigManager`、`SwapManager`、`DebugConfig`、`DisplayRulesManager`、`ThemedWidget` |
 | 📨 **动作协议** | `schedule_actions.py` | `ActionType` 枚举 + 不可变 `ActionMessage`（统一消息格式，替代 magic string） |
-| 🌐 **KnotLink 桥接** | `knotlink_bridge.py` | `KnotLinkBridge`：5 个 openSocket 接口 + 3 个事件信号广播 |
+| 🌐 **KnotLink 桥接** | `knotlink_bridge.py` | `KnotLinkBridge`：3 个 openSocket 接口 + 2 个事件信号广播 |
 | 🔤 **翻译监测** | `schedule_translate.py` | 候选翻译网站可用性测试 + `TranslationMonitor`（每 2.5 小时自测） |
 
 > **设计原则：** 前端不写业务逻辑，后端不画 UI；前端通过 `backend_signal`（携带 `ActionMessage`）通知后端，后端通过公开方法 / Signal 更新界面。
@@ -187,21 +187,18 @@ python main.py
 
 ## 🌐 KnotLink 接入
 
-Schedule 4.0 通过 KnotLink 协议对外开放 **5 个接口** 与 **3 个事件信号**：
+Schedule 4.0 通过 KnotLink 协议对外开放 **3 个接口** 与 **2 个事件信号**：
 
 | 接口（openSocket） | 说明 |
 |---------------------|------|
 | `get-lesson-state` | 查询实时上课状态（是否上课 / 当前课时 / 剩余时间 / 下一节课） |
 | `get-today-schedule` | 获取当天（或指定星期）完整课表 |
 | `swap-course` | 记录临时换课（按日期生效，过期自动清理） |
-| `enter-fullscreen` | 进入全屏模式（`exam` 考试模式 / `creative` 创意模式） |
-| `exit-fullscreen` | 退出全屏模式，恢复悬浮窗口 |
 
 | 信号（signal） | 触发时机 |
 |----------------|----------|
 | `onClassStart` | 新一节课开始时 |
 | `onClassEnd` | 一节课结束进入课间时（附带下一节预告） |
-| `onDayEnd` | 当天最后一节课结束（放学）时 |
 
 > AppID: `com.github.wenjin6470.schedule4`，详细协议见 **[API 文档](./API文档/KnotLink-API.md)**。
 
@@ -246,7 +243,7 @@ log/
 ## 📋 开发日志
 
 - **v4.0** (2026-07) — 从原版重构：前后端分离架构、三主题模式、配置文件驱动、完整日志系统、类型注解全覆盖
-  - 接入 KnotLink（5 接口 + 3 信号）
+  - 接入 KnotLink（3 接口 + 2 信号）
   - 设置页：外观 / 字体 / 语言 / 时间表编辑 / 课程表编辑 / 科目管理 / 显示规则 / 开机自启
   - 快捷编辑（光标闪烁 + 科目点选 + 临时换课）、考试/创意双全屏模式
   - 翻译网站自动择优、中英文切换与字号自适应

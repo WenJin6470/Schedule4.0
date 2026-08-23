@@ -18,7 +18,6 @@
         ["请求状态（ok/err）", "status"],
         ["是否正在上课（true/false）", "isInClass"],
         ["是否课间休息（true/false）", "isBreak"],
-        ["是否已放学（true/false）", "isAfterSchool"],
         ["当前课时序号（从1开始，无则为-1）", "currentPeriod"],
         ["当前科目名称", "currentSubject"],
         ["当前课时开始时间（HH:MM:SS）", "currentStartTime"],
@@ -96,47 +95,6 @@
         ["实际生效日期（YYYY-MM-DD）", "swap_date"],
         ["错误信息（status=err时返回）", "message"]
       ]
-    },
-    "enter-fullscreen": {
-      "appID": "com.github.wenjin6470.schedule4",
-      "openSocketID": "schedule",
-      "description": "隐藏浮动课表窗口，进入全屏时间显示模式（考试模式墨绿背景或创意模式随机壁纸）",
-      "args": {
-        "action": {
-          "type": "static",
-          "value": "enter-fullscreen",
-          "description": "命令类型（固定为 enter-fullscreen）"
-        },
-        "mode": {
-          "type": "optional",
-          "options": [
-            ["考试模式（墨绿色背景+可编辑起止时间）", "exam"],
-            ["创意模式（随机壁纸背景+红色实时时钟）", "creative"]
-          ],
-          "description": "全屏模式类型"
-        }
-      },
-      "returns": [
-        ["请求状态（ok/err）", "status"],
-        ["实际进入的模式", "mode"],
-        ["错误信息（status=err时返回）", "message"]
-      ]
-    },
-    "exit-fullscreen": {
-      "appID": "com.github.wenjin6470.schedule4",
-      "openSocketID": "schedule",
-      "description": "退出全屏模式，恢复浮动课表窗口和时间窗口的置顶显示",
-      "args": {
-        "action": {
-          "type": "static",
-          "value": "exit-fullscreen",
-          "description": "命令类型（固定为 exit-fullscreen）"
-        }
-      },
-      "returns": [
-        ["请求状态（ok/err）", "status"],
-        ["错误信息（status=err时返回）", "message"]
-      ]
     }
   },
   "signal": {
@@ -183,37 +141,6 @@
         },
         "leftTime": {
           "description": "课间剩余时间（HH:MM:SS格式，距下一节课还有多久）"
-        }
-      }
-    },
-    "onDayEnd": {
-      "appID": "com.github.wenjin6470.schedule4",
-      "signalID": "events",
-      "description": "放学事件，当天最后一节课结束后触发推送",
-      "returns": {
-        "event": {
-          "description": "事件标识（固定值onDayEnd），用于鉴别信号类型",
-          "verification": "onDayEnd"
-        }
-      }
-    },
-    "onEventTrigger": {
-      "appID": "com.github.wenjin6470.schedule4",
-      "signalID": "events",
-      "description": "自定义事件触发，系统时间到达事件系统规则（事件系统）设定的日期与时间时推送",
-      "returns": {
-        "event": {
-          "description": "事件标识（固定值onEventTrigger），用于鉴别信号类型",
-          "verification": "onEventTrigger"
-        },
-        "name": {
-          "description": "事件名称"
-        },
-        "date": {
-          "description": "事件日期（YYYY-MM-DD）"
-        },
-        "time": {
-          "description": "事件时间（HH:MM）"
         }
       }
     }

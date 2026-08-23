@@ -306,9 +306,6 @@ def main() -> None:
             time_manager=time_manager,
             schedule_data=schedule_data,
             main_window=main_window,
-            time_window=time_window,
-            fullscreen_window=fullscreen_window,
-            exam_window=exam_window,
             debug_config=debug_config,
         )
         logger.info("KnotLink 桥接初始化完成")

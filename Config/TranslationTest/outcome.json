@@ -2,22 +2,6 @@
     "history": {
         "youdao": [
             {
-                "ts": "2026-08-22 18:19:30",
-                "duration": 0.258,
-                "correct": false,
-                "Need Teanslate": "英语",
-                "Expected English": "English",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 08:07:56",
-                "duration": 0.238,
-                "correct": false,
-                "Need Teanslate": "英语",
-                "Expected English": "English",
-                "Translation": ""
-            },
-            {
                 "ts": "2026-08-23 08:10:28",
                 "duration": 0.247,
                 "correct": false,
@@ -160,25 +144,25 @@
                 "Need Teanslate": "化学",
                 "Expected English": "Chemistry",
                 "Translation": ""
+            },
+            {
+                "ts": "2026-08-23 18:21:16",
+                "duration": 0.205,
+                "correct": false,
+                "Need Teanslate": "历史",
+                "Expected English": "History",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-23 19:30:42",
+                "duration": 0.22,
+                "correct": false,
+                "Need Teanslate": "语文",
+                "Expected English": "Chinese",
+                "Translation": ""
             }
         ],
         "baidu": [
-            {
-                "ts": "2026-08-22 18:19:30",
-                "duration": 0.197,
-                "correct": true,
-                "Need Teanslate": "英语",
-                "Expected English": "English",
-                "Translation": "English"
-            },
-            {
-                "ts": "2026-08-23 08:07:56",
-                "duration": 0.208,
-                "correct": true,
-                "Need Teanslate": "英语",
-                "Expected English": "English",
-                "Translation": "English"
-            },
             {
                 "ts": "2026-08-23 08:10:28",
                 "duration": 0.217,
@@ -322,25 +306,25 @@
                 "Need Teanslate": "化学",
                 "Expected English": "Chemistry",
                 "Translation": "chemistry; chem.; chymist; chymistry"
+            },
+            {
+                "ts": "2026-08-23 18:21:16",
+                "duration": 0.184,
+                "correct": false,
+                "Need Teanslate": "历史",
+                "Expected English": "History",
+                "Translation": "history; past records; annals"
+            },
+            {
+                "ts": "2026-08-23 19:30:42",
+                "duration": 0.188,
+                "correct": false,
+                "Need Teanslate": "语文",
+                "Expected English": "Chinese",
+                "Translation": "（中文） Chinese; （语言文字） language ; （语言和文学） language a"
             }
         ],
         "mymemory": [
-            {
-                "ts": "2026-08-22 18:19:30",
-                "duration": 0.953,
-                "correct": false,
-                "Need Teanslate": "英语",
-                "Expected English": "English",
-                "Translation": "EN."
-            },
-            {
-                "ts": "2026-08-23 08:07:56",
-                "duration": 0.896,
-                "correct": false,
-                "Need Teanslate": "英语",
-                "Expected English": "English",
-                "Translation": "EN."
-            },
             {
                 "ts": "2026-08-23 08:10:28",
                 "duration": 0.776,
@@ -484,13 +468,48 @@
                 "Need Teanslate": "化学",
                 "Expected English": "Chemistry",
                 "Translation": "Chemistry"
+            },
+            {
+                "ts": "2026-08-23 18:21:16",
+                "duration": 1.439,
+                "correct": true,
+                "Need Teanslate": "历史",
+                "Expected English": "History",
+                "Translation": "HISTORY"
+            },
+            {
+                "ts": "2026-08-23 19:30:42",
+                "duration": 0.969,
+                "correct": true,
+                "Need Teanslate": "语文",
+                "Expected English": "Chinese",
+                "Translation": "Chinese"
+            }
+        ],
+        "bing": [
+            {
+                "ts": "2026-08-23 18:21:16",
+                "duration": 1.366,
+                "correct": true,
+                "Need Teanslate": "历史",
+                "Expected English": "History",
+                "Translation": "History"
+            },
+            {
+                "ts": "2026-08-23 19:30:42",
+                "duration": 1.465,
+                "correct": false,
+                "Need Teanslate": "语文",
+                "Expected English": "Chinese",
+                "Translation": "Chinese (Language)"
             }
         ]
     },
     "scores": {
         "youdao": 0.0,
-        "baidu": 24.90555,
-        "mymemory": 39.481125
+        "baidu": 14.906375,
+        "mymemory": 49.46715,
+        "bing": 49.29225
     },
-    "updated_at": "2026-08-23 16:44:51"
+    "updated_at": "2026-08-23 19:30:42"
 }

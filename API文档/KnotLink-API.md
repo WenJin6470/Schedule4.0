@@ -9,7 +9,7 @@
 
 ## 一、概述
 
-Schedule 4.0（电子课表系统）通过 KnotLink 协议对外开放 **5 个接口** 和 **4 个信号**，供其他节点查询课表状态、执行换课操作、控制全屏模式，并实时接收上课/下课/放学以及自定义事件推送。
+Schedule 4.0（电子课表系统）通过 KnotLink 协议对外开放 **3 个接口** 和 **2 个信号**，供其他节点查询课表状态、执行换课操作，并实时接收上课/下课事件推送。
 
 所有接口和信号均使用 KnotLink 标准 KLKVMap 键值对格式进行序列化传输。
 
@@ -37,7 +37,6 @@ Schedule 4.0（电子课表系统）通过 KnotLink 协议对外开放 **5 个�
 | `status` | 请求状态（`ok` / `err`） |
 | `isInClass` | 是否正在上课（`true` / `false`） |
 | `isBreak` | 是否处于课间休息（`true` / `false`） |
-| `isAfterSchool` | 是否已放学（`true` / `false`） |
 | `currentPeriod` | 当前课时序号（从 1 开始，课间/放学时为 `-1`） |
 | `currentSubject` | 当前科目名称（课间/放学时为空字符串） |
 | `currentStartTime` | 当前课时开始时间（格式 `HH:MM:SS`，无当前课时为空） |
@@ -131,62 +130,13 @@ Schedule 4.0（电子课表系统）通过 KnotLink 协议对外开放 **5 个�
 
 ---
 
-### 2.4 enter-fullscreen — 进入全屏模式
-
-- **openSocketID**: `schedule`
-- **描述**: 隐藏浮动课表窗口，进入全屏时间显示模式。
-
-**参数**:
-
-| 参数名 | 类型 | 值/默认值 | 说明 |
-|--------|------|----------|------|
-| `action` | static | `enter-fullscreen` | 命令类型（固定值） |
-| `mode` | optional | `exam` | 全屏模式：`exam`（考试模式，墨绿色背景+可编辑起止时间）或 `creative`（创意模式，随机图片背景+红色实时时钟） |
-
-**可选参数 `mode` 的选项**:
-
-| 显示名 | 值 | 说明 |
-|--------|-----|------|
-| 考试模式 | `exam` | 墨绿色纯色背景，可编辑考试起止时间和科目名称，底部显示当前时间 |
-| 创意模式 | `creative` | 随机壁纸背景，屏幕中央显示红色大字实时时钟 |
-
-**返回值**:
-
-| 字段名 | 说明 |
-|--------|------|
-| `status` | 请求状态（`ok` / `err`） |
-| `mode` | 实际进入的模式 |
-| `message` | 错误信息（仅在 `status=err` 时返回） |
-
----
-
-### 2.5 exit-fullscreen — 退出全屏模式
-
-- **openSocketID**: `schedule`
-- **描述**: 退出全屏模式，恢复浮动课表窗口和时间窗口的置顶显示。
-
-**参数**:
-
-| 参数名 | 类型 | 值/默认值 | 说明 |
-|--------|------|----------|------|
-| `action` | static | `exit-fullscreen` | 命令类型（固定值） |
-
-**返回值**:
-
-| 字段名 | 说明 |
-|--------|------|
-| `status` | 请求状态（`ok` / `err`） |
-| `message` | 错误信息（仅在 `status=err` 时返回） |
-
----
-
 ## 三、信号（signal）
 
 所有信号共用 `signalID: "events"`，通过返回值中的 `event` 字段区分具体事件类型。
 
-信号由桥接层订阅 `TimeManager.time_tick`（每秒一次）进行**状态切换检测**后广播：仅当状态发生切换（如"非上课 → 上课"、"上课 → 课间"、"上课 → 放学"）时才发射，同一状态持续期间不重复推送。
+信号由桥接层订阅 `TimeManager.time_tick`（每秒一次）进行**状态切换检测**后广播：仅当状态发生切换（如"非上课 → 上课"、"上课 → 课间"）时才发射，同一状态持续期间不重复推送。
 
-其中 `onClassStart` / `onClassEnd` / `onDayEnd` 基于上课状态切换检测，而 `onEventTrigger` 基于「事件系统」规则（日期 + 时间）触发，二者相互独立。
+> **注意**：本节仅记录**代码内置实现**的信号。用户在设置页「KnotLink → 事件系统」中新建自定义事件时，还会生成新的信号条目并写入 `Config/knotlink/signals.json`；这些自定义信号单独记录在《KnotLink 信号目录》（`KnotLink-Signals.md`）文档中，由程序在新建事件时自动维护。
 
 ### 3.1 onClassStart — 上课事件
 
@@ -219,45 +169,6 @@ Schedule 4.0（电子课表系统）通过 KnotLink 协议对外开放 **5 个�
 | `nextSubject` | 下一节科目名称（若无下一节则为空字符串） |
 | `nextStartTime` | 下一节课开始时间（`HH:MM:SS`，若无下一节则为空） |
 | `leftTime` | 课间剩余时间（`HH:MM:SS` 格式，即距下一节课还有多久） |
-
----
-
-### 3.3 onDayEnd — 放学事件
-
-- **signalID**: `events`
-- **描述**: 当天最后一节课结束后触发推送，表示当日课程全部结束。
-
-**返回值**:
-
-| 字段名 | 说明 |
-|--------|------|
-| `event` | 事件标识（固定值 `onDayEnd`），用于鉴别信号类型 |
-
----
-
-### 3.4 onEventTrigger — 自定义事件触发
-
-- **signalID**: `events`
-- **描述**: 当系统时间（含调试模拟时间）到达「事件系统」中某条事件规则的日期与时间时触发推送。事件规则由用户在设置页的「课表编辑 → 事件系统」中维护，保存在 `Config/event_rules.json`。
-
-每条事件规则包含三个字段：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `date` | string | 事件日期，格式 `YYYY-MM-DD` |
-| `time` | string | 事件时间（事件触发时刻），格式 `HH:MM` |
-| `name` | string | 事件名称 |
-
-触发规则：当「事件日期 == 今天」且「事件时间（HH:MM）== 当前时间」时触发；同一条事件（以 date/time/name 为键）在本次程序运行期间仅广播一次。
-
-**返回值**:
-
-| 字段名 | 说明 |
-|--------|------|
-| `event` | 事件标识（固定值 `onEventTrigger`），用于鉴别信号类型 |
-| `name` | 事件名称 |
-| `date` | 事件日期（`YYYY-MM-DD`） |
-| `time` | 事件时间（`HH:MM`） |
 
 ---
 
@@ -298,7 +209,7 @@ Schedule 4.0 支持调试模式（通过 `Config/debug_config.ini` 配置），�
 - `get-lesson-state` 返回的状态基于模拟时间计算
 - `get-today-schedule` 的"当天"使用模拟日期对应的星期
 - `swap-course` 的换课日期判断以模拟日期为基准
-- 信号 `onClassStart` / `onClassEnd` / `onDayEnd` 按模拟时间流动触发
+- 信号 `onClassStart` / `onClassEnd` 按模拟时间流动触发
 
 调试模式仅影响时间相关计算，不影响数据持久化逻辑。
 
@@ -317,7 +228,4 @@ Schedule 4.0 支持调试模式（通过 `Config/debug_config.ini` 配置），�
 - 换课操作中 `lesson_key` 格式无效（非 `lesson_N` 格式）
 - 换课操作中 `lesson_key` 在当前时间表中不存在
 - 换课操作中 `swap_date` 格式无效（非 `YYYY-MM-DD` 格式）
-- `enter-fullscreen` 中 `mode` 不是 `exam` / `creative`
 - 时间表数据为空时查询 `get-lesson-state`（返回 `status=err`）
-- 当前未处于全屏模式时调用 `exit-fullscreen`（静默成功，不报错）
-- 已是全屏模式时再次调用 `enter-fullscreen`（直接切换模式，不报错）

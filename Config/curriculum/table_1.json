@@ -8,7 +8,7 @@
         "lesson_6": "物理",
         "lesson_7": "化学",
         "lesson_8": "语文",
-        "lesson_9": "活动",
+        "lesson_9": "电磁学",
         "lesson_10": "生物",
         "lesson_11": "生涯",
         "lesson_12": "体育",
@@ -35,7 +35,7 @@
         "lesson_3": "数学",
         "lesson_4": "英语",
         "lesson_5": "语文",
-        "lesson_6": "物理",
+        "lesson_6": "劳动",
         "lesson_7": "化学",
         "lesson_8": "语文",
         "lesson_9": "地理",
@@ -99,6 +99,7 @@
         "lesson_9": "地理",
         "lesson_10": "生物",
         "lesson_11": "公共自习",
-        "lesson_12": "语文"
+        "lesson_12": "语文",
+        "lesson_13": "劳动"
     }
 }

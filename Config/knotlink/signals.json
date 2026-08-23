@@ -17,5 +17,43 @@
             }
         ],
         "example": "{\"event\": \"onAfterSchoolAtNoon\", \"triggerTime\": \"12:00\"}"
+    },
+    {
+        "name": "onAfternoonAfterSchool",
+        "title": "下午放学",
+        "intro": "第四节晚自习结束，回寝睡觉",
+        "trigger": "23:00",
+        "fields": [
+            {
+                "name": "onAfternoonAfterSchool",
+                "type": "string",
+                "desc": "下午放学"
+            },
+            {
+                "name": "triggerTime",
+                "type": "string",
+                "desc": "触发时间（HH:MM）"
+            }
+        ],
+        "example": "{\"event\": \"onAfternoonAfterSchool\", \"triggerTime\": \"23:00\"}"
+    },
+    {
+        "name": "onEyerobics",
+        "title": "眼保健操",
+        "intro": "眼保健操提醒",
+        "trigger": "10:15",
+        "fields": [
+            {
+                "name": "onEyerobics",
+                "type": "string",
+                "desc": "眼保健操"
+            },
+            {
+                "name": "triggerTime",
+                "type": "string",
+                "desc": "触发时间（HH:MM）"
+            }
+        ],
+        "example": "{\"event\": \"onEyerobics\", \"triggerTime\": \"10:15\"}"
     }
 ]

@@ -528,7 +528,7 @@ WindowHelper.close_all([time_window, main_window, fullscreen_window, exam_window
 │  │  .backend_signal  │   (ActionMessage)│ .handle_action  │           │
 │  └───────────────────┘                  └────────────────┘           │
 │                                                                        │
-│  连接4：KnotLinkBridge 订阅 time_tick → 上课/下课/放学事件检测           │
+│  连接4：KnotLinkBridge 订阅 time_tick → 上课/下课事件检测           │
 │  TimeManager.time_tick → KnotLinkBridge._on_time_tick                  │
 └────────────────────────────────────────────────────────────────────────┘
 ```
@@ -665,5 +665,5 @@ backend.handle_action(
 | `TimeManager.start(callback)` 回调式 | `TimeManager.time_tick` Signal 发布-订阅（多订阅者） |
 | `WindowHelper.close_all()` | 保留，由 `ScheduleBackend` 在 `CLOSE` 动作中调用 |
 | 无数据层 | `schedule_config.py`（ThemeManager / ScheduleDataManager / SwapManager / DebugConfig / DisplayRulesManager） |
-| 无外部协议 | `knotlink_bridge.py`（5 接口 + 3 信号） |
+| 无外部协议 | `knotlink_bridge.py`（3 接口 + 2 信号） |
 | 功能待实现的占位信号 | 已实现：全屏时间（考试/创意）、快捷编辑、设置 |
