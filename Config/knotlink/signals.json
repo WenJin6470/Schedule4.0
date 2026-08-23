@@ -1,1 +1,21 @@
-[]
+[
+    {
+        "name": "onAfterSchoolAtNoon",
+        "title": "中午放学",
+        "intro": "中午上完第五节课，吃饭和午休时间",
+        "trigger": "12:00",
+        "fields": [
+            {
+                "name": "onAfterSchoolAtNoon",
+                "type": "string",
+                "desc": "中午放学"
+            },
+            {
+                "name": "triggerTime",
+                "type": "string",
+                "desc": "触发时间（HH:MM）"
+            }
+        ],
+        "example": "{\"event\": \"onAfterSchoolAtNoon\", \"triggerTime\": \"12:00\"}"
+    }
+]

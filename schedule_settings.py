@@ -25,6 +25,7 @@ import json
 import logging
 import math
 import os
+import re
 import subprocess
 import sys
 from datetime import date
@@ -514,6 +515,9 @@ class SettingsWindow(ThemedWidget):
         self._event_card: Optional[QFrame] = None
         self._event_scroll_layout: Optional[QVBoxLayout] = None
         self._event_buttons: List[QPushButton] = []
+
+        # KnotLink 信号表格引用（事件新建确认后刷新信号列表时使用）
+        self._knotlink_signal_table: Optional[QTableWidget] = None
 
         logger.info("SettingsWindow 初始化开始")
         self._setup_ui()
@@ -1022,33 +1026,10 @@ class SettingsWindow(ThemedWidget):
         table.setColumnWidth(2, 132)
         self._style_knotlink_table(table)
 
-        row: int = 0
         for item in items:
-            name: str = str(item.get('name', ''))
-            item_title: str = str(item.get('title', ''))
-            intro: str = str(item.get('intro', ''))
-            intro_short: str = intro if len(intro) <= 50 else intro[:50] + "…"
-
-            row_widget: KnotLinkRuleRow = KnotLinkRuleRow(
-                name=name, title=item_title, intro=intro_short,
-                theme_manager=self._theme,
-            )
-            row_widget.clicked.connect(
-                lambda it=item, sig=is_signal:
-                self._on_knotlink_item_clicked(it, sig)
-            )
-
-            # ---- 操作列：详情 / 编辑 按钮 ----
-            ops_widget: QWidget = self._build_knotlink_ops_widget(
-                item, is_signal=is_signal,
-            )
-
-            table.insertRow(row)
-            table.setSpan(row, 0, 1, 2)
-            table.setCellWidget(row, 0, row_widget)
-            table.setCellWidget(row, 2, ops_widget)
-            table.setRowHeight(row, 62)
-            row += 1
+            self._append_knotlink_rule_row(table, item, is_signal=is_signal)
+        if is_signal:
+            self._knotlink_signal_table = table
 
         # 表格高度固定为内容高度（表头 + 各行按钮，无外框）
         header_h: int = table.horizontalHeader().sizeHint().height()
@@ -1057,6 +1038,48 @@ class SettingsWindow(ThemedWidget):
         card_layout.addWidget(table)
 
         return card
+
+    def _append_knotlink_rule_row(self, table: QTableWidget, item: Dict,
+                                  is_signal: bool) -> None:
+        """向规则表格追加一行（名称+简介行控件 + 操作列按钮）。"""
+        name: str = str(item.get('name', ''))
+        item_title: str = str(item.get('title', ''))
+        intro: str = str(item.get('intro', ''))
+        intro_short: str = intro if len(intro) <= 50 else intro[:50] + "…"
+
+        row_widget: KnotLinkRuleRow = KnotLinkRuleRow(
+            name=name, title=item_title, intro=intro_short,
+            theme_manager=self._theme,
+        )
+        row_widget.clicked.connect(
+            lambda it=item, sig=is_signal:
+            self._on_knotlink_item_clicked(it, sig)
+        )
+
+        ops_widget: QWidget = self._build_knotlink_ops_widget(
+            item, is_signal=is_signal,
+        )
+
+        row: int = table.rowCount()
+        table.insertRow(row)
+        table.setSpan(row, 0, 1, 2)
+        table.setCellWidget(row, 0, row_widget)
+        table.setCellWidget(row, 2, ops_widget)
+        table.setRowHeight(row, 62)
+
+    def _refresh_knotlink_signal_table(self) -> None:
+        """事件新建确认后刷新信号列表（重新读取目录并重建信号表格）。"""
+        table: Optional[QTableWidget] = self._knotlink_signal_table
+        if table is None:
+            return
+        catalog: KnotLinkCatalogManager = KnotLinkCatalogManager()
+        signals: List[Dict] = catalog.load_signals()
+        table.setRowCount(0)
+        for item in signals:
+            self._append_knotlink_rule_row(table, item, is_signal=True)
+        header_h: int = table.horizontalHeader().sizeHint().height()
+        table.setFixedHeight(max(34, header_h) + 62 * len(signals) + 1)
+        logger.info(f"[SettingsWindow] 信号列表已刷新，共 {len(signals)} 条规则")
 
     def _build_knotlink_ops_widget(self, item: Dict, is_signal: bool) -> QWidget:
         """
@@ -2937,7 +2960,11 @@ class SettingsWindow(ThemedWidget):
     #  事件系统 — 事件处理
     # ================================================================
     def _on_new_event(self) -> None:
-        """点击「新建事件」→ 打开事件规则子窗口（新建模式）。"""
+        """点击「新建事件」→ 打开事件规则子窗口（新建模式）。
+
+        确认后除写入事件规则外，还按 KnotLink 信号规则把新信号
+        写入 Config/knotlink/signals.json，并同步刷新信号列表。
+        """
         dialog: EventRuleDialog = EventRuleDialog(
             theme_manager=self._theme,
             parent=self,
@@ -2947,10 +2974,47 @@ class SettingsWindow(ThemedWidget):
             self._event_manager.add_rule(result)
             self._load_event_rules()
             self._refresh_event_rules()
+            # 同步写入 KnotLink 信号目录并刷新信号列表
+            self._write_event_signal(result)
+            self._refresh_knotlink_signal_table()
             logger.info(
                 f"已新建事件：{_event_rule_summary(result)} "
                 f"{result['time']} '{result['name']}'"
             )
+
+    def _write_event_signal(self, result: dict) -> None:
+        """把新建事件同步写入 KnotLink 信号目录（signals.json）。
+
+        写入内容符合 KnotLink 信号规则：
+          - 触发时机（trigger）= 子窗口中输入的时间
+          - 载荷字段（fields）= 信号变量名 + 触发时间
+          - 标题 / 简介 = 事件名称 / 事件描述
+        """
+        var: str = str(result.get('signal_var', '') or '').strip()
+        if not var:
+            logger.warning("事件缺少信号变量名，跳过 KnotLink 信号写入")
+            return
+        event_name: str = str(result.get('name', '') or '')
+        trigger_time: str = str(result.get('time', '') or '')
+        entry: Dict = {
+            "name": var,
+            "title": event_name,
+            "intro": str(result.get('desc', '') or ''),
+            "trigger": trigger_time,
+            "fields": [
+                {"name": var, "type": "string", "desc": event_name},
+                {"name": "triggerTime", "type": "string",
+                 "desc": "触发时间（HH:MM）"},
+            ],
+            "example": (
+                f'{{"event": "{var}", "triggerTime": "{trigger_time}"}}'
+            ),
+        }
+        manager: KnotLinkCatalogManager = KnotLinkCatalogManager()
+        if manager.add_signal(entry):
+            logger.info(f"已写入 KnotLink 信号目录：{var}")
+        else:
+            logger.warning("写入 KnotLink 信号目录失败")
 
     def _on_event_rule_clicked(self, index: int) -> None:
         """点击事件规则按钮 → 打开事件规则子窗口（编辑模式）。"""
@@ -7885,16 +7949,38 @@ class RuleEditDialog(ThemedDialog):
 # ==================== 事件规则编辑子窗口 ====================
 
 
+def _make_signal_var(english: str) -> str:
+    """
+    把英文译文处理成符合变量规范的信号变量名。
+    -------------------------------------------
+    参考现有信号变量名（onClassStart / onClassEnd）的「on + 驼峰」风格：
+    按非字母数字拆分单词 → 每词首字母大写拼接 → 前缀 on。
+    无法提取任何单词时返回空字符串。
+    """
+    words: List[str] = [
+        w for w in re.split(r'[^A-Za-z0-9]+', english or '') if w
+    ]
+    if not words:
+        return ''
+    return 'on' + ''.join(w.capitalize() for w in words)
+
+
 class EventRuleDialog(ThemedDialog):
     """
     # EventRuleDialog — 事件系统规则编辑子窗口
 
     用于新增或编辑一条事件规则：
+      - 事件名称（第一行，输入完成失去焦点后自动翻译生成信号变量名）
+      - 信号变量（第二行，英文；参考 onClassStart / onClassEnd 的
+        on + 驼峰 命名规范，由翻译结果简单处理后自动填入，可手动修改）
+      - 事件描述（第三行）
       - 触发日期：每天 / 每周 / 每月 / 每年 / 具体时间点
         （参照显示规则子窗口的规则类型；除「每天」外均使用滚轮控件选择）
       - 时间（时/分滚轮）
-      - 名称（文本框）
       - 编辑模式下提供「删除事件」按钮
+
+    确认后（新建模式）除写入事件规则外，还会按 KnotLink 信号规则
+    把新信号写入 Config/knotlink/signals.json，并刷新信号列表。
     ---
     """
 
@@ -7905,6 +7991,8 @@ class EventRuleDialog(ThemedDialog):
         self._theme: ThemeManager = theme_manager # type: ignore
         self._rule: Optional[Dict] = rule
         self._deleted: bool = False
+        self._worker: Optional[TranslateWorker] = None
+        self._translate_running: bool = False
 
         self.setWindowTitle('编辑事件' if rule else '新建事件')
         self.setWindowFlags(
@@ -7912,7 +8000,7 @@ class EventRuleDialog(ThemedDialog):
             | Qt.WindowCloseButtonHint        # type: ignore
         )
         self.setModal(True)
-        self.setMinimumWidth(500)
+        self.setMinimumWidth(520)
 
         self._setup_ui()
         self._prefill()
@@ -7943,6 +8031,59 @@ class EventRuleDialog(ThemedDialog):
 
         self.setStyleSheet(self._build_qss())
         bg, tc = self._get_wheel_colors()
+
+        # ---- 卡片0：事件信息（名称 / 信号变量 / 描述）----
+        info_card: QVBoxLayout = self._add_card("事件信息", layout)
+        fc_info: str = self._theme.font_color
+
+        name_label: QLabel = QLabel("事件名称")
+        name_label.setFont(QFont("Microsoft YaHei", 11))
+        name_label.setStyleSheet(f"color: {fc_info}; background: transparent;")
+        info_card.addWidget(name_label)
+
+        self._name_edit: QLineEdit = QLineEdit()
+        self._name_edit.setFont(QFont("Microsoft YaHei", 11))
+        self._name_edit.setMinimumHeight(34)
+        self._name_edit.setPlaceholderText("例如：午休提醒 / 眼保健操")
+        info_card.addWidget(self._name_edit)
+
+        signal_label: QLabel = QLabel(
+            "信号变量（英文，名称输入完成后自动翻译生成，可手动修改）"
+        )
+        signal_label.setFont(QFont("Microsoft YaHei", 11))
+        signal_label.setStyleSheet(f"color: {fc_info}; background: transparent;")
+        signal_label.setWordWrap(True)
+        info_card.addWidget(signal_label)
+
+        self._signal_edit: QLineEdit = QLineEdit()
+        self._signal_edit.setFont(QFont("Microsoft YaHei", 11))
+        self._signal_edit.setMinimumHeight(34)
+        self._signal_edit.setPlaceholderText("例如：onLunchBreakReminder")
+        info_card.addWidget(self._signal_edit)
+
+        trans_font: QFont = QFont("Microsoft YaHei", 9)
+        trans_font.setItalic(True)
+        self._trans_status: QLabel = QLabel("")
+        self._trans_status.setFont(trans_font)
+        self._trans_status.setStyleSheet(
+            f"color: {self._dim}; background: transparent;"
+        )
+        self._trans_status.setWordWrap(True)
+        info_card.addWidget(self._trans_status)
+
+        desc_label: QLabel = QLabel("事件描述")
+        desc_label.setFont(QFont("Microsoft YaHei", 11))
+        desc_label.setStyleSheet(f"color: {fc_info}; background: transparent;")
+        info_card.addWidget(desc_label)
+
+        self._desc_edit: QLineEdit = QLineEdit()
+        self._desc_edit.setFont(QFont("Microsoft YaHei", 11))
+        self._desc_edit.setMinimumHeight(34)
+        self._desc_edit.setPlaceholderText("例如：每天午休前提醒（可选）")
+        info_card.addWidget(self._desc_edit)
+
+        # 事件名称输入完成（失去焦点 / 回车）→ 调用最优翻译网站生成信号变量名
+        self._name_edit.editingFinished.connect(self._on_name_finished)
 
         # ---- 卡片1：触发日期 ----
         date_card: QVBoxLayout = self._add_card("触发日期", layout)
@@ -8033,14 +8174,6 @@ class EventRuleDialog(ThemedDialog):
         wheels_row.addWidget(self._min_wheel)
         time_card.addLayout(wheels_row)
 
-        # ---- 卡片3：名称 ----
-        name_card: QVBoxLayout = self._add_card("名称", layout)
-        self._name_edit: QLineEdit = QLineEdit()
-        self._name_edit.setFont(QFont("Microsoft YaHei", 11))
-        self._name_edit.setMinimumHeight(34)
-        self._name_edit.setPlaceholderText("例如：早自习 / 考试 / 班会")
-        name_card.addWidget(self._name_edit)
-
         # ---- 按钮行 ----
         btn_row: QHBoxLayout = QHBoxLayout()
         btn_row.setSpacing(12)
@@ -8085,6 +8218,65 @@ class EventRuleDialog(ThemedDialog):
 
         self._daily_radio.setChecked(True)
         self._on_type_changed()
+
+    # ================================================================
+    #  信号变量自动翻译
+    # ================================================================
+    def _on_name_finished(self) -> None:
+        """事件名称输入完成（失去焦点 / 回车）：调用最优翻译网站翻译并生成变量名。"""
+        name: str = self._name_edit.text().strip()
+        if not name:
+            return
+        if self._translate_running:
+            return
+        site_id: str = get_default_site()
+        self._translate_running = True
+        self._trans_status.setText("正在调用最优翻译网站翻译…")
+        self._worker = TranslateWorker(name, site_id)
+        self._worker.finished_ok.connect(self._on_var_translate_ok)
+        self._worker.finished_fail.connect(self._on_var_translate_fail)
+        self._worker.finished.connect(self._on_var_worker_finished)
+        self._worker.start()
+
+    def _on_var_translate_ok(self, result: str, duration: float) -> None:
+        """翻译成功 → 按变量规范生成信号变量名并填入第二行。"""
+        var: str = _make_signal_var(result)
+        if var:
+            self._signal_edit.setText(var)
+            self._trans_status.setText(
+                f"翻译完成，已生成信号变量名（耗时 {duration:.1f}s）"
+            )
+        else:
+            self._trans_status.setText(
+                "翻译结果无法生成变量名，请手动填写英文变量名"
+            )
+
+    def _on_var_translate_fail(self, error: str) -> None:
+        """翻译失败 → 提示手动填写。"""
+        self._trans_status.setText(f"翻译失败：{error}，请手动填写英文变量名")
+
+    def _on_var_worker_finished(self) -> None:
+        """翻译线程结束 → 清理线程引用。"""
+        self._translate_running = False
+        if self._worker is not None:
+            worker: TranslateWorker = self._worker
+            if worker in _ORPHAN_WORKERS:
+                _ORPHAN_WORKERS.remove(worker)
+            worker.deleteLater()
+            self._worker = None
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """关闭时取消进行中的翻译线程，避免后台线程残留。"""
+        if self._worker is not None:
+            self._worker.cancel()
+            if self._worker.isRunning():
+                # 线程仍在后台运行：移交孤儿池持有引用，防止 Qt 崩溃
+                _ORPHAN_WORKERS.append(self._worker)
+                self._worker.finished.connect(
+                    lambda w=self._worker: _cleanup_orphan_worker(w)
+                )
+            self._worker = None
+        super().closeEvent(event)
 
     # ================================================================
     #  样式 / 卡片辅助
@@ -8286,6 +8478,8 @@ class EventRuleDialog(ThemedDialog):
             pass
 
         self._name_edit.setText(str(rule.get('name', '') or ''))
+        self._signal_edit.setText(str(rule.get('signal_var', '') or ''))
+        self._desc_edit.setText(str(rule.get('desc', '') or ''))
         self._on_type_changed()
 
     def _on_type_changed(self, _checked: bool = False) -> None:
@@ -8316,11 +8510,18 @@ class EventRuleDialog(ThemedDialog):
         return 'daily'
 
     def _on_confirm(self) -> None:
-        """点击确定（校验名称非空）。"""
+        """点击确定（校验名称与信号变量非空）。"""
         if not self._name_edit.text().strip():
             QMessageBox.warning(
                 self, "名称为空",
                 "请输入事件名称。",
+            )
+            return
+        if self._rule is None and not self._signal_edit.text().strip():
+            QMessageBox.warning(
+                self, "信号变量为空",
+                "请输入或等待自动生成信号变量名（英文）。\n"
+                "信号变量将作为 KnotLink 信号规则写入信号列表。",
             )
             return
         logger.info("EventRuleDialog 确认")
@@ -8355,6 +8556,8 @@ class EventRuleDialog(ThemedDialog):
             'day': 1,
             'time': f"{h:02d}:{m:02d}",
             'name': self._name_edit.text().strip(),
+            'signal_var': self._signal_edit.text().strip(),
+            'desc': self._desc_edit.text().strip(),
         }
         if rtype == 'weekly':
             rule['weekday'] = self._weekday_wheel.current_index

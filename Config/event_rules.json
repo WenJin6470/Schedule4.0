@@ -6,15 +6,8 @@
         "month": 1,
         "day": 1,
         "time": "12:00",
-        "name": "放学"
-    },
-    {
-        "type": "daily",
-        "date": "",
-        "weekday": 0,
-        "month": 1,
-        "day": 1,
-        "time": "10:00",
-        "name": "班会"
+        "name": "中午放学",
+        "signal_var": "onAfterSchoolAtNoon",
+        "desc": "中午上完第五节课，吃饭和午休时间"
     }
 ]

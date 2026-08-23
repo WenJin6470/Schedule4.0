@@ -1455,10 +1455,10 @@ class EventRulesManager:
 # 供设置页 "KnotLink" 标签页展示。
 #
 # 规则已硬编码为内置默认目录（下方 _DEFAULT_*），Config/knotlink/*.json
-# 仅作为可选的「自定义覆盖层」保留：
+# 仅作为可选的「自定义叠加层」保留：
 #   - 文件缺失     → 生成空占位文件（[]，保留 JSON 列表格式），使用内置默认
 #   - 文件为空列表 → 使用内置默认目录
-#   - 文件非空     → 使用文件中的自定义目录（增删改条目后重启窗口生效）
+#   - 文件非空     → 内置默认 + 文件自定义合并（同名条目以文件为准，新条目追加）
 #   - 文件损坏     → 回退内置默认并记录日志，不影响程序运行
 #
 # 接口条目字段：
@@ -1655,12 +1655,13 @@ class KnotLinkCatalogManager:
     # ================================================================
     def _load(self, rel_path: str, defaults: List[Dict]) -> List[Dict]:
         """
-        读取指定目录文件并标准化。
+        读取指定目录文件并与内置默认目录合并。
 
-        规则已硬编码为内置默认目录（defaults）：
+        规则已硬编码为内置默认目录（defaults），JSON 文件为「自定义叠加层」：
           - 文件缺失     → 生成空占位文件（保留 JSON 列表格式），返回内置默认
-          - 文件为空列表 → 使用内置默认目录（便于直接编辑文件自定义覆盖）
-          - 文件非空     → 使用文件中的自定义目录
+          - 文件为空列表 → 使用内置默认目录
+          - 文件非空     → 内置默认 + 文件自定义合并（同名条目以文件为准，
+                           新条目追加到末尾）
           - 文件损坏     → 回退内置默认并记录日志
         """
         path: str = os.path.join(self._script_dir, rel_path)
@@ -1674,18 +1675,54 @@ class KnotLinkCatalogManager:
                 data: Any = json.load(f)
             if not isinstance(data, list):
                 raise ValueError('目录文件内容不是列表')
-            if not data:
-                # 空列表：规则已硬编码在代码中，使用内置默认目录
-                return [self._normalize_rule(rule) for rule in defaults]
-            return [
-                self._normalize_rule(rule)
-                for rule in data if isinstance(rule, dict)
+            merged: List[Dict] = [
+                self._normalize_rule(rule) for rule in defaults
             ]
+            for rule in data:
+                if not isinstance(rule, dict):
+                    continue
+                item: Dict = self._normalize_rule(rule)
+                if not item.get('name'):
+                    continue
+                replaced: bool = False
+                for i, m in enumerate(merged):
+                    if m.get('name') == item['name']:
+                        merged[i] = item
+                        replaced = True
+                        break
+                if not replaced:
+                    merged.append(item)
+            return merged
         except (json.JSONDecodeError, ValueError, OSError) as e:
             logger.error(
                 f"读取 KnotLink 目录文件失败（{rel_path}）：{e}，回退内置默认"
             )
             return [self._normalize_rule(rule) for rule in defaults]
+
+    def add_signal(self, entry: Dict) -> bool:
+        """
+        把一条新信号规则追加写入 signals.json。
+        -------------------------------------
+        与内置默认信号目录合并展示（新事件创建时调用），
+        返回 True 表示写入成功。
+        """
+        path: str = os.path.join(self._script_dir, self.SIGNALS_PATH)
+        try:
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as f:
+                    data: Any = json.load(f)
+                if not isinstance(data, list):
+                    data = []
+            else:
+                data = []
+            data.append(entry)
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+            logger.info(f"已追加 KnotLink 信号规则：{entry.get('name')}")
+            return True
+        except (OSError, json.JSONDecodeError) as e:
+            logger.error(f"写入 KnotLink 信号目录失败：{e}")
+            return False
 
     def _normalize_rule(self, rule: Dict) -> Dict:
         """标准化一条目录条目（补齐缺省字段、统一对象数组结构）。"""

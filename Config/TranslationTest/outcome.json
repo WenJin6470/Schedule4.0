@@ -2,22 +2,6 @@
     "history": {
         "google": [
             {
-                "ts": "2026-08-21 22:07:56",
-                "duration": 8.095,
-                "correct": false,
-                "Need Teanslate": "通用技术",
-                "Expected English": "General Technology",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-22 11:26:21",
-                "duration": 8.241,
-                "correct": false,
-                "Need Teanslate": "政治",
-                "Expected English": "Politics",
-                "Translation": ""
-            },
-            {
                 "ts": "2026-08-22 13:55:21",
                 "duration": 8.034,
                 "correct": false,
@@ -160,25 +144,25 @@
                 "Need Teanslate": "英语",
                 "Expected English": "English",
                 "Translation": ""
-            }
-        ],
-        "youdao": [
-            {
-                "ts": "2026-08-21 22:07:56",
-                "duration": 0.209,
-                "correct": false,
-                "Need Teanslate": "通用技术",
-                "Expected English": "General Technology",
-                "Translation": ""
             },
             {
-                "ts": "2026-08-22 11:26:21",
-                "duration": 0.269,
+                "ts": "2026-08-23 16:14:14",
+                "duration": 8.053,
                 "correct": false,
                 "Need Teanslate": "政治",
                 "Expected English": "Politics",
                 "Translation": ""
             },
+            {
+                "ts": "2026-08-23 16:31:08",
+                "duration": 8.039,
+                "correct": false,
+                "Need Teanslate": "体育",
+                "Expected English": "Physical Education",
+                "Translation": ""
+            }
+        ],
+        "youdao": [
             {
                 "ts": "2026-08-22 13:55:21",
                 "duration": 0.262,
@@ -322,25 +306,25 @@
                 "Need Teanslate": "英语",
                 "Expected English": "English",
                 "Translation": ""
-            }
-        ],
-        "baidu": [
-            {
-                "ts": "2026-08-21 22:07:56",
-                "duration": 0.192,
-                "correct": false,
-                "Need Teanslate": "通用技术",
-                "Expected English": "General Technology",
-                "Translation": ""
             },
             {
-                "ts": "2026-08-22 11:26:21",
-                "duration": 0.184,
+                "ts": "2026-08-23 16:14:14",
+                "duration": 0.2,
                 "correct": false,
                 "Need Teanslate": "政治",
                 "Expected English": "Politics",
-                "Translation": "politics; political affairs; government; polity"
+                "Translation": ""
             },
+            {
+                "ts": "2026-08-23 16:31:08",
+                "duration": 0.194,
+                "correct": false,
+                "Need Teanslate": "体育",
+                "Expected English": "Physical Education",
+                "Translation": ""
+            }
+        ],
+        "baidu": [
             {
                 "ts": "2026-08-22 13:55:21",
                 "duration": 0.211,
@@ -484,25 +468,25 @@
                 "Need Teanslate": "英语",
                 "Expected English": "English",
                 "Translation": "English"
-            }
-        ],
-        "mymemory": [
-            {
-                "ts": "2026-08-21 22:07:56",
-                "duration": 1.606,
-                "correct": true,
-                "Need Teanslate": "通用技术",
-                "Expected English": "General Technology",
-                "Translation": "General Technology"
             },
             {
-                "ts": "2026-08-22 11:26:21",
-                "duration": 1.378,
+                "ts": "2026-08-23 16:14:14",
+                "duration": 0.187,
                 "correct": false,
                 "Need Teanslate": "政治",
                 "Expected English": "Politics",
-                "Translation": "Political"
+                "Translation": "politics; political affairs; government; polity"
             },
+            {
+                "ts": "2026-08-23 16:31:08",
+                "duration": 0.158,
+                "correct": false,
+                "Need Teanslate": "体育",
+                "Expected English": "Physical Education",
+                "Translation": "sports; physical culture; physical training; sport"
+            }
+        ],
+        "mymemory": [
             {
                 "ts": "2026-08-22 13:55:21",
                 "duration": 2.051,
@@ -646,14 +630,30 @@
                 "Need Teanslate": "英语",
                 "Expected English": "English",
                 "Translation": "EN."
+            },
+            {
+                "ts": "2026-08-23 16:14:14",
+                "duration": 1.138,
+                "correct": false,
+                "Need Teanslate": "政治",
+                "Expected English": "Politics",
+                "Translation": "Political"
+            },
+            {
+                "ts": "2026-08-23 16:31:08",
+                "duration": 1.488,
+                "correct": false,
+                "Need Teanslate": "体育",
+                "Expected English": "Physical Education",
+                "Translation": "PE"
             }
         ]
     },
     "scores": {
         "google": 0.0,
         "youdao": 0.0,
-        "baidu": 24.90405,
-        "mymemory": 39.4437
+        "baidu": 24.904825,
+        "mymemory": 34.45265
     },
-    "updated_at": "2026-08-23 15:32:38"
+    "updated_at": "2026-08-23 16:31:08"
 }
