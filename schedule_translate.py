@@ -22,7 +22,7 @@
 
 📌 候选翻译网站（免密钥、返回 JSON、标准库 urllib 即可调用）
 ═══════════════════════════════════════════════════════════════════════════
-  google   — 谷歌翻译公开接口（translate.googleapis.com）
+  bing     — 必应翻译公开接口（cn.bing.com/ttranslatev3）
   youdao   — 有道翻译公开接口（fanyi.youdao.com）
   baidu    — 百度翻译建议接口（fanyi.baidu.com/sug）
   mymemory — MyMemory 翻译 API（api.mymemory.translated.net）
@@ -37,6 +37,7 @@ import json
 import logging
 import os
 import random
+import re
 import threading
 import time
 import urllib.parse
@@ -68,7 +69,11 @@ HISTORY_LIMIT: int = 20
 # 单次翻译请求超时（秒）
 TIMEOUT: float = 8.0
 # 网站兜底 id（sites 文件缺失时使用）
-DEFAULT_SITE: str = 'google'
+DEFAULT_SITE: str = 'bing'
+
+# 必应翻译主页令牌（IG / key / token）缓存时长（秒）
+# 服务端 token 有效期约 1 小时，缓存 30 分钟即可安全复用
+BING_TOKEN_CACHE_SEC: float = 30 * 60
 
 # 兜底测试词条（CSV 缺失 / 为空时使用）
 FALLBACK_TEST_ENTRY: Tuple[str, str] = ('语文', 'Chinese')
@@ -163,21 +168,94 @@ def _http_post_json(url: str, data: Dict[str, str], timeout: float) -> Any:
     return json.loads(resp_body.decode('utf-8', errors='replace'))
 
 
-def _translate_google(text: str, timeout: float) -> str:
-    """谷歌翻译公开接口。"""
-    quoted: str = urllib.parse.quote(text, safe='')
+def _translate_bing(text: str, timeout: float) -> str:
+    """必应翻译公开接口（cn.bing.com/ttranslatev3）。"""
+    ig, key, token = _get_bing_tokens(timeout)
+    data: Dict[str, str] = {
+        'fromLang': 'auto-detect',
+        'text': text,
+        'to': 'en',
+        'token': token,
+        'key': key,
+    }
     url: str = (
-        'https://translate.googleapis.com/translate_a/single'
-        f'?client=gtx&sl=auto&tl=en&dt=t&q={quoted}'
+        f'https://cn.bing.com/ttranslatev3?isVertical=1&&IG={ig}'
+        '&IID=translator.5028'
     )
-    data: Any = _http_get_json(url, timeout)
+    result: Any = _http_post_json(url, data, timeout)
     try:
-        result: str = data[0][0][0]
+        translated: str = result[0]['translations'][0]['text']
     except (IndexError, TypeError, KeyError):
-        raise TranslationError('谷歌翻译响应格式异常')
-    if not result or not result.strip():
-        raise TranslationError('谷歌翻译无翻译结果')
-    return result.strip()
+        raise TranslationError('必应翻译响应格式异常')
+    if not translated or not translated.strip():
+        raise TranslationError('必应翻译无翻译结果')
+    return translated.strip()
+
+
+# ==================== 必应翻译令牌（IG / key / token） ====================
+
+
+# 必应翻译主页令牌缓存：{'ig': ..., 'key': ..., 'token': ..., 'ts': 抓取时刻}
+_bing_token_cache: Dict[str, Any] = {'ig': '', 'key': '', 'token': '', 'ts': 0.0}
+_bing_token_lock: threading.Lock = threading.Lock()
+
+
+def _fetch_bing_tokens(timeout: float) -> Tuple[str, str, str]:
+    """
+    从必应翻译主页抓取令牌。
+    ----------------------
+    主页 HTML 内嵌两个令牌：
+      - IG（_G.IG，用于 ttranslatev3 的查询参数）
+      - params_AbusePreventionHelper = [key, token, ttl]（用于 POST 表单）
+
+    返回值：
+        Tuple[str, str, str]：(IG, key, token)
+
+    异常：
+        TranslationError — 主页抓取失败 / 未找到令牌
+    """
+    req: urllib.request.Request = urllib.request.Request(
+        'https://cn.bing.com/translator?to=en',
+        headers={'User-Agent': _USER_AGENT},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            html: str = resp.read().decode('utf-8', errors='replace')
+    except Exception as e:
+        raise TranslationError(f'必应翻译主页抓取失败：{e}') from e
+    ig_m: Optional[re.Match] = re.search(
+        r'\bIG\s*[:=]\s*["\']([^"\']+)["\']', html
+    )
+    helper_m: Optional[re.Match] = re.search(
+        r'params_AbusePreventionHelper\s*=\s*\[(\d+)\s*,\s*"([^"]+)"\s*,\s*\d+\]',
+        html,
+    )
+    if not ig_m or not helper_m:
+        raise TranslationError('必应翻译主页未找到翻译令牌')
+    return ig_m.group(1), helper_m.group(1), helper_m.group(2)
+
+
+def _get_bing_tokens(timeout: float) -> Tuple[str, str, str]:
+    """
+    获取必应翻译令牌（带缓存，避免每次翻译都抓主页）。
+    -------------------------------------------------
+    缓存未过期时直接复用；过期或为空时重新抓取（线程安全）。
+    """
+    with _bing_token_lock:
+        if (
+            _bing_token_cache['ig']
+            and time.monotonic() - _bing_token_cache['ts'] < BING_TOKEN_CACHE_SEC
+        ):
+            return (
+                _bing_token_cache['ig'],
+                _bing_token_cache['key'],
+                _bing_token_cache['token'],
+            )
+        ig, key, token = _fetch_bing_tokens(timeout)
+        _bing_token_cache.update(
+            {'ig': ig, 'key': key, 'token': token, 'ts': time.monotonic()}
+        )
+        return ig, key, token
 
 
 def _translate_youdao(text: str, timeout: float) -> str:
@@ -237,7 +315,7 @@ def _translate_mymemory(text: str, timeout: float) -> str:
 
 # 网站 id → 请求处理函数注册表
 _SITE_HANDLERS: Dict[str, Any] = {
-    'google': _translate_google,
+    'bing': _translate_bing,
     'youdao': _translate_youdao,
     'baidu': _translate_baidu,
     'mymemory': _translate_mymemory,
@@ -527,7 +605,7 @@ def get_default_site() -> str:
       1. schedule_config.ini 的 translation_site（且仍在候选列表中）
       2. outcome.json 中 scores 最高者
       3. sites 文件第一条
-      4. 内置兜底 'google'
+      4. 内置兜底 'bing'
 
     返回值：
         str：网站 id

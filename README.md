@@ -142,7 +142,7 @@ python main.py
 | `table` | str | `Config/curriculum/table_1.json` | 课程表 JSON 路径（周一~周日每节课科目） |
 | `fullscreen_bg_folder` | str | `images/FullScreenBackgrounds/default` | 创意模式全屏背景图片文件夹 |
 | `log_retention_days` | int | `7` | 日志保留天数（0~365，启动时自动清理过期日志） |
-| `translation_site` | str | `google` | 默认翻译网站 id（自动择优后写回） |
+| `translation_site` | str | `bing` | 默认翻译网站 id（自动择优后写回） |
 | `subject_font` | str | `Arial` | 主窗口科目显示字体家族名 |
 
 ### 科目配置

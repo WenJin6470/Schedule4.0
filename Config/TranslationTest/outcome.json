@@ -1,176 +1,6 @@
 {
     "history": {
-        "google": [
-            {
-                "ts": "2026-08-22 13:55:21",
-                "duration": 8.034,
-                "correct": false,
-                "Need Teanslate": "体育",
-                "Expected English": "Physical Education",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-22 18:19:30",
-                "duration": 8.125,
-                "correct": false,
-                "Need Teanslate": "英语",
-                "Expected English": "English",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 08:07:56",
-                "duration": 8.096,
-                "correct": false,
-                "Need Teanslate": "英语",
-                "Expected English": "English",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 08:10:28",
-                "duration": 8.038,
-                "correct": false,
-                "Need Teanslate": "地理",
-                "Expected English": "Geography",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 08:35:35",
-                "duration": 8.045,
-                "correct": false,
-                "Need Teanslate": "历史",
-                "Expected English": "History",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 08:56:46",
-                "duration": 8.052,
-                "correct": false,
-                "Need Teanslate": "数学",
-                "Expected English": "Mathematics",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 09:23:17",
-                "duration": 8.05,
-                "correct": false,
-                "Need Teanslate": "生物",
-                "Expected English": "Biology",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 09:42:34",
-                "duration": 8.072,
-                "correct": false,
-                "Need Teanslate": "通用技术",
-                "Expected English": "General Technology",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 10:09:19",
-                "duration": 8.065,
-                "correct": false,
-                "Need Teanslate": "英语",
-                "Expected English": "English",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 10:39:06",
-                "duration": 8.044,
-                "correct": false,
-                "Need Teanslate": "自习",
-                "Expected English": "Self-study",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 10:49:05",
-                "duration": 8.041,
-                "correct": false,
-                "Need Teanslate": "化学",
-                "Expected English": "Chemistry",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 11:11:37",
-                "duration": 8.086,
-                "correct": false,
-                "Need Teanslate": "通用技术",
-                "Expected English": "General Technology",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 11:15:03",
-                "duration": 8.039,
-                "correct": false,
-                "Need Teanslate": "活动",
-                "Expected English": "Activity",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 11:20:28",
-                "duration": 8.061,
-                "correct": false,
-                "Need Teanslate": "化学",
-                "Expected English": "Chemistry",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 14:01:57",
-                "duration": 8.141,
-                "correct": false,
-                "Need Teanslate": "英语",
-                "Expected English": "English",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 14:26:28",
-                "duration": 8.055,
-                "correct": false,
-                "Need Teanslate": "生物",
-                "Expected English": "Biology",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 15:11:10",
-                "duration": 8.099,
-                "correct": false,
-                "Need Teanslate": "自习",
-                "Expected English": "Self-study",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 15:32:38",
-                "duration": 8.049,
-                "correct": false,
-                "Need Teanslate": "英语",
-                "Expected English": "English",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 16:14:14",
-                "duration": 8.053,
-                "correct": false,
-                "Need Teanslate": "政治",
-                "Expected English": "Politics",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 16:31:08",
-                "duration": 8.039,
-                "correct": false,
-                "Need Teanslate": "体育",
-                "Expected English": "Physical Education",
-                "Translation": ""
-            }
-        ],
         "youdao": [
-            {
-                "ts": "2026-08-22 13:55:21",
-                "duration": 0.262,
-                "correct": false,
-                "Need Teanslate": "体育",
-                "Expected English": "Physical Education",
-                "Translation": ""
-            },
             {
                 "ts": "2026-08-22 18:19:30",
                 "duration": 0.258,
@@ -322,17 +152,17 @@
                 "Need Teanslate": "体育",
                 "Expected English": "Physical Education",
                 "Translation": ""
+            },
+            {
+                "ts": "2026-08-23 16:44:51",
+                "duration": 0.294,
+                "correct": false,
+                "Need Teanslate": "化学",
+                "Expected English": "Chemistry",
+                "Translation": ""
             }
         ],
         "baidu": [
-            {
-                "ts": "2026-08-22 13:55:21",
-                "duration": 0.211,
-                "correct": false,
-                "Need Teanslate": "体育",
-                "Expected English": "Physical Education",
-                "Translation": "sports; physical culture; physical training; sport"
-            },
             {
                 "ts": "2026-08-22 18:19:30",
                 "duration": 0.197,
@@ -484,17 +314,17 @@
                 "Need Teanslate": "体育",
                 "Expected English": "Physical Education",
                 "Translation": "sports; physical culture; physical training; sport"
+            },
+            {
+                "ts": "2026-08-23 16:44:51",
+                "duration": 0.182,
+                "correct": false,
+                "Need Teanslate": "化学",
+                "Expected English": "Chemistry",
+                "Translation": "chemistry; chem.; chymist; chymistry"
             }
         ],
         "mymemory": [
-            {
-                "ts": "2026-08-22 13:55:21",
-                "duration": 2.051,
-                "correct": false,
-                "Need Teanslate": "体育",
-                "Expected English": "Physical Education",
-                "Translation": "PE"
-            },
             {
                 "ts": "2026-08-22 18:19:30",
                 "duration": 0.953,
@@ -646,14 +476,21 @@
                 "Need Teanslate": "体育",
                 "Expected English": "Physical Education",
                 "Translation": "PE"
+            },
+            {
+                "ts": "2026-08-23 16:44:51",
+                "duration": 0.912,
+                "correct": true,
+                "Need Teanslate": "化学",
+                "Expected English": "Chemistry",
+                "Translation": "Chemistry"
             }
         ]
     },
     "scores": {
-        "google": 0.0,
         "youdao": 0.0,
-        "baidu": 24.904825,
-        "mymemory": 34.45265
+        "baidu": 24.90555,
+        "mymemory": 39.481125
     },
-    "updated_at": "2026-08-23 16:31:08"
+    "updated_at": "2026-08-23 16:44:51"
 }

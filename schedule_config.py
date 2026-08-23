@@ -158,6 +158,9 @@ class ThemeManager:
         # ---- 关于页作者署名开关（LG = true 显示 赵晨羽，false 显示 温谨）----
         self.lg: bool = False
 
+        # ---- 关于页版本号（主配置文件 version）----
+        self.version: str = '4.0.0.0'
+
         # ---- 加载配置 ----
         self._load_config()
         self._load_subject_config()
@@ -194,6 +197,7 @@ class ThemeManager:
                 self.fullscreen_bg_folder = 'images/FullScreenBackgrounds/default'
                 self.log_retention_days = 7
                 self.subject_font = 'Arial'
+                self.version = '4.0.0.0'
                 self._apply_theme()
                 return
 
@@ -264,12 +268,17 @@ class ThemeManager:
             lg_str: str = parser.get('Schedule', 'LG', fallback='false')
             self.lg = lg_str.strip().lower() in ('true', '1', 'yes', 'on')
 
+            # --- version（关于页版本号）---
+            version_str: str = parser.get('Schedule', 'version', fallback='4.0.0.0')
+            self.version = version_str.strip() or '4.0.0.0'
+
             self._apply_theme()
 
             logger.info(f"配置加载完成：theme={self.theme}, language={self.language}, "
                         f"curriculum={self.curriculum_path}, "
                         f"timetable={self.timetable_path}, "
-                        f"log_retention_days={self.log_retention_days}")
+                        f"log_retention_days={self.log_retention_days}, "
+                        f"version={self.version}")
 
         except (ValueError, TypeError) as e:
             logger.warning(f"配置文件参数格式错误：{e}，使用默认值")

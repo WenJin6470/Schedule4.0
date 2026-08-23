@@ -794,7 +794,7 @@ class SettingsWindow(ThemedWidget):
         #   令 author_y ≈ 页面高度 / 2，反推上方间隙，其余空间留给下方。
         _title_block_h: int = 52      # 页面标题(40) + 布局间距(12)
         _above_author_h: int = 160    # 品牌行128 + 间距20 + 署名半高12
-        _content_block_h: int = 242   # 品牌行128 + 间距20 + 署名24 + 间距26 + 简介44
+        _content_block_h: int = 270   # 品牌行128 + 间距20 + 署名24 + 间距8 + 版本20 + 间距26 + 简介44
         _avail_h: int = max(1, self._theme.screen_height - _title_block_h - _content_block_h)
         _top_gap: int = max(1, self._theme.screen_height // 2 - _title_block_h - _above_author_h)
         _bottom_gap: int = max(1, _avail_h - _top_gap)
@@ -839,6 +839,17 @@ class SettingsWindow(ThemedWidget):
         )
         author_label.setAlignment(Qt.AlignCenter)  # type: ignore
         content_layout.addWidget(author_label, 0, Qt.AlignHCenter)  # type: ignore
+
+        content_layout.addSpacing(8)
+
+        # ---- 版本号（居中，来自主配置文件 version）----
+        version_label: QLabel = QLabel(f"版本：{self._theme.version}")
+        version_label.setFont(QFont("Microsoft YaHei", 12))
+        version_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none; opacity: 0.65;"
+        )
+        version_label.setAlignment(Qt.AlignCenter)  # type: ignore
+        content_layout.addWidget(version_label, 0, Qt.AlignHCenter)  # type: ignore
 
         content_layout.addSpacing(26)
 
@@ -6664,7 +6675,7 @@ class SubjectEditDialog(ThemedDialog):
             self._status_label.setText("翻译状态：等待输入中文名")
             self._result_label.setText("翻译结果：请先填写科目中文名")
             return
-        site_id: str = self._site_combo.currentData() or 'google'
+        site_id: str = self._site_combo.currentData() or 'bing'
         self._result_text = ''
         self._conn_label.setText("连接状态：连接中…")
         self._status_label.setText("翻译状态：等待…")
