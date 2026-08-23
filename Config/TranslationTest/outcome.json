@@ -136,6 +136,14 @@
                 "Need Teanslate": "地理",
                 "Expected English": "Geography",
                 "Translation": ""
+            },
+            {
+                "ts": "2026-08-23 08:35:35",
+                "duration": 8.045,
+                "correct": false,
+                "Need Teanslate": "历史",
+                "Expected English": "History",
+                "Translation": ""
             }
         ],
         "youdao": [
@@ -273,6 +281,14 @@
                 "correct": false,
                 "Need Teanslate": "地理",
                 "Expected English": "Geography",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-23 08:35:35",
+                "duration": 0.244,
+                "correct": false,
+                "Need Teanslate": "历史",
+                "Expected English": "History",
                 "Translation": ""
             }
         ],
@@ -412,6 +428,14 @@
                 "Need Teanslate": "地理",
                 "Expected English": "Geography",
                 "Translation": "geography ; geographical features of a place"
+            },
+            {
+                "ts": "2026-08-23 08:35:35",
+                "duration": 0.196,
+                "correct": false,
+                "Need Teanslate": "历史",
+                "Expected English": "History",
+                "Translation": "history; past records; annals"
             }
         ],
         "mymemory": [
@@ -550,14 +574,22 @@
                 "Need Teanslate": "地理",
                 "Expected English": "Geography",
                 "Translation": "geographic"
+            },
+            {
+                "ts": "2026-08-23 08:35:35",
+                "duration": 0.777,
+                "correct": true,
+                "Need Teanslate": "历史",
+                "Expected English": "History",
+                "Translation": "HISTORY"
             }
         ]
     },
     "scores": {
         "google": 0.0,
         "youdao": 0.0,
-        "baidu": 17.544735294117647,
-        "mymemory": 40.591794117647055
+        "baidu": 16.56458333333333,
+        "mymemory": 43.870666666666665
     },
-    "updated_at": "2026-08-23 08:10:28"
+    "updated_at": "2026-08-23 08:35:35"
 }

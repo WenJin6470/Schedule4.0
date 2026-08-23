@@ -67,6 +67,30 @@ def _cleanup_orphan_worker(worker: Optional[TranslateWorker]) -> None:
     worker.deleteLater()
 
 
+# ==================== 关于页艺术字体 ====================
+
+# 艺术字体候选（按优先级，取系统中第一个可用的字体族）
+_ARTISTIC_FONT_CANDIDATES: tuple = (
+    'Segoe Script',
+    '华文行楷',
+    '华文楷体',
+    'KaiTi',
+    '楷体',
+    'Monotype Corsiva',
+    'Segoe Print',
+    'Lucida Handwriting',
+)
+
+
+def _pick_artistic_font() -> str:
+    """从候选列表中挑选第一个已安装的艺术字体；全部缺失时回退到微软雅黑。"""
+    available: set = set(QFontDatabase.families())
+    for fam in _ARTISTIC_FONT_CANDIDATES:
+        if fam in available:
+            return fam
+    return 'Microsoft YaHei'
+
+
 # ==================== 开机自启动（注册表） ====================
 
 # 当前用户 Run 键路径：登录 Windows 后自动运行其中的程序
@@ -710,10 +734,12 @@ class SettingsWindow(ThemedWidget):
         """
         构建「关于」页面。
         -----------------
-        三行内容（均位于一张卡片内）：
-          第一行：左侧软件图标 + 右侧 Schedule4.0 文字
-          第二行：作者署名（由 INI 的 LG 参数决定）
-          第三行：软件简介
+        不使用卡片容器，页面自上而下：
+          页面标题（左上角）→ 内容区（水平居中、垂直分布在页面中部）：
+            品牌行（软件图标 + Schedule4.0 标题，左右排版、整体居中）
+            → 作者署名 → 软件简介
+        软件名称使用艺术字体，作者署名与简介均水平居中，
+        作者署名通过上下弹性空间的比例控制，尽量落在页面垂直中心附近。
         """
         page: QWidget = QWidget()
         page.setStyleSheet("background: transparent;")
@@ -731,51 +757,67 @@ class SettingsWindow(ThemedWidget):
         page_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
         layout.addWidget(page_title)
 
-        # ---- 卡片容器 ----
-        card: QFrame = QFrame()
-        card.setStyleSheet(self._get_status_card_style())
-        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # type: ignore
-        card_layout: QVBoxLayout = QVBoxLayout(card)
-        card_layout.setContentsMargins(28, 24, 28, 24)
-        card_layout.setSpacing(18)
+        # ---- 内容区（无卡片，整体居中）----
+        content: QWidget = QWidget()
+        content.setStyleSheet("background: transparent;")
+        content_layout: QVBoxLayout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
 
-        # ---- 第一行：软件图标 + Schedule4.0 ----
-        row1: QHBoxLayout = QHBoxLayout()
-        row1.setSpacing(18)
+        # 计算上下弹性空间权重，使作者署名尽量落在页面垂直中心：
+        #   author_y = 标题区高度 + 上方间隙 + 品牌行高度/间距 + 署名半高
+        #   令 author_y ≈ 页面高度 / 2，反推上方间隙，其余空间留给下方。
+        _title_block_h: int = 52      # 页面标题(40) + 布局间距(12)
+        _above_author_h: int = 160    # 品牌行128 + 间距20 + 署名半高12
+        _content_block_h: int = 242   # 品牌行128 + 间距20 + 署名24 + 间距26 + 简介44
+        _avail_h: int = max(1, self._theme.screen_height - _title_block_h - _content_block_h)
+        _top_gap: int = max(1, self._theme.screen_height // 2 - _title_block_h - _above_author_h)
+        _bottom_gap: int = max(1, _avail_h - _top_gap)
 
+        # 上方弹性空间（使作者署名位于页面垂直中心附近）
+        content_layout.addStretch(_top_gap)
+
+        # ---- 品牌行：软件图标 + 软件名称（左右排版，整体居中）----
         script_dir: str = os.path.dirname(os.path.abspath(__file__))
         icon_path: str = os.path.join(
             script_dir, 'images', 'Icons', 'DAILY_SCHEDULE.svg'
         )
 
         icon_label: QLabel = QLabel()
-        icon_label.setFixedSize(56, 56)
+        icon_label.setFixedSize(128, 128)
         if os.path.exists(icon_path):
-            icon_label.setPixmap(QIcon(icon_path).pixmap(56, 56))
+            icon_label.setPixmap(QIcon(icon_path).pixmap(128, 128))
         icon_label.setStyleSheet("background: transparent; border: none;")
-        row1.addWidget(icon_label)
 
         name_label: QLabel = QLabel("Schedule4.0")
-        name_label.setFont(QFont("Microsoft YaHei", 24, QFont.Bold))  # type: ignore
+        name_label.setFont(QFont(_pick_artistic_font(), 44))
         name_label.setStyleSheet(
             f"color: {fc}; background: transparent; border: none;"
         )
-        name_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
-        row1.addWidget(name_label)
-        row1.addStretch()
+        name_label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)  # type: ignore
 
-        card_layout.addLayout(row1)
+        brand_row: QHBoxLayout = QHBoxLayout()
+        brand_row.setSpacing(24)
+        brand_row.setAlignment(Qt.AlignCenter)  # type: ignore
+        brand_row.addWidget(icon_label)
+        brand_row.addWidget(name_label)
+        content_layout.addLayout(brand_row)
 
-        # ---- 第二行：作者署名（LG 参数决定）----
+        content_layout.addSpacing(20)
+
+        # ---- 作者署名（居中，LG 参数决定）----
         author_text: str = "高2026届 赵晨羽" if self._theme.lg else "温谨"
         author_label: QLabel = QLabel(f"作者：{author_text}")
-        author_label.setFont(QFont("Microsoft YaHei", 13))
+        author_label.setFont(QFont("Microsoft YaHei", 14))
         author_label.setStyleSheet(
             f"color: {fc}; background: transparent; border: none;"
         )
-        card_layout.addWidget(author_label)
+        author_label.setAlignment(Qt.AlignCenter)  # type: ignore
+        content_layout.addWidget(author_label, 0, Qt.AlignHCenter)  # type: ignore
 
-        # ---- 第三行：软件简介 ----
+        content_layout.addSpacing(26)
+
+        # ---- 软件简介（居中显示，固定宽度并按宽度计算高度保证完整换行）----
         intro_label: QLabel = QLabel(
             "桌面浮动电子课表系统，半透明置顶窗口实时显示课时科目与当前时间，"
             "支持快捷编辑、临时换课、考试 / 创意全屏模式，"
@@ -786,11 +828,16 @@ class SettingsWindow(ThemedWidget):
             f"color: {fc}; background: transparent; border: none;"
         )
         intro_label.setWordWrap(True)
-        intro_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)  # type: ignore
-        card_layout.addWidget(intro_label)
+        intro_label.setAlignment(Qt.AlignCenter)  # type: ignore
+        intro_label.setFixedWidth(640)
+        # 固定宽度下按文字换行计算所需高度，保证简介完整显示不被裁剪
+        intro_label.setFixedHeight(intro_label.heightForWidth(640))
+        content_layout.addWidget(intro_label, 0, Qt.AlignHCenter)  # type: ignore
 
-        layout.addWidget(card)
-        layout.addStretch()
+        # 下方弹性空间（吸收剩余空间，保持署名居中）
+        content_layout.addStretch(_bottom_gap)
+
+        layout.addWidget(content, 1)
 
         return page
 
