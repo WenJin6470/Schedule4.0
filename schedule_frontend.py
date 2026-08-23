@@ -373,7 +373,7 @@ class ScheduleMainWindow(ThemedWidget):
         )
 
         # 在按钮上方弹出菜单
-        btn: QPushButton = getattr(self, '_fullscreen_btn', None)
+        btn: QPushButton = getattr(self, '_fullscreen_btn', None) # type: ignore
         if btn is not None:
             # 弹出在按钮右上方
             menu.exec(btn.mapToGlobal(btn.rect().topRight()))
@@ -462,7 +462,7 @@ class ScheduleMainWindow(ThemedWidget):
             schedule_data=self._schedule_data,
         )
         # 用户应用更改后重建主窗口标签
-        self._settings_window.changes_applied.connect(
+        self._settings_window.changes_applied.connect( # type: ignore
             self._rebuild_period_labels
         )
         self._settings_window.showMaximized()  # type: ignore

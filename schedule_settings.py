@@ -46,7 +46,7 @@ from schedule_config import (
     ThemeManager, ThemedWidget, ScheduleDataManager,
     DisplayRulesManager, parse_display_rule,
     SubjectConfigManager, parse_subject_entry, is_color_dark,
-    EventRulesManager,
+    EventRulesManager, SwapManager,
 )
 from schedule_backend import TimeWheelPicker, WheelColumn
 from schedule_translate import TranslateWorker, load_sites, get_default_site
@@ -2708,8 +2708,78 @@ class SettingsWindow(ThemedWidget):
             if parse_subject_entry(e)[0] != name
         ]
         self._save_subject_config()
+        self._replace_deleted_subject_in_curriculum(name)
+        self._remove_subject_swap_records(name)
         self._refresh_subject_buttons()
         logger.info(f"已删除科目：{name}（{category}）")
+
+    def _remove_subject_swap_records(self, deleted_name: str) -> None:
+        """
+        删除科目后，移除换课记录（Config/swap_schedule.json）中
+        所有涉及该科目的记录（old_subject 或 new_subject 匹配即删除）。
+        """
+        if not deleted_name:
+            return
+        removed: int = SwapManager().remove_subject_swaps(deleted_name)
+        if removed:
+            logger.info(
+                f"删除科目「{deleted_name}」后，已移除 "
+                f"{removed} 条相关换课记录"
+            )
+
+    def _replace_deleted_subject_in_curriculum(self, deleted_name: str) -> None:
+        """
+        删除科目后，将课程表中所有出现该科目的位置替换为「语文」。
+        ---------------------------------------------------------
+        同步更新三处数据（不触发主窗口重建，主窗口保持当前显示不变，
+        重启后自然显示替换结果）：
+          1. Config/curriculum/ 下所有课程表 JSON 文件（直接落盘）；
+          2. 设置页的课程表编辑副本（_editing_curriculum_data）并刷新表格显示；
+          3. 主窗口共享的 ScheduleDataManager.curriculum_data。
+        """
+        replacement: str = '语文'
+        if not deleted_name:
+            return
+        changed_files: List[str] = []
+
+        # 1) 所有课程表 JSON 文件
+        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        for fname in ScheduleDataManager.get_curriculum_files():
+            path: str = os.path.join(script_dir, 'Config', 'curriculum', fname)
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data: Any = json.load(f)
+            except (OSError, json.JSONDecodeError) as e:
+                logger.warning(f"课程表文件读取失败，跳过：{fname}（{e}）")
+                continue
+            if not isinstance(data, dict):
+                continue
+            if _replace_subject_in_curriculum_dict(data, deleted_name, replacement):
+                try:
+                    with open(path, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, ensure_ascii=False, indent=4)
+                    changed_files.append(fname)
+                except OSError as e:
+                    logger.error(f"课程表文件写入失败：{fname}（{e}）")
+
+        # 2) 设置页课程表编辑副本 + 刷新显示
+        if isinstance(self._editing_curriculum_data, dict):
+            if _replace_subject_in_curriculum_dict(
+                    self._editing_curriculum_data, deleted_name, replacement):
+                self._refresh_curriculum_table()
+
+        # 3) 主窗口共享数据（仅内存，供后续重建/重启使用，不主动触发重建）
+        if self._schedule_data is not None:
+            _replace_subject_in_curriculum_dict(
+                self._schedule_data.curriculum_data,
+                deleted_name, replacement,
+            )
+
+        if changed_files:
+            logger.info(
+                f"删除科目「{deleted_name}」后，课程表文件中已替换为"
+                f"「{replacement}」：{changed_files}"
+            )
 
     def _on_new_subject(self) -> None:
         """点击「新建科目」→ 打开科目编辑子窗口（新建模式）。"""
@@ -2985,7 +3055,8 @@ class SettingsWindow(ThemedWidget):
             hover_bg = 'rgba(0,0,0,0.02)'
 
         assert self._timetable_table is not None
-        self._timetable_table.setStyleSheet(f""" # type: ignore  # pyright: ignore[reportOptionalMemberAccess]
+        # type: ignore  # pyright: ignore[reportOptionalMemberAccess]
+        self._timetable_table.setStyleSheet(f"""
             QTableWidget {{
                 background-color: {bc};
                 color: {fc};
@@ -3449,12 +3520,11 @@ class SettingsWindow(ThemedWidget):
                         cell_item.setForeground(QColor(fc))  # type: ignore
                     else:
                         # 空科目用半透明颜色显示 "—"
-                        dim_color: str = (
-                            'rgba(255,255,255,0.25)'
+                        cell_item.setForeground(  # type: ignore
+                            QColor(255, 255, 255, 64)
                             if self._theme.theme == 'darkcolor'
-                            else 'rgba(0,0,0,0.25)'
+                            else QColor(0, 0, 0, 64)
                         )
-                        cell_item.setForeground(QColor(dim_color))  # type: ignore
                     # 存储 (day_name, lesson_key) 用于点击编辑
                     cell_item.setData(
                         Qt.UserRole,  # type: ignore
@@ -3470,12 +3540,12 @@ class SettingsWindow(ThemedWidget):
                     "————— 分隔线 —————"
                 )
                 divider_item.setTextAlignment(Qt.AlignCenter)  # type: ignore
-                dim_color: str = (
-                    'rgba(255,255,255,0.30)'
+                # 暗色模式下使用浅色文字，保证分隔线字样清晰可读
+                divider_item.setForeground(  # type: ignore
+                    QColor(255, 255, 255, 179)
                     if self._theme.theme == 'darkcolor'
-                    else 'rgba(0,0,0,0.30)'
+                    else QColor(0, 0, 0, 77)
                 )
-                divider_item.setForeground(QColor(dim_color))  # type: ignore
                 divider_item.setData(Qt.UserRole, '__divider__')  # type: ignore
                 self._curriculum_table.setItem(row, 0, divider_item)  # type: ignore
                 # 其余列留空（透明占位）
@@ -3965,12 +4035,11 @@ class SettingsWindow(ThemedWidget):
                 if new_subject:
                     item.setForeground(QColor(fc))
                 else:
-                    dim_color: str = (
-                        'rgba(255,255,255,0.25)'
+                    item.setForeground(
+                        QColor(255, 255, 255, 64)
                         if self._theme.theme == 'darkcolor'
-                        else 'rgba(0,0,0,0.25)'
+                        else QColor(0, 0, 0, 64)
                     )
-                    item.setForeground(QColor(dim_color))
 
         # 刷新编辑器状态和高亮按钮
         self._refresh_cv_editor_status()
@@ -6111,6 +6180,33 @@ def _event_rule_summary(rule: Dict) -> str:
             f"{_clamp_int(rule.get('day'), 1, 31)}日"
         )
     return str(rule.get('date', '') or '')
+
+
+def _replace_subject_in_curriculum_dict(curriculum: Dict, deleted_name: str,
+                                        replacement: str = '语文') -> bool:
+    """
+    把课程表数据（星期 → 课时 → 科目名）中所有等于 deleted_name 的科目
+    替换为 replacement（默认「语文」）。
+    ------------------------------------
+    参数：
+        curriculum   （Dict）：课程表数据（如 {Monday: {lesson_1: "语文", ...}}）
+        deleted_name （str）：被删除的科目名
+        replacement  （str）：替换科目名，默认「语文」
+
+    返回值：
+        bool：是否发生了任何替换
+    """
+    changed: bool = False
+    if not isinstance(curriculum, dict) or not deleted_name:
+        return False
+    for lessons in curriculum.values():
+        if not isinstance(lessons, dict):
+            continue
+        for key, value in list(lessons.items()):
+            if str(value).strip() == deleted_name:
+                lessons[key] = replacement
+                changed = True
+    return changed
 
 
 # ==================== 单条规则行 ====================

@@ -144,6 +144,22 @@
                 "Need Teanslate": "历史",
                 "Expected English": "History",
                 "Translation": ""
+            },
+            {
+                "ts": "2026-08-23 08:56:46",
+                "duration": 8.052,
+                "correct": false,
+                "Need Teanslate": "数学",
+                "Expected English": "Mathematics",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-23 09:23:17",
+                "duration": 8.05,
+                "correct": false,
+                "Need Teanslate": "生物",
+                "Expected English": "Biology",
+                "Translation": ""
             }
         ],
         "youdao": [
@@ -289,6 +305,22 @@
                 "correct": false,
                 "Need Teanslate": "历史",
                 "Expected English": "History",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-23 08:56:46",
+                "duration": 0.263,
+                "correct": false,
+                "Need Teanslate": "数学",
+                "Expected English": "Mathematics",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-23 09:23:17",
+                "duration": 0.278,
+                "correct": false,
+                "Need Teanslate": "生物",
+                "Expected English": "Biology",
                 "Translation": ""
             }
         ],
@@ -436,6 +468,22 @@
                 "Need Teanslate": "历史",
                 "Expected English": "History",
                 "Translation": "history; past records; annals"
+            },
+            {
+                "ts": "2026-08-23 08:56:46",
+                "duration": 0.189,
+                "correct": false,
+                "Need Teanslate": "数学",
+                "Expected English": "Mathematics",
+                "Translation": "mathematics; math; maths ; arith"
+            },
+            {
+                "ts": "2026-08-23 09:23:17",
+                "duration": 0.18,
+                "correct": false,
+                "Need Teanslate": "生物",
+                "Expected English": "Biology",
+                "Translation": "biology; organisms; living things; living beings"
             }
         ],
         "mymemory": [
@@ -582,14 +630,30 @@
                 "Need Teanslate": "历史",
                 "Expected English": "History",
                 "Translation": "HISTORY"
+            },
+            {
+                "ts": "2026-08-23 08:56:46",
+                "duration": 0.901,
+                "correct": false,
+                "Need Teanslate": "数学",
+                "Expected English": "Mathematics",
+                "Translation": "Math"
+            },
+            {
+                "ts": "2026-08-23 09:23:17",
+                "duration": 0.783,
+                "correct": false,
+                "Need Teanslate": "生物",
+                "Expected English": "Biology",
+                "Translation": "creatures"
             }
         ]
     },
     "scores": {
         "google": 0.0,
         "youdao": 0.0,
-        "baidu": 16.56458333333333,
-        "mymemory": 43.870666666666665
+        "baidu": 14.8989,
+        "mymemory": 39.4415
     },
-    "updated_at": "2026-08-23 08:35:35"
+    "updated_at": "2026-08-23 09:23:17"
 }

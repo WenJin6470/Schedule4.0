@@ -1120,6 +1120,45 @@ class SwapManager:
             )
         return success
 
+    def remove_subject_swaps(self, subject_name: str) -> int:
+        """
+        删除所有涉及指定科目的换课记录。
+        -----------------------------
+        记录中 old_subject 或 new_subject 等于该科目的记录都会被删除。
+        用于科目被删除后清理失效的换课记录。
+
+        参数：
+            subject_name（str）：被删除的科目名
+
+        返回值：
+            int：实际删除的换课记录条数；保存失败时返回 0（数据未变更）
+        """
+        subject_name = (subject_name or '').strip()
+        if not subject_name:
+            return 0
+        swaps: List[Dict] = self.load_swaps()
+        kept: List[Dict] = []
+        removed: int = 0
+        for swap in swaps:
+            if not isinstance(swap, dict):
+                continue
+            old_s: str = str(swap.get('old_subject', '') or '').strip()
+            new_s: str = str(swap.get('new_subject', '') or '').strip()
+            if old_s == subject_name or new_s == subject_name:
+                removed += 1
+            else:
+                kept.append(swap)
+        if removed > 0:
+            if not self._save_swaps(kept):
+                logger.error(
+                    f"移除涉及科目「{subject_name}」的换课记录失败（保存失败）"
+                )
+                return 0
+            logger.info(
+                f"已移除 {removed} 条涉及科目「{subject_name}」的换课记录"
+            )
+        return removed
+
     # ================================================================
     #  静态方法：获取生效的"今天"日期
     # ================================================================

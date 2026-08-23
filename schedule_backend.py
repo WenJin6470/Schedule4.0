@@ -31,7 +31,9 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QPushButton, QFrame,
     QGridLayout, QVBoxLayout, QHBoxLayout, QDialog,
 )
-from PySide6.QtGui import QFont, QFontMetrics, QPainter, QColor, QPen, QLinearGradient
+from PySide6.QtGui import (
+    QFont, QFontMetrics, QFontDatabase, QPainter, QColor, QPen, QLinearGradient,
+)
 
 from schedule_actions import ActionMessage, ActionType
 
@@ -44,12 +46,86 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 # ==================== 主窗口科目标签字体自适应 ====================
 
-# 主窗口科目显示字体的标准字号（点），自适应只缩小、绝不放大。
+# 英文等非中文科目显示的标准字号（点），自适应只缩小、绝不放大。
 SUBJECT_FONT_STANDARD_SIZE: int = 16
+# 中文标准字号按「SUBJECT_FONT_CN_STANDARD_CHARS 个汉字占满标签可用宽度
+# 的 SUBJECT_FONT_CN_FILL_RATIO」动态反推；比例 < 1 可使文字留出左右边距，
+# 避免贴边显得过大。
+SUBJECT_FONT_CN_STANDARD_CHARS: int = 4
+SUBJECT_FONT_CN_FILL_RATIO: float = 0.8
 # 自适应缩小的最小字号（点）：即使仍放不下也以此下限返回，避免出现 0 号字。
 SUBJECT_FONT_MIN_SIZE: int = 1
 # 标签左右各预留的像素边距，避免文字贴住标签边缘。
 SUBJECT_FONT_H_PADDING: int = 4
+# 反推标准字号时使用的探测字号（点），按该字号下的字符宽度比例换算。
+_SUBJECT_FONT_PROBE_SIZE: int = 20
+# 固定度量字体（如 8514oem，任意字号下字符宽度都不变）无法适配时，
+# 依次回退到这些可缩放字体（按系统可用性取第一个）。
+SUBJECT_FONT_FALLBACK_FAMILIES: tuple = (
+    'Microsoft YaHei',
+    '微软雅黑',
+    'SimHei',
+    '黑体',
+    'SimSun',
+    '宋体',
+    'Arial',
+)
+
+
+def _contains_cjk(text: str) -> bool:
+    """判断文本是否包含中文（CJK 统一表意文字）字符。"""
+    return any('\u4e00' <= ch <= '\u9fff' for ch in text)
+
+
+def _is_scalable(font_family: str) -> bool:
+    """探测字体是否可缩放：同一字体在小字号下字符宽度应明显变窄。"""
+    w_big: int = QFontMetrics(
+        QFont(font_family, _SUBJECT_FONT_PROBE_SIZE)
+    ).horizontalAdvance('字' * SUBJECT_FONT_CN_STANDARD_CHARS)
+    w_small: int = QFontMetrics(
+        QFont(font_family, _SUBJECT_FONT_PROBE_SIZE // 2)
+    ).horizontalAdvance('字' * SUBJECT_FONT_CN_STANDARD_CHARS)
+    return w_small < w_big
+
+
+def _cn_standard_size(font_family: str, usable_width: int) -> int:
+    """
+    计算中文标准字号：使 SUBJECT_FONT_CN_STANDARD_CHARS（默认 4）个汉字
+    占满标签可用宽度的 SUBJECT_FONT_CN_FILL_RATIO（默认 80%）。
+    字符宽度与字号近似成正比，按探测结果比例反推。
+    """
+    probe_adv: int = QFontMetrics(
+        QFont(font_family, _SUBJECT_FONT_PROBE_SIZE)
+    ).horizontalAdvance('字' * SUBJECT_FONT_CN_STANDARD_CHARS)
+    if probe_adv <= 0:
+        return SUBJECT_FONT_STANDARD_SIZE
+    target: int = int(round(
+        _SUBJECT_FONT_PROBE_SIZE
+        * usable_width * SUBJECT_FONT_CN_FILL_RATIO / probe_adv
+    ))
+    return max(SUBJECT_FONT_MIN_SIZE, target)
+
+
+def _pick_fallback_family(font_family: str) -> str:
+    """挑选一个系统已安装、且与当前字体不同的可缩放回退字体族。"""
+    available: set = set(QFontDatabase.families())
+    for fam in SUBJECT_FONT_FALLBACK_FAMILIES:
+        if fam != font_family and fam in available:
+            return fam
+    return font_family
+
+
+def _fit_with_family(font_family: str, text: str, base_size: int,
+                     min_size: int, usable_width: int,
+                     usable_height: int) -> QFont:
+    """在指定字体族内，从 base_size 起逐点向下缩小，直到文字放得下。"""
+    for size in range(int(base_size), int(min_size) - 1, -1):
+        font: QFont = QFont(font_family, size)
+        metrics: QFontMetrics = QFontMetrics(font)
+        if (metrics.horizontalAdvance(text) <= usable_width
+                and metrics.height() <= usable_height):
+            return font
+    return QFont(font_family, min_size)
 
 
 def fit_subject_font(font_family: str, text: str,
@@ -60,20 +136,25 @@ def fit_subject_font(font_family: str, text: str,
     """
     自适应计算主窗口科目标签的字体大小。
     ---------------------------------
-    从标准字号 base_size 开始逐点向下缩小，直到文字能在
-    max_width × max_height 区域内完全显示；返回的字号永远不会大于 base_size。
+    从标准字号开始逐点向下缩小，直到文字能在 max_width × max_height 区域内
+    完全显示；返回的字号永远不会大于标准字号。
+      - 英文等非中文文本：标准字号 = base_size（默认 16 点，保持不变）；
+      - 中文文本：标准字号按「4 个汉字占满标签可用宽度的 80%」动态反推，
+        4 字科目显示适中偏大，更长科目自动向下缩小适配。
+    若当前字体族为固定度量字体（如 8514oem：改字号但文字宽度不变），
+    无法通过缩小字号适配时，自动回退到可缩放字体族重新适配。
 
     参数：
         font_family（str）：字体家族名（如 Arial、Microsoft YaHei）
         text       （str）：要显示的科目文字（中文或英文）
         max_width  （int）：标签可用宽度（像素）
         max_height （int）：标签可用高度（像素）
-        base_size  （int）：标准字号（点），默认 16，结果不会超过它
+        base_size  （int）：英文标准字号（点），默认 16
         min_size   （int）：允许缩到的最小字号（点），仍放不下时按此返回
         h_padding  （int）：左右各预留的边距（像素），避免文字贴边
 
     返回值：
-        QFont：字号 ≤ base_size、且能容纳 text 的最大字体
+        QFont：能容纳 text 且字号不超过标准字号的最大字体
     """
     if not font_family:
         font_family = 'Arial'
@@ -86,14 +167,39 @@ def fit_subject_font(font_family: str, text: str,
     if not text.strip():
         return QFont(font_family, base_size)
 
-    for size in range(int(base_size), int(min_size) - 1, -1):
-        font: QFont = QFont(font_family, size)
-        metrics: QFontMetrics = QFontMetrics(font)
-        if (metrics.horizontalAdvance(text) <= usable_width
-                and metrics.height() <= usable_height):
-            return font
+    is_cn: bool = _contains_cjk(text)
+    # 中文标准字号按「4 个汉字填满可用宽度」反推；英文保持 base_size
+    effective_base: int = (
+        _cn_standard_size(font_family, usable_width)
+        if is_cn else int(base_size)
+    )
 
-    return QFont(font_family, min_size)
+    font: QFont = _fit_with_family(
+        font_family, text, effective_base,
+        min_size, usable_width, usable_height,
+    )
+
+    # 仍放不下（固定度量字体无法缩小），或中文要求 4 字填满而字体不可缩放时，
+    # 回退到可缩放字体族重新适配
+    need_fallback: bool = (
+        QFontMetrics(font).horizontalAdvance(text) > usable_width
+    )
+    if is_cn and not _is_scalable(font_family):
+        need_fallback = True
+
+    if need_fallback:
+        fallback: str = _pick_fallback_family(font_family)
+        if fallback != font_family:
+            fb_base: int = (
+                _cn_standard_size(fallback, usable_width)
+                if is_cn else int(base_size)
+            )
+            font = _fit_with_family(
+                fallback, text, fb_base,
+                min_size, usable_width, usable_height,
+            )
+
+    return font
 
 
 # ==================== 时间管理类 ====================
