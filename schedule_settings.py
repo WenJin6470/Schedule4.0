@@ -113,6 +113,20 @@ def _pick_artistic_font() -> str:
     return 'Microsoft YaHei'
 
 
+def _wrap_digits_mono(text: str) -> str:
+    """把文本中的连续数字用等宽字体（Consolas）包裹为富文本。
+
+    用于「关于」页的开发 / 鸣谢署名：艺术字体下的数字（如 2026）
+    字形不够美观，统一改用与版本号一致的 Consolas 等宽字体。
+    无数字时原样返回（富文本与纯文本等价显示）。
+    """
+    return re.sub(
+        r'(\d+)',
+        r'<span style="font-family: Consolas;">\1</span>',
+        text,
+    )
+
+
 # ==================== 开机自启动（注册表） ====================
 
 # 当前用户 Run 键路径：登录 Windows 后自动运行其中的程序
@@ -781,9 +795,10 @@ class SettingsWindow(ThemedWidget):
         不使用卡片容器，页面自上而下：
           页面标题（左上角）→ 内容区（水平居中、垂直分布在页面中部）：
             品牌行（软件图标 + Schedule4.0 标题，左右排版、整体居中）
-            → 作者署名 → 软件简介
-        软件名称使用艺术字体，作者署名与简介均水平居中，
-        作者署名通过上下弹性空间的比例控制，尽量落在页面垂直中心附近。
+            → 开发署名 → 鸣谢（LG 决定内容）→ 版本号（数字用等宽字体）
+        软件名称、开发署名与鸣谢均使用艺术字体并水平居中，
+        版本号与署名区之间隔一行显示；署名区通过上下弹性空间的比例控制，
+        尽量落在页面垂直中心附近。
         """
         page: QWidget = QWidget()
         page.setStyleSheet("background: transparent;")
@@ -812,8 +827,8 @@ class SettingsWindow(ThemedWidget):
         #   author_y = 标题区高度 + 上方间隙 + 品牌行高度/间距 + 署名半高
         #   令 author_y ≈ 页面高度 / 2，反推上方间隙，其余空间留给下方。
         _title_block_h: int = 52      # 页面标题(40) + 布局间距(12)
-        _above_author_h: int = 160    # 品牌行128 + 间距20 + 署名半高12
-        _content_block_h: int = 270   # 品牌行128 + 间距20 + 署名24 + 间距8 + 版本20 + 间距26 + 简介44
+        _above_author_h: int = 162    # 品牌行128 + 间距20 + 署名半高14
+        _content_block_h: int = 254   # 品牌行128 + 间距20 + 开发28 + 间距6 + 鸣谢28 + 间距24 + 版本20
         _avail_h: int = max(1, self._theme.screen_height - _title_block_h - _content_block_h)
         _top_gap: int = max(1, self._theme.screen_height // 2 - _title_block_h - _above_author_h)
         _bottom_gap: int = max(1, _avail_h - _top_gap)
@@ -849,45 +864,46 @@ class SettingsWindow(ThemedWidget):
 
         content_layout.addSpacing(20)
 
-        # ---- 作者署名（居中，LG 参数决定）----
-        author_text: str = "高2026届 赵晨羽" if self._theme.lg else "温谨"
-        author_label: QLabel = QLabel(f"作者：{author_text}")
-        author_label.setFont(QFont("Microsoft YaHei", 14))
-        author_label.setStyleSheet(
+        # ---- 开发署名（居中，LG 参数决定显示 赵晨羽 / 温谨）----
+        # 数字（如 2026）用等宽字体 Consolas 显示，与版本号保持一致
+        dev_text: str = "高2026届 赵晨羽" if self._theme.lg else "温谨"
+        dev_label: QLabel = QLabel(f"开发：{_wrap_digits_mono(dev_text)}")
+        dev_label.setFont(QFont(_pick_artistic_font(), 16))
+        dev_label.setTextFormat(Qt.RichText)  # type: ignore
+        dev_label.setStyleSheet(
             f"color: {fc}; background: transparent; border: none;"
         )
-        author_label.setAlignment(Qt.AlignCenter)  # type: ignore
-        content_layout.addWidget(author_label, 0, Qt.AlignHCenter)  # type: ignore
+        dev_label.setAlignment(Qt.AlignCenter)  # type: ignore
+        content_layout.addWidget(dev_label, 0, Qt.AlignHCenter)  # type: ignore
 
-        content_layout.addSpacing(8)
+        # ---- 鸣谢（居中，LG 参数决定内容：true=胡轩豪，false=创猿er）----
+        # 数字（如 2026）同样用等宽字体 Consolas 显示
+        content_layout.addSpacing(6)
+        thanks_text: str = "高2026届 胡轩豪" if self._theme.lg else "创猿er"
+        thanks_label: QLabel = QLabel(f"鸣谢：{_wrap_digits_mono(thanks_text)}")
+        thanks_label.setFont(QFont(_pick_artistic_font(), 16))
+        thanks_label.setTextFormat(Qt.RichText)  # type: ignore
+        thanks_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none;"
+        )
+        thanks_label.setAlignment(Qt.AlignCenter)  # type: ignore
+        content_layout.addWidget(thanks_label, 0, Qt.AlignHCenter)  # type: ignore
 
-        # ---- 版本号（居中，来自主配置文件 version）----
-        version_label: QLabel = QLabel(f"版本：{self._theme.version}")
+        # ---- 版本号（居中，与署名区隔一行显示，来自主配置文件 version）----
+        # 数字使用等宽字体（Consolas）显示，与中文标签区分开
+        content_layout.addSpacing(24)
+        version_label: QLabel = QLabel(
+            '版本：'
+            f'<span style="font-family: Consolas; font-size: 13pt;">'
+            f'{self._theme.version}</span>'
+        )
         version_label.setFont(QFont("Microsoft YaHei", 12))
+        version_label.setTextFormat(Qt.RichText)  # type: ignore
         version_label.setStyleSheet(
             f"color: {fc}; background: transparent; border: none; opacity: 0.65;"
         )
         version_label.setAlignment(Qt.AlignCenter)  # type: ignore
         content_layout.addWidget(version_label, 0, Qt.AlignHCenter)  # type: ignore
-
-        content_layout.addSpacing(26)
-
-        # ---- 软件简介（居中显示，固定宽度并按宽度计算高度保证完整换行）----
-        intro_label: QLabel = QLabel(
-            "桌面浮动电子课表系统，半透明置顶窗口实时显示课时科目与当前时间，"
-            "支持快捷编辑、临时换课、考试 / 创意全屏模式，"
-            "并可通过 KnotLink 协议对外广播课表与自定义事件。"
-        )
-        intro_label.setFont(QFont("Microsoft YaHei", 11))
-        intro_label.setStyleSheet(
-            f"color: {fc}; background: transparent; border: none;"
-        )
-        intro_label.setWordWrap(True)
-        intro_label.setAlignment(Qt.AlignCenter)  # type: ignore
-        intro_label.setFixedWidth(640)
-        # 固定宽度下按文字换行计算所需高度，保证简介完整显示不被裁剪
-        intro_label.setFixedHeight(intro_label.heightForWidth(640))
-        content_layout.addWidget(intro_label, 0, Qt.AlignHCenter)  # type: ignore
 
         # 下方弹性空间（吸收剩余空间，保持署名居中）
         content_layout.addStretch(_bottom_gap)
