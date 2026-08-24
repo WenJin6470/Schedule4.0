@@ -26,6 +26,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtWidgets import QApplication, QWidget
 from PySide6.QtGui import QColor, QPainter, QPaintEvent
+from app_paths import app_root
+
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -192,7 +194,7 @@ class ThemeManager:
     # ================================================================
     def _load_config(self) -> None:
         """从 Config/schedule_config.ini 读取配置参数。"""
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         config_path: str = os.path.join(script_dir, 'Config', 'schedule_config.ini')
 
         default_theme: str = 'lightcolor'
@@ -375,7 +377,7 @@ class ThemeManager:
     # ================================================================
     def _load_subject_config(self) -> None:
         """从 Config/subject_config.json 读取科目分类配置。"""
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         config_path: str = os.path.join(script_dir, 'Config', 'subject_config.json')
 
         default_config: Dict = {"Subject_Types": {}}
@@ -484,7 +486,7 @@ class SubjectConfigManager:
 
     def __init__(self) -> None:
         """初始化科目配置管理器。"""
-        self._script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        self._script_dir: str = app_root()
         self._file_path: str = os.path.join(self._script_dir, self.FILE_PATH)
         logger.info("SubjectConfigManager 初始化完成")
 
@@ -695,7 +697,7 @@ class ScheduleDataManager:
     # ================================================================
     def _load_curriculum(self) -> None:
         """根据 self.curriculum_path 读取每周课表数据。"""
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         config_path: str = os.path.join(script_dir, self.curriculum_path)
 
         try:
@@ -723,7 +725,7 @@ class ScheduleDataManager:
     # ================================================================
     def _load_timetable(self) -> None:
         """根据 self.timetable_path 读取课时时间配置。"""
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         config_path: str = os.path.join(script_dir, self.timetable_path)
 
         try:
@@ -821,7 +823,7 @@ class ScheduleDataManager:
         返回值：
             bool：True 表示保存成功，False 表示保存失败
         """
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         config_path: str = os.path.join(script_dir, self.curriculum_path)
 
         # 确保目标目录存在
@@ -857,7 +859,7 @@ class ScheduleDataManager:
         返回值：
             bool：True 表示保存成功，False 表示保存失败
         """
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         config_path: str = os.path.join(script_dir, self.timetable_path)
 
         os.makedirs(os.path.dirname(config_path), exist_ok=True)
@@ -921,7 +923,7 @@ class ScheduleDataManager:
         返回值：
             str：形如 "timetable_2.json" 的文件名
         """
-        script_dir = os.path.dirname(os.path.abspath(__file__))
+        script_dir = app_root()
         timetable_dir = os.path.join(script_dir, 'Config', 'timetable')
         os.makedirs(timetable_dir, exist_ok=True)
 
@@ -950,7 +952,7 @@ class ScheduleDataManager:
         返回值：
             List[str]：文件名列表（仅文件名不含路径）
         """
-        script_dir = os.path.dirname(os.path.abspath(__file__))
+        script_dir = app_root()
         timetable_dir = os.path.join(script_dir, 'Config', 'timetable')
         os.makedirs(timetable_dir, exist_ok=True)
 
@@ -975,7 +977,7 @@ class ScheduleDataManager:
         返回值：
             List[str]：文件名列表（仅文件名不含路径）
         """
-        script_dir = os.path.dirname(os.path.abspath(__file__))
+        script_dir = app_root()
         curriculum_dir = os.path.join(script_dir, 'Config', 'curriculum')
         os.makedirs(curriculum_dir, exist_ok=True)
 
@@ -1000,7 +1002,7 @@ class ScheduleDataManager:
         返回值：
             str：形如 "table_2.json" 的文件名
         """
-        script_dir = os.path.dirname(os.path.abspath(__file__))
+        script_dir = app_root()
         curriculum_dir = os.path.join(script_dir, 'Config', 'curriculum')
         os.makedirs(curriculum_dir, exist_ok=True)
 
@@ -1062,7 +1064,7 @@ class SwapManager:
 
     def __init__(self) -> None:
         """初始化换课记录管理器。"""
-        self._script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        self._script_dir: str = app_root()
         self._swap_file_path: str = os.path.join(
             self._script_dir, self.SWAP_FILE_PATH
         )
@@ -1353,7 +1355,7 @@ class EventRulesManager:
 
     def __init__(self) -> None:
         """初始化事件规则管理器。"""
-        self._script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        self._script_dir: str = app_root()
         self._file_path: str = os.path.join(self._script_dir, self.FILE_PATH)
         logger.info("EventRulesManager 初始化完成")
 
@@ -1659,7 +1661,7 @@ class KnotLinkCatalogManager:
 
     def __init__(self) -> None:
         """初始化目录管理器。"""
-        self._script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        self._script_dir: str = app_root()
         logger.info("KnotLinkCatalogManager 初始化完成")
 
     # ================================================================
@@ -1890,7 +1892,7 @@ class DebugConfig:
     # ================================================================
     def _load(self) -> None:
         """从 Config/debug_config.ini 读取调试参数。"""
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         config_path: str = os.path.join(script_dir, 'Config', 'debug_config.ini')
 
         try:
@@ -2190,7 +2192,7 @@ class DisplayRulesManager:
 
     def __init__(self) -> None:
         """初始化显示规则管理器。"""
-        self._script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        self._script_dir: str = app_root()
         self._file_path: str = os.path.join(self._script_dir, self.FILE_PATH)
         self._ini_path: str = os.path.join(self._script_dir, self.INI_PATH)
         logger.info("DisplayRulesManager 初始化完成")

@@ -46,6 +46,8 @@ from configparser import ConfigParser
 from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QObject, QTimer, QThread, Signal
+from app_paths import app_root
+
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -97,7 +99,7 @@ class TranslationError(Exception):
 
 def _script_dir() -> str:
     """返回脚本所在目录。"""
-    return os.path.dirname(os.path.abspath(__file__))
+    return app_root()
 
 
 def _path(rel: str) -> str:

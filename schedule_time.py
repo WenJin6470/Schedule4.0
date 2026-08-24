@@ -31,6 +31,8 @@ from PySide6.QtGui import (
 
 from schedule_config import ThemeManager, ThemedWidget
 from schedule_backend import TimeWheelPicker
+from app_paths import app_root
+
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -262,7 +264,7 @@ class FullscreenTimeWindow(ThemedWidget):
         支持的格式：png, jpg, jpeg, bmp
         若文件夹不存在或无可用图片，回退到纯色背景。
         """
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         bg_folder: str = os.path.join(script_dir, self._theme.fullscreen_bg_folder)
 
         logger.info(f"创意模式：在文件夹中随机选择背景图片：{bg_folder}")

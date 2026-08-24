@@ -27,6 +27,8 @@ from PySide6.QtGui import QFont, QCloseEvent
 
 from schedule_config import ThemeManager, ThemedWidget, parse_subject_entry
 from schedule_actions import ActionMessage
+from app_paths import app_root
+
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -808,7 +810,7 @@ class SubjectSelectWindow(ThemedWidget):
 
         # 第2步：加载 JSON 文件中保存的原始课表
         schedule_data = main_window._schedule_data
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         json_path: str = os.path.join(script_dir, schedule_data.curriculum_path)
 
         saved_data: Dict = {}

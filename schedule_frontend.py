@@ -32,6 +32,8 @@ from PySide6.QtGui import QColor, QFont, QIcon, QAction
 from schedule_config import ThemeManager, ThemedWidget, ScheduleDataManager, DebugConfig, is_color_dark, SubjectConfigManager
 from schedule_actions import ActionMessage, ActionType
 from schedule_backend import fit_subject_font
+from app_paths import app_root
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # ★ 启动优化：懒加载子模块 ★
@@ -266,7 +268,7 @@ class ScheduleMainWindow(ThemedWidget):
                 y_offset += divider_height
 
         # ===== 底部按钮栏（4 个图标按钮）=====
-        images_dir: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'images', 'Icons')
+        images_dir: str = os.path.join(app_root(), 'images', 'Icons')
         icon_suffix: str = self._theme.get_icon_suffix()
 
         logger.info(f"图标后缀：'{icon_suffix}'（主题={self._theme.theme}）")

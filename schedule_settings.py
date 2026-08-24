@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
     QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
     QTableWidget, QTableWidgetItem, QHeaderView, QDialog,
     QLineEdit, QComboBox, QRadioButton, QFileDialog, QAbstractItemView,
-    QScrollArea, QScroller, QMessageBox,
+    QScrollArea, QScroller, QMessageBox, QProgressBar,
 )
 from PySide6.QtCore import Qt, Signal, SignalInstance, QTimer, QPointF
 from PySide6.QtGui import (
@@ -53,6 +53,9 @@ from schedule_config import (
 from schedule_backend import TimeWheelPicker, WheelColumn
 from schedule_translate import TranslateWorker, load_sites, get_default_site
 from knotlink_bridge import APPID, SOCKET_ID, SIGNAL_ID
+from app_paths import app_root, is_frozen
+from schedule_updater import UpdateWorker, UpdateInfo, is_newer
+
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -422,7 +425,8 @@ class SettingsWindow(ThemedWidget):
         ("🎨", "美化",     1),
         ("📝", "课表编辑", 2),
         ("🔗", "KnotLink", 3),
-        ("ℹ️", "关于",     4),
+        ("🔄", "软件更新", 4),
+        ("ℹ️", "关于",     5),
     ]
 
     # 信号：时间表发生变更，通知主窗口重建标签
@@ -552,6 +556,16 @@ class SettingsWindow(ThemedWidget):
         # KnotLink 信号表格引用（事件新建确认后刷新信号列表时使用）
         self._knotlink_signal_table: Optional[QTableWidget] = None
 
+        # ---- 软件更新（GitHub 自动更新）引用 ----
+        self._update_version_label: Optional[QLabel] = None
+        self._update_status_label: Optional[QLabel] = None
+        self._update_notes_label: Optional[QLabel] = None
+        self._update_check_btn: Optional[QPushButton] = None
+        self._update_apply_btn: Optional[QPushButton] = None
+        self._update_progress: Optional[QProgressBar] = None
+        self._update_info: Optional[UpdateInfo] = None
+        self._update_worker: Optional[UpdateWorker] = None  # 持有引用防 GC
+
         logger.info("SettingsWindow 初始化开始")
         self._setup_ui()
         logger.info("SettingsWindow 初始化完成")
@@ -628,7 +642,7 @@ class SettingsWindow(ThemedWidget):
         header_layout.setSpacing(14)
 
         # 图标（大尺寸，填充头部区域）
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         icon_path: str = os.path.join(script_dir, 'images', 'Icons', 'DAILY_SCHEDULE.svg')
 
         icon_label: QLabel = QLabel()
@@ -732,7 +746,9 @@ class SettingsWindow(ThemedWidget):
         self._stack.addWidget(self._create_timetable_editor_page())
         # 页面 3：KnotLink（openSocket 接口规则 + signal 信号规则）
         self._stack.addWidget(self._create_knotlink_page())
-        # 页面 4：关于
+        # 页面 4：软件更新（检查 / 下载 / 应用 GitHub 自动更新）
+        self._stack.addWidget(self._create_update_page())
+        # 页面 5：关于
         self._stack.addWidget(self._create_about_page())
 
         # 默认显示第一页
@@ -786,6 +802,308 @@ class SettingsWindow(ThemedWidget):
         return page
 
     # ================================================================
+    #  创建「软件更新」页面
+    # ================================================================
+    def _create_update_page(self) -> QWidget:
+        """
+        构建"软件更新"页面。
+        -------------------
+        功能：
+          - 展示当前版本 / 最新版本 / 更新状态
+          - 「检查更新」：从 GitHub 更新仓库拉取 latest.json（多镜像）
+          - 「立即更新」：下载更新包（带进度）→ 校验 → 自动重启完成更新
+        说明：
+          - 更新只替换程序文件（main.exe + _internal/），
+            用户的课表/设置数据（Config/）与背景图（images/）不受影响。
+          - 开发环境（源码运行）只能检查、不能应用更新。
+        """
+        page: QWidget = QWidget()
+        page.setStyleSheet("background: transparent;")
+
+        layout: QVBoxLayout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        fc: str = self._theme.font_color
+
+        # ---- 页面主标题 ----
+        page_title: QLabel = QLabel("软件更新")
+        page_title.setFont(QFont("Microsoft YaHei", 22, QFont.Bold))  # type: ignore
+        page_title.setStyleSheet(f"color: {fc}; background: transparent;")
+        page_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
+        layout.addWidget(page_title)
+
+        # ---- 更新状态卡片 ----
+        card: QFrame = QFrame()
+        card.setStyleSheet(self._get_status_card_style())
+        card.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Fixed  # type: ignore
+        )
+        card_layout: QVBoxLayout = QVBoxLayout(card)
+        card_layout.setContentsMargins(20, 12, 20, 12)
+        card_layout.setSpacing(8)
+
+        # 当前 / 最新版本行
+        version_row: QHBoxLayout = QHBoxLayout()
+        version_row.setSpacing(24)
+
+        current_col: QVBoxLayout = QVBoxLayout()
+        current_col.setSpacing(4)
+        current_title: QLabel = QLabel("当前版本")
+        current_title.setFont(QFont("Microsoft YaHei", 9))
+        current_title.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none; opacity: 0.6;"
+        )
+        current_col.addWidget(current_title)
+        self._update_version_label = QLabel(self._theme.version)
+        self._update_version_label.setFont(
+            QFont("Consolas", 15, QFont.Bold)  # type: ignore
+        )
+        self._update_version_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none;"
+        )
+        current_col.addWidget(self._update_version_label)
+        version_row.addLayout(current_col)
+
+        latest_col: QVBoxLayout = QVBoxLayout()
+        latest_col.setSpacing(4)
+        latest_title: QLabel = QLabel("最新版本")
+        latest_title.setFont(QFont("Microsoft YaHei", 9))
+        latest_title.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none; opacity: 0.6;"
+        )
+        latest_col.addWidget(latest_title)
+        self._update_latest_label: QLabel = QLabel("—")
+        self._update_latest_label.setFont(
+            QFont("Consolas", 15, QFont.Bold)  # type: ignore
+        )
+        self._update_latest_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none;"
+        )
+        latest_col.addWidget(self._update_latest_label)
+        version_row.addLayout(latest_col)
+
+        version_row.addStretch()
+        card_layout.addLayout(version_row)
+
+        # 状态标签
+        self._update_status_label = QLabel("尚未检查更新")
+        self._update_status_label.setFont(QFont("Microsoft YaHei", 10))
+        self._update_status_label.setWordWrap(True)
+        self._update_status_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none; opacity: 0.85;"
+        )
+        card_layout.addWidget(self._update_status_label)
+
+        # 进度条（默认隐藏）
+        self._update_progress = QProgressBar()
+        self._update_progress.setRange(0, 100)
+        self._update_progress.setValue(0)
+        self._update_progress.setVisible(False)
+        self._update_progress.setFixedHeight(14)
+        self._update_progress.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid rgba(128, 128, 128, 120);
+                border-radius: 6px;
+                background: rgba(128, 128, 128, 40);
+                text-align: center;
+            }
+            QProgressBar::chunk {
+                background: #2196f3;
+                border-radius: 5px;
+            }
+        """)
+        card_layout.addWidget(self._update_progress)
+
+        # 按钮行
+        btn_row: QHBoxLayout = QHBoxLayout()
+        btn_row.setSpacing(12)
+
+        self._update_check_btn = QPushButton("🔍  检查更新")
+        self._update_check_btn.setFont(QFont("Microsoft YaHei", 11))
+        self._update_check_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self._update_check_btn.setMinimumHeight(38)
+        self._update_check_btn.setSizePolicy(
+            QSizePolicy.Fixed, QSizePolicy.Fixed  # type: ignore
+        )
+        self._update_check_btn.clicked.connect(self._on_update_check_clicked)
+        btn_row.addWidget(self._update_check_btn)
+
+        self._update_apply_btn = QPushButton("⬇️  立即更新")
+        self._update_apply_btn.setFont(QFont("Microsoft YaHei", 11))
+        self._update_apply_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self._update_apply_btn.setMinimumHeight(38)
+        self._update_apply_btn.setSizePolicy(
+            QSizePolicy.Fixed, QSizePolicy.Fixed  # type: ignore
+        )
+        self._update_apply_btn.setEnabled(False)
+        self._update_apply_btn.clicked.connect(self._on_update_apply_clicked)
+        btn_row.addWidget(self._update_apply_btn)
+
+        btn_row.addStretch()
+        card_layout.addLayout(btn_row)
+
+        # 更新说明
+        notes_title: QLabel = QLabel("更新说明")
+        notes_title.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))  # type: ignore
+        notes_title.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none;"
+        )
+        card_layout.addWidget(notes_title)
+
+        self._update_notes_label = QLabel("点击「检查更新」获取最新版本信息。")
+        self._update_notes_label.setFont(QFont("Microsoft YaHei", 9))
+        self._update_notes_label.setWordWrap(True)
+        self._update_notes_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none; opacity: 0.7;"
+        )
+        card_layout.addWidget(self._update_notes_label)
+
+        layout.addWidget(card)
+
+        # ---- 提示文字 ----
+        hint_label: QLabel = QLabel(
+            "提示：更新仅替换程序文件，您的课表数据、设置与背景图不会受到影响；"
+            "更新完成后程序会自动重启。若自动更新不可用，可前往 GitHub 手动下载。"
+        )
+        hint_label.setFont(QFont("Microsoft YaHei", 9))
+        hint_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none; opacity: 0.55;"
+        )
+        hint_label.setWordWrap(True)
+        layout.addWidget(hint_label)
+
+        layout.addStretch()
+        return page
+
+    # ------------------------------------------------------------------
+    #  软件更新事件处理
+    # ------------------------------------------------------------------
+    def _on_update_check_clicked(self) -> None:
+        """点击「检查更新」：后台线程拉取清单。"""
+        if self._update_worker is not None and self._update_worker.isRunning():
+            return
+        self._set_update_ui_busy(True)
+        self._update_status_label.setText("正在检查更新…")
+        self._update_notes_label.setText("正在从 GitHub 更新仓库获取最新版本信息…")
+        self._update_apply_btn.setEnabled(False)
+
+        worker: UpdateWorker = UpdateWorker(
+            task=UpdateWorker.TASK_CHECK,
+            current_version=self._theme.version,
+        )
+        worker.check_done.connect(self._on_update_check_done)
+        self._update_worker = worker
+        worker.start()
+
+    def _on_update_check_done(self, info: Optional[UpdateInfo],
+                              error: str) -> None:
+        """检查完成回调。"""
+        self._set_update_ui_busy(False)
+        if error:
+            self._update_status_label.setText(f"检查更新失败：{error}")
+            self._update_notes_label.setText("请检查网络连接，或稍后重试。")
+            self._update_apply_btn.setEnabled(False)
+            return
+        if info is None:
+            self._update_status_label.setText("未发现可用的更新信息")
+            self._update_apply_btn.setEnabled(False)
+            return
+
+        self._update_info = info
+        self._update_latest_label.setText(info.version)
+        if is_newer(info.version, self._theme.version):
+            self._update_status_label.setText(
+                f"发现新版本 v{info.version}，点击「立即更新」开始下载。"
+            )
+            self._update_notes_label.setText(info.notes or "（无更新说明）")
+            if is_frozen():
+                self._update_apply_btn.setEnabled(True)
+            else:
+                self._update_apply_btn.setEnabled(False)
+                self._update_status_label.setText(
+                    f"发现新版本 v{info.version}（开发环境仅提示，"
+                    "请使用打包后的 exe 体验自动更新）"
+                )
+        else:
+            self._update_status_label.setText("当前已是最新版本 ✅")
+            self._update_notes_label.setText(info.notes or "（无更新说明）")
+            self._update_apply_btn.setEnabled(False)
+
+    def _on_update_apply_clicked(self) -> None:
+        """点击「立即更新」：确认后下载并应用。"""
+        if self._update_info is None:
+            return
+        if not is_frozen():
+            QMessageBox.information(
+                self, "软件更新", "开发环境不支持直接应用更新，请使用打包后的 exe 验证。"
+            )
+            return
+        reply: int = QMessageBox.question(
+            self, "确认更新",
+            f"将下载并安装 v{self._update_info.version}。\n\n"
+            "更新过程中程序会自动退出并重启，是否继续？",
+            QMessageBox.Yes | QMessageBox.No,  # type: ignore
+        )
+        if reply != QMessageBox.Yes:  # type: ignore
+            return
+
+        self._set_update_ui_busy(True)
+        self._update_status_label.setText("正在下载更新包…")
+        self._update_progress.setVisible(True)
+        self._update_progress.setValue(0)
+
+        worker: UpdateWorker = UpdateWorker(
+            task=UpdateWorker.TASK_APPLY,
+            info=self._update_info,
+            current_version=self._theme.version,
+        )
+        worker.progress.connect(self._on_update_progress)
+        worker.apply_done.connect(self._on_update_apply_done)
+        self._update_worker = worker
+        worker.start()
+
+    def _on_update_progress(self, done: int, total: int) -> None:
+        """下载进度回调。"""
+        if self._update_progress is None:
+            return
+        self._update_progress.setVisible(True)
+        if total > 0:
+            self._update_progress.setRange(0, total)
+            self._update_progress.setValue(done)
+        if self._update_status_label is not None:
+            mb_done: float = done / (1024 * 1024)
+            mb_total: float = total / (1024 * 1024) if total > 0 else 0
+            self._update_status_label.setText(
+                f"正在下载更新包… {mb_done:.1f} MB / {mb_total:.1f} MB"
+            )
+
+    def _on_update_apply_done(self, ok: bool, error: str) -> None:
+        """更新应用回调：ok=True 表示更新器已接管，程序即将退出。"""
+        if ok:
+            QMessageBox.information(
+                self, "软件更新",
+                "更新包已就绪，程序即将自动退出并完成更新重启。\n"
+                "更新过程中请勿关闭窗口。",
+            )
+            app: Optional[QApplication] = QApplication.instance()
+            if app is not None:
+                app.quit()
+        else:
+            self._set_update_ui_busy(False)
+            self._update_progress.setVisible(False)
+            self._update_status_label.setText(f"更新失败：{error}")
+            self._update_notes_label.setText("可稍后重试，或前往 GitHub 手动下载。")
+            self._update_apply_btn.setEnabled(True)
+
+    def _set_update_ui_busy(self, busy: bool) -> None:
+        """切换更新相关按钮的可用状态。"""
+        if self._update_check_btn is not None:
+            self._update_check_btn.setEnabled(not busy)
+        if busy and self._update_apply_btn is not None:
+            self._update_apply_btn.setEnabled(False)
+
+    # ================================================================
     #  创建关于页面
     # ================================================================
     def _create_about_page(self) -> QWidget:
@@ -837,7 +1155,7 @@ class SettingsWindow(ThemedWidget):
         content_layout.addStretch(_top_gap)
 
         # ---- 品牌行：软件图标 + 软件名称（左右排版，整体居中）----
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         icon_path: str = os.path.join(
             script_dir, 'images', 'Icons', 'DAILY_SCHEDULE.svg'
         )
@@ -953,7 +1271,7 @@ class SettingsWindow(ThemedWidget):
         title_row: QHBoxLayout = QHBoxLayout()
         title_row.setSpacing(12)
 
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         icon_path: str = os.path.join(script_dir, 'images', 'Icons', 'knotlink.svg')
 
         icon_label: QLabel = QLabel()
@@ -2508,7 +2826,7 @@ class SettingsWindow(ThemedWidget):
         """将时间表编辑副本直接写入其对应文件。"""
         if not self._editing_timetable_path:
             return False
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         path: str = os.path.join(script_dir, self._editing_timetable_path)
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -2525,7 +2843,7 @@ class SettingsWindow(ThemedWidget):
         """将课程表编辑副本直接写入其对应文件。"""
         if not self._editing_curriculum_path:
             return False
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         path: str = os.path.join(script_dir, self._editing_curriculum_path)
 
         # 按星期顺序排列键（Monday → Sunday），与 ScheduleDataManager 保持一致
@@ -2547,7 +2865,7 @@ class SettingsWindow(ThemedWidget):
 
     def _persist_active_paths(self) -> None:
         """把当前编辑的时间表/课程表路径写回 schedule_config.ini（重启后仍生效）。"""
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         ini_path: str = os.path.join(script_dir, 'Config', 'schedule_config.ini')
         if not os.path.exists(ini_path):
             logger.warning(f"配置文件不存在，无法写回路径：{ini_path}")
@@ -2600,7 +2918,7 @@ class SettingsWindow(ThemedWidget):
         if not font_name:
             return
 
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         ini_path: str = os.path.join(script_dir, 'Config', 'schedule_config.ini')
         if not os.path.exists(ini_path):
             logger.warning(f"配置文件不存在，无法写回字体：{ini_path}")
@@ -2641,7 +2959,7 @@ class SettingsWindow(ThemedWidget):
         if not lang_value:
             return
 
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         ini_path: str = os.path.join(script_dir, 'Config', 'schedule_config.ini')
         if not os.path.exists(ini_path):
             logger.warning(f"配置文件不存在，无法写回语言：{ini_path}")
@@ -2679,7 +2997,7 @@ class SettingsWindow(ThemedWidget):
         theme_value: str = self._effective_theme()
         color_value: str = (self._pending_color or '#2196f3').lower()
 
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         ini_path: str = os.path.join(script_dir, 'Config', 'schedule_config.ini')
         if not os.path.exists(ini_path):
             logger.warning(f"配置文件不存在，无法写回外观设置：{ini_path}")
@@ -2732,9 +3050,9 @@ class SettingsWindow(ThemedWidget):
         源码运行时使用「python 解释器 + main.py」组合，
         与 _restart_app 的启动方式保持一致。
         """
-        if getattr(sys, 'frozen', False):
+        if is_frozen():
             return f'"{sys.executable}"'
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         main_script: str = os.path.join(script_dir, 'main.py')
         return f'"{sys.executable}" "{main_script}"'
 
@@ -2804,11 +3122,16 @@ class SettingsWindow(ThemedWidget):
 
     def _restart_app(self) -> None:
         """重启软件：启动新进程并退出当前程序。"""
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
-        main_script: str = os.path.join(script_dir, 'main.py')
+        script_dir: str = app_root()
         try:
-            subprocess.Popen([sys.executable, main_script], cwd=script_dir)
-            logger.info(f"已启动新进程：{sys.executable} {main_script}")
+            if is_frozen():
+                # 打包环境：直接重启 exe（main.py 不存在于产物中）
+                subprocess.Popen([sys.executable], cwd=script_dir)
+                logger.info(f"已启动新进程：{sys.executable}")
+            else:
+                main_script: str = os.path.join(script_dir, 'main.py')
+                subprocess.Popen([sys.executable, main_script], cwd=script_dir)
+                logger.info(f"已启动新进程：{sys.executable} {main_script}")
         except Exception as e:
             logger.error(f"启动新进程失败：{e}")
         app = QApplication.instance()
@@ -3081,7 +3404,7 @@ class SettingsWindow(ThemedWidget):
         文档不存在时自动创建（带文件头模板）；同名信号已存在时跳过，
         避免重复追加。写入失败只记录日志，不影响事件创建流程。
         """
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         doc_path: str = os.path.join(script_dir, SIGNAL_DOC_REL_PATH)
         name: str = str(entry.get('name', '') or '').strip()
         if not name:
@@ -3359,7 +3682,7 @@ class SettingsWindow(ThemedWidget):
         changed_files: List[str] = []
 
         # 1) 所有课程表 JSON 文件
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         for fname in ScheduleDataManager.get_curriculum_files():
             path: str = os.path.join(script_dir, 'Config', 'curriculum', fname)
             try:
@@ -3777,7 +4100,7 @@ class SettingsWindow(ThemedWidget):
     # ================================================================
     def _on_load_timetable(self) -> None:
         """打开文件对话框选择 JSON 文件加载为当前时间表。"""
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         start_dir: str = os.path.join(script_dir, 'Config', 'timetable')
 
         file_path, _ = QFileDialog.getOpenFileName(
@@ -3826,7 +4149,7 @@ class SettingsWindow(ThemedWidget):
 
     def _create_new_timetable_file(self, name: str, copy_from: str) -> None:
         """创建新的时间表 JSON 文件并加载。"""
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         timetable_dir: str = os.path.join(script_dir, 'Config', 'timetable')
         os.makedirs(timetable_dir, exist_ok=True)
 
@@ -4446,7 +4769,7 @@ class SettingsWindow(ThemedWidget):
         if self._cv_subject_categories:
             return  # 已缓存
 
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         config_path: str = os.path.join(
             script_dir, 'Config', 'subject_config.json'
         )
@@ -4900,7 +5223,7 @@ class SettingsWindow(ThemedWidget):
     # ================================================================
     def _on_load_curriculum(self) -> None:
         """打开文件对话框选择 JSON 文件加载为当前课程表。"""
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         start_dir: str = os.path.join(script_dir, 'Config', 'curriculum')
 
         file_path, _ = QFileDialog.getOpenFileName(
@@ -4948,7 +5271,7 @@ class SettingsWindow(ThemedWidget):
 
     def _create_new_curriculum_file(self, name: str, copy_from: str) -> None:
         """创建新的课程表 JSON 文件并加载。"""
-        script_dir: str = os.path.dirname(os.path.abspath(__file__))
+        script_dir: str = app_root()
         curriculum_dir: str = os.path.join(script_dir, 'Config', 'curriculum')
         os.makedirs(curriculum_dir, exist_ok=True)
 

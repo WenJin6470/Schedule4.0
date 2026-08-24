@@ -28,8 +28,8 @@ import os
 import sys
 from datetime import datetime
 
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QTimer, Qt
+from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog
 
 # ================================================================
 # ★ 导入主题、前端口、后端逻辑 ★
@@ -43,6 +43,11 @@ from schedule_frontend import ScheduleMainWindow
 from schedule_backend import TimeManager, ScheduleBackend, WindowHelper, LogManager
 from schedule_translate import TranslationMonitor
 from knotlink_bridge import KnotLinkBridge
+from app_paths import app_root, is_frozen
+from schedule_updater import UpdateWorker, is_newer
+
+# 模块级日志器（main() 内的局部 logger 与之同名，等价）
+logger: logging.Logger = logging.getLogger('main')
 
 
 # ================================================================
@@ -69,6 +74,112 @@ class ColoredFormatter(logging.Formatter):
 
 
 # ================================================================
+#  自动更新检查（启动后延迟执行，后台线程，不阻塞启动）
+# ================================================================
+_update_workers: list = []  # 持有 UpdateWorker 引用，防止被 GC
+
+
+def _start_update_check(theme_manager: ThemeManager, app: QApplication) -> None:
+    """启动后台更新检查（仅打包环境）。"""
+    if not is_frozen():
+        logger.info("开发模式：跳过启动自动更新检查")
+        return
+    logger.info("启动自动更新检查（后台线程）...")
+    worker: UpdateWorker = UpdateWorker(
+        task=UpdateWorker.TASK_CHECK,
+        current_version=theme_manager.version,
+    )
+    worker.check_done.connect(
+        lambda info, err: _on_update_check_done(info, err, theme_manager, app)
+    )
+    _update_workers.append(worker)
+    worker.start()
+
+
+def _on_update_check_done(info, error: str,
+                          theme_manager: ThemeManager, app: QApplication) -> None:
+    """更新检查完成：发现新版本则询问用户。"""
+    try:
+        if _update_workers:
+            _update_workers.pop(0)
+    except Exception:  # noqa: BLE001
+        pass
+    if error:
+        logger.warning(f"自动更新检查失败：{error}")
+        return
+    if info is None:
+        logger.info("自动更新检查：清单为空")
+        return
+    if not is_newer(info.version, theme_manager.version):
+        logger.info(f"自动更新检查：当前已是最新版本 v{theme_manager.version}")
+        return
+
+    logger.info(f"自动更新检查：发现新版本 v{info.version}")
+    notes: str = info.notes or '（无更新说明）'
+    reply: QMessageBox.StandardButton = QMessageBox.question(
+        None, '发现新版本',
+        f'发现新版本 v{info.version}\n\n{notes}\n\n是否立即下载更新？',
+        QMessageBox.Yes | QMessageBox.No,  # type: ignore
+    )
+    if reply == QMessageBox.Yes:  # type: ignore
+        _run_auto_update(info, theme_manager.version, app)
+
+
+def _run_auto_update(info, current_version: str, app: QApplication) -> None:
+    """执行自动更新：下载 → 校验 → 暂存 → 重启。"""
+    logger.info("开始自动更新下载...")
+    progress: QProgressDialog = QProgressDialog('正在下载更新包…', None, 0, 0)
+    progress.setWindowTitle('软件更新')
+    progress.setWindowModality(Qt.WindowModal)  # type: ignore
+    progress.setCancelButton(None)
+    progress.setMinimumDuration(0)
+    progress.show()
+
+    worker: UpdateWorker = UpdateWorker(
+        task=UpdateWorker.TASK_APPLY,
+        info=info,
+        current_version=current_version,
+    )
+    worker.progress.connect(
+        lambda done, total: _on_auto_update_progress(done, total, progress)
+    )
+    worker.apply_done.connect(
+        lambda ok, err: _on_auto_update_done(ok, err, progress, app)
+    )
+    _update_workers.append(worker)
+    worker.start()
+
+
+def _on_auto_update_progress(done: int, total: int,
+                             progress: QProgressDialog) -> None:
+    """自动更新下载进度。"""
+    if total > 0:
+        progress.setRange(0, total)
+        progress.setValue(done)
+
+
+def _on_auto_update_done(ok: bool, error: str,
+                         progress: QProgressDialog, app: QApplication) -> None:
+    """自动更新应用完成：成功则退出程序交给更新器重启。"""
+    try:
+        if _update_workers:
+            _update_workers.pop(0)
+    except Exception:  # noqa: BLE001
+        pass
+    progress.close()
+    if ok:
+        logger.info("自动更新：更新器已接管，程序即将退出")
+        QMessageBox.information(
+            None, '软件更新',
+            '更新包已就绪，程序即将自动退出并完成更新重启。',
+        )
+        app.quit()
+    else:
+        logger.error(f"自动更新失败：{error}")
+        QMessageBox.warning(None, '软件更新失败', error)
+
+
+# ================================================================
 #  主函数：创建窗口、创建后端、连接信号
 # ================================================================
 def main() -> None:
@@ -89,7 +200,7 @@ def main() -> None:
     # ================================================================
     #  第1步：配置日志系统
     # ================================================================
-    script_dir: str = os.path.dirname(os.path.abspath(__file__))
+    script_dir: str = app_root()
     log_dir: str = os.path.join(script_dir, 'log')
     os.makedirs(log_dir, exist_ok=True)
 
@@ -311,6 +422,11 @@ def main() -> None:
         logger.info("KnotLink 桥接初始化完成")
 
     QTimer.singleShot(0, _init_knotlink)
+
+    # ================================================================
+    #  第7步：延迟启动自动更新检查（5 秒后，后台线程，不阻塞启动）
+    # ================================================================
+    QTimer.singleShot(5000, lambda: _start_update_check(theme_manager, app))
 
     logger.info("进入事件循环")
 
