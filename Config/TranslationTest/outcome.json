@@ -2,38 +2,6 @@
     "history": {
         "youdao": [
             {
-                "ts": "2026-08-23 09:23:17",
-                "duration": 0.278,
-                "correct": false,
-                "Need Teanslate": "生物",
-                "Expected English": "Biology",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 09:42:34",
-                "duration": 0.188,
-                "correct": false,
-                "Need Teanslate": "通用技术",
-                "Expected English": "General Technology",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 10:09:19",
-                "duration": 0.23,
-                "correct": false,
-                "Need Teanslate": "英语",
-                "Expected English": "English",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 10:39:06",
-                "duration": 0.191,
-                "correct": false,
-                "Need Teanslate": "自习",
-                "Expected English": "Self-study",
-                "Translation": ""
-            },
-            {
                 "ts": "2026-08-23 10:49:05",
                 "duration": 0.225,
                 "correct": false,
@@ -160,41 +128,41 @@
                 "Need Teanslate": "生物",
                 "Expected English": "Biology",
                 "Translation": ""
-            }
-        ],
-        "baidu": [
-            {
-                "ts": "2026-08-23 09:23:17",
-                "duration": 0.18,
-                "correct": false,
-                "Need Teanslate": "生物",
-                "Expected English": "Biology",
-                "Translation": "biology; organisms; living things; living beings"
             },
             {
-                "ts": "2026-08-23 09:42:34",
+                "ts": "2026-08-25 20:03:29",
                 "duration": 0.185,
                 "correct": false,
-                "Need Teanslate": "通用技术",
-                "Expected English": "General Technology",
+                "Need Teanslate": "英语",
+                "Expected English": "English",
                 "Translation": ""
             },
             {
-                "ts": "2026-08-23 10:09:19",
-                "duration": 0.224,
-                "correct": true,
-                "Need Teanslate": "英语",
-                "Expected English": "English",
-                "Translation": "English"
-            },
-            {
-                "ts": "2026-08-23 10:39:06",
-                "duration": 0.17,
+                "ts": "2026-08-25 20:09:07",
+                "duration": 0.204,
                 "correct": false,
                 "Need Teanslate": "自习",
                 "Expected English": "Self-study",
-                "Translation": "(of students) study by oneself in scheduled time o"
+                "Translation": ""
             },
+            {
+                "ts": "2026-08-25 20:10:14",
+                "duration": 0.184,
+                "correct": false,
+                "Need Teanslate": "历史",
+                "Expected English": "History",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-25 20:26:48",
+                "duration": 0.229,
+                "correct": false,
+                "Need Teanslate": "美术",
+                "Expected English": "Art",
+                "Translation": ""
+            }
+        ],
+        "baidu": [
             {
                 "ts": "2026-08-23 10:49:05",
                 "duration": 0.156,
@@ -322,41 +290,41 @@
                 "Need Teanslate": "生物",
                 "Expected English": "Biology",
                 "Translation": "biology; organisms; living things; living beings"
+            },
+            {
+                "ts": "2026-08-25 20:03:29",
+                "duration": 0.178,
+                "correct": true,
+                "Need Teanslate": "英语",
+                "Expected English": "English",
+                "Translation": "English"
+            },
+            {
+                "ts": "2026-08-25 20:09:07",
+                "duration": 0.169,
+                "correct": false,
+                "Need Teanslate": "自习",
+                "Expected English": "Self-study",
+                "Translation": "(of students) study by oneself in scheduled time o"
+            },
+            {
+                "ts": "2026-08-25 20:10:14",
+                "duration": 0.172,
+                "correct": false,
+                "Need Teanslate": "历史",
+                "Expected English": "History",
+                "Translation": "history; past records; annals"
+            },
+            {
+                "ts": "2026-08-25 20:26:48",
+                "duration": 0.177,
+                "correct": false,
+                "Need Teanslate": "美术",
+                "Expected English": "Art",
+                "Translation": "art; painting; the fine arts; beaux-arts; fine art"
             }
         ],
         "mymemory": [
-            {
-                "ts": "2026-08-23 09:23:17",
-                "duration": 0.783,
-                "correct": false,
-                "Need Teanslate": "生物",
-                "Expected English": "Biology",
-                "Translation": "creatures"
-            },
-            {
-                "ts": "2026-08-23 09:42:34",
-                "duration": 1.075,
-                "correct": true,
-                "Need Teanslate": "通用技术",
-                "Expected English": "General Technology",
-                "Translation": "General Technology"
-            },
-            {
-                "ts": "2026-08-23 10:09:19",
-                "duration": 0.933,
-                "correct": false,
-                "Need Teanslate": "英语",
-                "Expected English": "English",
-                "Translation": "EN."
-            },
-            {
-                "ts": "2026-08-23 10:39:06",
-                "duration": 1.585,
-                "correct": true,
-                "Need Teanslate": "自习",
-                "Expected English": "Self-study",
-                "Translation": "self-study"
-            },
             {
                 "ts": "2026-08-23 10:49:05",
                 "duration": 0.699,
@@ -484,6 +452,38 @@
                 "Need Teanslate": "生物",
                 "Expected English": "Biology",
                 "Translation": "creatures"
+            },
+            {
+                "ts": "2026-08-25 20:03:29",
+                "duration": 1.256,
+                "correct": false,
+                "Need Teanslate": "英语",
+                "Expected English": "English",
+                "Translation": "EN."
+            },
+            {
+                "ts": "2026-08-25 20:09:07",
+                "duration": 0.774,
+                "correct": true,
+                "Need Teanslate": "自习",
+                "Expected English": "Self-study",
+                "Translation": "self-study"
+            },
+            {
+                "ts": "2026-08-25 20:10:14",
+                "duration": 0.949,
+                "correct": true,
+                "Need Teanslate": "历史",
+                "Expected English": "History",
+                "Translation": "HISTORY"
+            },
+            {
+                "ts": "2026-08-25 20:26:48",
+                "duration": 0.731,
+                "correct": true,
+                "Need Teanslate": "美术",
+                "Expected English": "Art",
+                "Translation": "Art"
             }
         ],
         "bing": [
@@ -526,14 +526,46 @@
                 "Need Teanslate": "生物",
                 "Expected English": "Biology",
                 "Translation": "Biology"
+            },
+            {
+                "ts": "2026-08-25 20:03:29",
+                "duration": 1.213,
+                "correct": true,
+                "Need Teanslate": "英语",
+                "Expected English": "English",
+                "Translation": "English"
+            },
+            {
+                "ts": "2026-08-25 20:09:07",
+                "duration": 1.311,
+                "correct": true,
+                "Need Teanslate": "自习",
+                "Expected English": "Self-study",
+                "Translation": "self-study"
+            },
+            {
+                "ts": "2026-08-25 20:10:14",
+                "duration": 1.434,
+                "correct": true,
+                "Need Teanslate": "历史",
+                "Expected English": "History",
+                "Translation": "History"
+            },
+            {
+                "ts": "2026-08-25 20:26:48",
+                "duration": 1.671,
+                "correct": false,
+                "Need Teanslate": "美术",
+                "Expected English": "Art",
+                "Translation": "Fine Arts"
             }
         ]
     },
     "scores": {
         "youdao": 0.0,
-        "baidu": 14.90055,
-        "mymemory": 49.4671,
-        "bing": 79.2472
+        "baidu": 14.902125,
+        "mymemory": 54.48375000000001,
+        "bing": 77.04683333333334
     },
-    "updated_at": "2026-08-25 08:44:47"
+    "updated_at": "2026-08-25 20:26:48"
 }
