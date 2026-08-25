@@ -128,7 +128,7 @@ def _on_update_check_done(info, error: str,
 def _run_auto_update(info, current_version: str, app: QApplication) -> None:
     """执行自动更新：下载 → 校验 → 暂存 → 重启。"""
     logger.info("开始自动更新下载...")
-    progress: QProgressDialog = QProgressDialog('正在下载更新包…', None, 0, 0)
+    progress: QProgressDialog = QProgressDialog('正在下载更新包…', None, 0, 0) # type: ignore
     progress.setWindowTitle('软件更新')
     progress.setWindowModality(Qt.WindowModal)  # type: ignore
     progress.setCancelButton(None)

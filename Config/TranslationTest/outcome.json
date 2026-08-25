@@ -2,30 +2,6 @@
     "history": {
         "youdao": [
             {
-                "ts": "2026-08-23 08:10:28",
-                "duration": 0.247,
-                "correct": false,
-                "Need Teanslate": "地理",
-                "Expected English": "Geography",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 08:35:35",
-                "duration": 0.244,
-                "correct": false,
-                "Need Teanslate": "历史",
-                "Expected English": "History",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 08:56:46",
-                "duration": 0.263,
-                "correct": false,
-                "Need Teanslate": "数学",
-                "Expected English": "Mathematics",
-                "Translation": ""
-            },
-            {
                 "ts": "2026-08-23 09:23:17",
                 "duration": 0.278,
                 "correct": false,
@@ -160,33 +136,33 @@
                 "Need Teanslate": "语文",
                 "Expected English": "Chinese",
                 "Translation": ""
-            }
-        ],
-        "baidu": [
+            },
             {
-                "ts": "2026-08-23 08:10:28",
-                "duration": 0.217,
+                "ts": "2026-08-25 08:11:00",
+                "duration": 0.378,
                 "correct": false,
                 "Need Teanslate": "地理",
                 "Expected English": "Geography",
-                "Translation": "geography ; geographical features of a place"
+                "Translation": ""
             },
             {
-                "ts": "2026-08-23 08:35:35",
-                "duration": 0.196,
+                "ts": "2026-08-25 08:18:14",
+                "duration": 0.217,
                 "correct": false,
-                "Need Teanslate": "历史",
-                "Expected English": "History",
-                "Translation": "history; past records; annals"
+                "Need Teanslate": "音乐",
+                "Expected English": "Music",
+                "Translation": ""
             },
             {
-                "ts": "2026-08-23 08:56:46",
-                "duration": 0.189,
+                "ts": "2026-08-25 08:44:47",
+                "duration": 0.198,
                 "correct": false,
-                "Need Teanslate": "数学",
-                "Expected English": "Mathematics",
-                "Translation": "mathematics; math; maths ; arith"
-            },
+                "Need Teanslate": "生物",
+                "Expected English": "Biology",
+                "Translation": ""
+            }
+        ],
+        "baidu": [
             {
                 "ts": "2026-08-23 09:23:17",
                 "duration": 0.18,
@@ -322,33 +298,33 @@
                 "Need Teanslate": "语文",
                 "Expected English": "Chinese",
                 "Translation": "（中文） Chinese; （语言文字） language ; （语言和文学） language a"
-            }
-        ],
-        "mymemory": [
+            },
             {
-                "ts": "2026-08-23 08:10:28",
-                "duration": 0.776,
+                "ts": "2026-08-25 08:11:00",
+                "duration": 0.403,
                 "correct": false,
                 "Need Teanslate": "地理",
                 "Expected English": "Geography",
-                "Translation": "geographic"
+                "Translation": "geography ; geographical features of a place"
             },
             {
-                "ts": "2026-08-23 08:35:35",
-                "duration": 0.777,
-                "correct": true,
-                "Need Teanslate": "历史",
-                "Expected English": "History",
-                "Translation": "HISTORY"
-            },
-            {
-                "ts": "2026-08-23 08:56:46",
-                "duration": 0.901,
+                "ts": "2026-08-25 08:18:14",
+                "duration": 0.263,
                 "correct": false,
-                "Need Teanslate": "数学",
-                "Expected English": "Mathematics",
-                "Translation": "Math"
+                "Need Teanslate": "音乐",
+                "Expected English": "Music",
+                "Translation": "music; [电影]Ongaku"
             },
+            {
+                "ts": "2026-08-25 08:44:47",
+                "duration": 0.169,
+                "correct": false,
+                "Need Teanslate": "生物",
+                "Expected English": "Biology",
+                "Translation": "biology; organisms; living things; living beings"
+            }
+        ],
+        "mymemory": [
             {
                 "ts": "2026-08-23 09:23:17",
                 "duration": 0.783,
@@ -484,6 +460,30 @@
                 "Need Teanslate": "语文",
                 "Expected English": "Chinese",
                 "Translation": "Chinese"
+            },
+            {
+                "ts": "2026-08-25 08:11:00",
+                "duration": 0.893,
+                "correct": false,
+                "Need Teanslate": "地理",
+                "Expected English": "Geography",
+                "Translation": "geographic"
+            },
+            {
+                "ts": "2026-08-25 08:18:14",
+                "duration": 0.758,
+                "correct": true,
+                "Need Teanslate": "音乐",
+                "Expected English": "Music",
+                "Translation": "Music"
+            },
+            {
+                "ts": "2026-08-25 08:44:47",
+                "duration": 0.805,
+                "correct": false,
+                "Need Teanslate": "生物",
+                "Expected English": "Biology",
+                "Translation": "creatures"
             }
         ],
         "bing": [
@@ -502,14 +502,38 @@
                 "Need Teanslate": "语文",
                 "Expected English": "Chinese",
                 "Translation": "Chinese (Language)"
+            },
+            {
+                "ts": "2026-08-25 08:11:00",
+                "duration": 1.536,
+                "correct": true,
+                "Need Teanslate": "地理",
+                "Expected English": "Geography",
+                "Translation": "Geography"
+            },
+            {
+                "ts": "2026-08-25 08:18:14",
+                "duration": 1.652,
+                "correct": true,
+                "Need Teanslate": "音乐",
+                "Expected English": "Music",
+                "Translation": "Music"
+            },
+            {
+                "ts": "2026-08-25 08:44:47",
+                "duration": 1.509,
+                "correct": true,
+                "Need Teanslate": "生物",
+                "Expected English": "Biology",
+                "Translation": "Biology"
             }
         ]
     },
     "scores": {
         "youdao": 0.0,
-        "baidu": 14.906375,
-        "mymemory": 49.46715,
-        "bing": 49.29225
+        "baidu": 14.90055,
+        "mymemory": 49.4671,
+        "bing": 79.2472
     },
-    "updated_at": "2026-08-23 19:30:42"
+    "updated_at": "2026-08-25 08:44:47"
 }

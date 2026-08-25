@@ -459,6 +459,9 @@ class SettingsWindow(ThemedWidget):
         self._status_card: Optional[QFrame] = None
         self._table_frame: Optional[QFrame] = None
         self._add_dialog: Optional[TimetableEntryDialog] = None
+        # 当前加载的时间表 / 课程表名称标签
+        self._timetable_file_label: Optional[QLabel] = None
+        self._curriculum_file_label: Optional[QLabel] = None
 
         # 课程表编辑器引用
         self._curriculum_table: Optional[QTableWidget] = None
@@ -2331,6 +2334,14 @@ class SettingsWindow(ThemedWidget):
         new_btn.clicked.connect(self._on_new_timetable)
         btn_row.addWidget(new_btn)
 
+        # 当前加载的时间表名称标签
+        self._timetable_file_label = QLabel("")
+        self._timetable_file_label.setFont(QFont("Microsoft YaHei", 10))
+        self._timetable_file_label.setStyleSheet(
+            f"color: {fc}; background: transparent; opacity: 0.75;"
+        )
+        btn_row.addWidget(self._timetable_file_label)
+
         btn_row.addStretch()
 
         # 按钮样式
@@ -2338,17 +2349,20 @@ class SettingsWindow(ThemedWidget):
 
         tt_indent_layout.addLayout(btn_row)
 
-        # ---- 状态标签（卡片式）----
+        # ---- 提示标签（卡片式，不再显示状态）----
         self._status_card = QFrame()
         self._status_card.setStyleSheet(self._get_status_card_style())
         status_card_layout: QVBoxLayout = QVBoxLayout(self._status_card)
         status_card_layout.setContentsMargins(14, 10, 14, 10)
 
         self._status_label = QLabel(self._get_status_text())
-        self._status_label.setFont(QFont("Microsoft YaHei", 10))
+        status_font: QFont = QFont("Microsoft YaHei", 10)
+        status_font.setItalic(True)
+        self._status_label.setFont(status_font)
         self._status_label.setStyleSheet(
-            f"color: {fc}; background: transparent; border: none;"
+            f"color: {fc}; background: transparent; border: none; opacity: 0.75;"
         )
+        self._status_label.setWordWrap(True)
         status_card_layout.addWidget(self._status_label)
         tt_indent_layout.addWidget(self._status_card)
 
@@ -2359,9 +2373,10 @@ class SettingsWindow(ThemedWidget):
         table_frame_layout.setContentsMargins(1, 1, 1, 1)
 
         self._timetable_table = QTableWidget()
-        self._timetable_table.setColumnCount(4)
+        # 5 列：操作（上下键调序）+ 序号 + 类型 + 开始时间 + 结束时间
+        self._timetable_table.setColumnCount(5)
         self._timetable_table.setHorizontalHeaderLabels(
-            ["序号", "类型", "开始时间", "结束时间"]
+            ["操作", "序号", "类型", "开始时间", "结束时间"]
         )
         self._timetable_table.setSelectionBehavior(QAbstractItemView.SelectRows)  # type: ignore
         self._timetable_table.setEditTriggers(QAbstractItemView.NoEditTriggers)  # type: ignore
@@ -2371,6 +2386,11 @@ class SettingsWindow(ThemedWidget):
         self._timetable_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.Stretch  # type: ignore
         )
+        # 操作列（上下键新建并插入时间规则）固定宽度
+        self._timetable_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.Fixed  # type: ignore
+        )
+        self._timetable_table.setColumnWidth(0, 64)
         self._timetable_table.verticalHeader().setVisible(False)
         self._timetable_table.cellDoubleClicked.connect(self._on_entry_double_clicked)
         self._style_table()
@@ -2436,6 +2456,14 @@ class SettingsWindow(ThemedWidget):
         cv_new_btn.clicked.connect(self._on_new_curriculum)
         cv_btn_row.addWidget(cv_new_btn)
 
+        # 当前加载的课程表名称标签
+        self._curriculum_file_label = QLabel("")
+        self._curriculum_file_label.setFont(QFont("Microsoft YaHei", 10))
+        self._curriculum_file_label.setStyleSheet(
+            f"color: {fc}; background: transparent; opacity: 0.75;"
+        )
+        cv_btn_row.addWidget(self._curriculum_file_label)
+
         cv_btn_row.addStretch()
 
         # 按钮样式（与时间表按钮相同）
@@ -2443,17 +2471,20 @@ class SettingsWindow(ThemedWidget):
 
         cv_indent_layout.addLayout(cv_btn_row)
 
-        # ---- 状态标签（卡片式）----
+        # ---- 提示标签（卡片式，不再显示状态）----
         self._curriculum_status_card = QFrame()
         self._curriculum_status_card.setStyleSheet(self._get_status_card_style())
         cv_status_card_layout: QVBoxLayout = QVBoxLayout(self._curriculum_status_card)
         cv_status_card_layout.setContentsMargins(14, 10, 14, 10)
 
         self._curriculum_status_label = QLabel(self._get_curriculum_status_text())
-        self._curriculum_status_label.setFont(QFont("Microsoft YaHei", 10))
+        cv_status_font: QFont = QFont("Microsoft YaHei", 10)
+        cv_status_font.setItalic(True)
+        self._curriculum_status_label.setFont(cv_status_font)
         self._curriculum_status_label.setStyleSheet(
-            f"color: {fc}; background: transparent; border: none;"
+            f"color: {fc}; background: transparent; border: none; opacity: 0.75;"
         )
+        self._curriculum_status_label.setWordWrap(True)
         cv_status_card_layout.addWidget(self._curriculum_status_label)
         cv_indent_layout.addWidget(self._curriculum_status_card)
 
@@ -2543,7 +2574,9 @@ class SettingsWindow(ThemedWidget):
 
         # ---- 提示（斜体小字）----
         dr_hint: QLabel = QLabel(
-            "提示：从上到下优先级依次降低；点击规则可编辑，"
+            "提示：一年多个作息来回设置很麻烦？那来试试显示规则吧，"
+            "可在不同时段使用不同的时间表和课程表。"
+            "从上到下优先级依次降低；点击规则可编辑，"
             "使用规则左侧的上下键调整优先级。"
         )
         dr_hint_font: QFont = QFont("Microsoft YaHei", 9)
@@ -2693,21 +2726,11 @@ class SettingsWindow(ThemedWidget):
         return scroll
 
     # ================================================================
-    #  状态文本
+    #  提示文本
     # ================================================================
     def _get_status_text(self) -> str:
-        """生成当前状态标签文字。"""
-        if self._schedule_data is None:
-            return "状态：未加载数据"
-        path: str = self._editing_timetable_path or self._schedule_data.timetable_path
-        fname: str = os.path.basename(path) if path else "未知"
-        count: int = (
-            len(self._editing_timetable_data)
-            if self._editing_timetable_data
-            else len(self._schedule_data.timetable_data)
-        )
-        prefix: str = "[编辑中] " if self._has_unsaved_changes else ""
-        return f"{prefix}状态：已加载 {fname}（共 {count} 条）"
+        """返回时间表区域的固定提示文字（不再显示状态）。"""
+        return "提示：点击新建创建新的时间表，根据您当前的作息定制时间表"
 
     # ================================================================
     #  编辑副本管理
@@ -2725,6 +2748,8 @@ class SettingsWindow(ThemedWidget):
             self._editing_curriculum_path = self._schedule_data.curriculum_path
             self._has_unsaved_changes = False
             self._refresh_apply_button()
+            self._refresh_timetable_file_label()
+            self._refresh_curriculum_file_label()
             logger.info("编辑副本已从共享数据初始化")
         else:
             self._editing_timetable_data = {}
@@ -2732,6 +2757,8 @@ class SettingsWindow(ThemedWidget):
             self._editing_timetable_path = ''
             self._editing_curriculum_path = ''
             self._has_unsaved_changes = False
+            self._refresh_timetable_file_label()
+            self._refresh_curriculum_file_label()
 
     def _font_is_dirty(self) -> bool:
         """判断字体下拉框的当前选择是否与已应用字体不同。"""
@@ -3493,9 +3520,29 @@ class SettingsWindow(ThemedWidget):
             self._refresh_event_rules()
 
     def _refresh_status_label(self) -> None:
-        """刷新时间表状态标签文字。"""
+        """刷新时间表提示标签文字。"""
         if self._status_label is not None:
             self._status_label.setText(self._get_status_text())
+
+    def _refresh_timetable_file_label(self) -> None:
+        """刷新「当前加载的时间表」名称标签。"""
+        if self._timetable_file_label is None:
+            return
+        path: str = self._editing_timetable_path or (
+            self._schedule_data.timetable_path if self._schedule_data else ''
+        )
+        fname: str = os.path.basename(path) if path else '未加载'
+        self._timetable_file_label.setText(f"当前时间表：{fname}")
+
+    def _refresh_curriculum_file_label(self) -> None:
+        """刷新「当前加载的课程表」名称标签。"""
+        if self._curriculum_file_label is None:
+            return
+        path: str = self._editing_curriculum_path or (
+            self._schedule_data.curriculum_path if self._schedule_data else ''
+        )
+        fname: str = os.path.basename(path) if path else '未加载'
+        self._curriculum_file_label.setText(f"当前课程表：{fname}")
 
     # ================================================================
     #  科目编辑 — 数据加载与渲染
@@ -3910,7 +3957,7 @@ class SettingsWindow(ThemedWidget):
 
     def _set_table_row(self, row: int, seq: str, etype: str,
                        start: str, end: str, key: str) -> None:
-        """填充表格的一行数据。"""
+        """填充表格的一行数据（第 0 列为上下键操作列，第 1-4 列为数据列）。"""
         items = [
             (seq, seq),
             (etype, etype),
@@ -3919,14 +3966,21 @@ class SettingsWindow(ThemedWidget):
         ]
         fc: str = self._theme.font_color
 
-        for col, (text, _data) in enumerate(items):
+        for col, (text, _data) in enumerate(items, start=1):
             item: QTableWidgetItem = QTableWidgetItem(text)
             item.setTextAlignment(Qt.AlignCenter)  # type: ignore
             item.setForeground(QColor(fc))  # type: ignore
-            # 在第一列存储 key 用于编辑时检索
-            if col == 0:
+            # 在序号列存储 key 用于编辑时检索
+            if col == 1:
                 item.setData(Qt.UserRole, key)  # type: ignore
             self._timetable_table.setItem(row, col, item)  # type: ignore
+
+        # 操作列：上下键（新建并插入一条时间规则）
+        self._timetable_table.setCellWidget(
+            row, 0, self._make_entry_arrow_cell(row)
+        )
+        if self._timetable_table.rowHeight(row) < 34:
+            self._timetable_table.setRowHeight(row, 34)
 
     @staticmethod
     def _fmt_time(time_str: str) -> str:
@@ -4128,6 +4182,7 @@ class SettingsWindow(ThemedWidget):
             self._has_unsaved_changes = True
             self._refresh_table()
             self._refresh_status_label()
+            self._refresh_timetable_file_label()
             self._refresh_apply_button()
             logger.info(f"时间表已加载至编辑副本：{rel_path}")
         except Exception as e:
@@ -4186,6 +4241,7 @@ class SettingsWindow(ThemedWidget):
             self._has_unsaved_changes = True
             self._refresh_table()
             self._refresh_status_label()
+            self._refresh_timetable_file_label()
             self._refresh_apply_button()
         except Exception as e:
             logger.error(f"加载新时间表到编辑副本失败：{e}")
@@ -4195,7 +4251,7 @@ class SettingsWindow(ThemedWidget):
     # ================================================================
     def _on_entry_double_clicked(self, row: int, _col: int) -> None:
         """双击表格行，打开编辑对话框。"""
-        item: Optional[QTableWidgetItem] = self._timetable_table.item(row, 0) # type: ignore
+        item: Optional[QTableWidgetItem] = self._timetable_table.item(row, 1) # type: ignore
         if item is None:
             return
 
@@ -4259,33 +4315,42 @@ class SettingsWindow(ThemedWidget):
             if self._editing_timetable_data
             else self._schedule_data.timetable_data  # type: ignore
         )
+
         last_end_minutes: Optional[int] = None
         for key in data:
             if key.startswith('lesson_'):
                 val = data[key]
                 if isinstance(val, list) and len(val) >= 2:
-                    try:
-                        parts = val[1].split(':')
-                        h, m = int(parts[0]), int(parts[1])
-                        end_mins = h * 60 + m
+                    end_mins = self._time_to_minutes(val[1])
+                    if end_mins is not None:
                         if last_end_minutes is None or end_mins > last_end_minutes:
                             last_end_minutes = end_mins
-                    except (ValueError, IndexError):
-                        pass
 
         if last_end_minutes is None:
             # 无现有课时，默认 7:00–7:40
             return '07:00', '07:40'
 
-        # 开始时间 = 最后结束时间 + 10 分钟
-        start_mins: int = last_end_minutes + 10
+        return self._times_after(last_end_minutes)
+
+    @staticmethod
+    def _time_to_minutes(time_str: str) -> Optional[int]:
+        """将 'HH:MM:SS' 或 'HH:MM' 转换为分钟数；非法返回 None。"""
+        try:
+            parts = time_str.split(':')
+            return int(parts[0]) * 60 + int(parts[1])
+        except (ValueError, IndexError):
+            return None
+
+    @staticmethod
+    def _times_after(end_minutes: int) -> tuple:
+        """根据上一节结束分钟数计算默认起止时间（+10 分钟开始，+40 分钟结束）。"""
+        start_mins: int = end_minutes + 10
         start_h: int = (start_mins // 60) % 24
         start_m: int = start_mins % 60
 
-        # 结束时间 = 开始时间 + 40 分钟
-        end_mins: int = start_mins + 40
-        end_h: int = (end_mins // 60) % 24
-        end_m: int = end_mins % 60
+        end_mins2: int = start_mins + 40
+        end_h: int = (end_mins2 // 60) % 24
+        end_m: int = end_mins2 % 60
 
         return f"{start_h:02d}:{start_m:02d}", f"{end_h:02d}:{end_m:02d}"
 
@@ -4331,7 +4396,7 @@ class SettingsWindow(ThemedWidget):
                         pass
             next_num: int = max(lesson_nums) + 1 if lesson_nums else 1
             new_key: str = f"lesson_{next_num}"
-            data[new_key] = [
+            new_value: list = [
                 f"{start_time}:00",
                 f"{end_time}:00",
             ]
@@ -4345,7 +4410,9 @@ class SettingsWindow(ThemedWidget):
                         pass
             next_num = max(div_nums) + 1 if div_nums else 1
             new_key = f"dividerline_{next_num}"
-            data[new_key] = "-"
+            new_value = "-"
+
+        data[new_key] = new_value
 
         self._has_unsaved_changes = True
         self._save_editing_timetable_file()
@@ -4368,29 +4435,81 @@ class SettingsWindow(ThemedWidget):
             )
 
     # ================================================================
-    #  课程表 — 状态文本
+    #  时间表 — 操作列上下键（移动行调序）
+    # ================================================================
+    def _make_entry_arrow_cell(self, row: int) -> QWidget:
+        """创建条目操作列控件：▲（该行上移）/ ▼（该行下移）。"""
+        cell: QWidget = QWidget()
+        cell.setStyleSheet("background: transparent;")
+        layout: QHBoxLayout = QHBoxLayout(cell)
+        layout.setContentsMargins(2, 0, 2, 0)
+        layout.setSpacing(2)
+        layout.setAlignment(Qt.AlignCenter)  # type: ignore
+
+        up_btn: QPushButton = QPushButton('▲')
+        down_btn: QPushButton = QPushButton('▼')
+        for btn in (up_btn, down_btn):
+            btn.setFixedSize(24, 24)
+            btn.setFont(QFont('Arial', 9, QFont.Bold))  # type: ignore
+            btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+            btn.setStyleSheet(self._get_entry_arrow_style())
+        up_btn.setToolTip('上移该行')
+        down_btn.setToolTip('下移该行')
+        up_btn.clicked.connect(lambda: self._on_move_entry(row, -1))
+        down_btn.clicked.connect(lambda: self._on_move_entry(row, 1))
+
+        layout.addWidget(up_btn)
+        layout.addWidget(down_btn)
+        return cell
+
+    def _get_entry_arrow_style(self) -> str:
+        """返回操作列上下键按钮的 QSS 样式（与显示规则上下键一致）。"""
+        theme = self._theme
+        fc: str = theme.font_color
+        if theme.theme == 'darkcolor':
+            arrow_bg: str = 'rgba(255, 255, 255, 0.06)'
+            arrow_hover: str = 'rgba(255, 255, 255, 0.12)'
+        else:
+            arrow_bg = 'rgba(0, 0, 0, 0.04)'
+            arrow_hover = 'rgba(0, 0, 0, 0.10)'
+        return (
+            f'QPushButton {{ background-color: {arrow_bg}; color: {fc};'
+            f' border: none; border-radius: 4px; }}'
+            f'QPushButton:hover {{ background-color: {arrow_hover}; }}'
+        )
+
+    def _on_move_entry(self, row: int, direction: int) -> None:
+        """操作列上下键：将该行时间规则整体上移（-1）或下移（+1），并直接保存。"""
+        item: Optional[QTableWidgetItem] = self._timetable_table.item(row, 1)  # type: ignore
+        key: Optional[str] = item.data(Qt.UserRole) if item is not None else None  # type: ignore
+        data: Dict = (
+            self._editing_timetable_data
+            if self._editing_timetable_data
+            else self._schedule_data.timetable_data  # type: ignore
+        )
+        if not data or key is None or key not in data:
+            return
+        keys: List[str] = list(data.keys())
+        idx: int = keys.index(key)
+        new_idx: int = idx + direction
+        if new_idx < 0 or new_idx >= len(keys):
+            return  # 已在最上/最下，无需移动
+        items: List[tuple] = list(data.items())
+        items[idx], items[new_idx] = items[new_idx], items[idx]
+        self._editing_timetable_data = dict(items)
+
+        self._has_unsaved_changes = True
+        self._save_editing_timetable_file()
+        self._refresh_table()
+        self._refresh_status_label()
+        self._refresh_apply_button()
+
+    # ================================================================
+    #  课程表 — 提示文本
     # ================================================================
     def _get_curriculum_status_text(self) -> str:
-        """生成课程表状态标签文字。"""
-        if self._schedule_data is None:
-            return "状态：未加载数据"
-        path: str = self._editing_curriculum_path or self._schedule_data.curriculum_path
-        fname: str = os.path.basename(path) if path else "未知"
-        # 统计总科目数（所有天的非空科目之和）
-        src = (
-            self._editing_curriculum_data
-            if self._editing_curriculum_data
-            else self._schedule_data.curriculum_data
-        )
-        total_subjects: int = 0
-        for day_data in src.values():
-            if isinstance(day_data, dict):
-                total_subjects += len([
-                    v for v in day_data.values()
-                    if v and isinstance(v, str) and v.strip()
-                ])
-        prefix: str = "[编辑中] " if self._has_unsaved_changes else ""
-        return f"{prefix}状态：已加载 {fname}（共 {total_subjects} 个科目设置）"
+        """返回课程表区域的固定提示文字（不再显示状态）。"""
+        return "提示：请加载您刚编辑好的时间表，并以此为模板统一设置课程表"
 
     # ================================================================
     #  课程表 — 刷新表格
@@ -5250,6 +5369,7 @@ class SettingsWindow(ThemedWidget):
             self._has_unsaved_changes = True
             self._refresh_curriculum_table()
             self._refresh_curriculum_status()
+            self._refresh_curriculum_file_label()
             self._refresh_apply_button()
             logger.info(f"课程表已加载至编辑副本：{rel_path}")
         except Exception as e:
@@ -5318,6 +5438,7 @@ class SettingsWindow(ThemedWidget):
             self._has_unsaved_changes = True
             self._refresh_curriculum_table()
             self._refresh_curriculum_status()
+            self._refresh_curriculum_file_label()
             self._refresh_apply_button()
         except Exception as e:
             logger.error(f"加载新课程表到编辑副本失败：{e}")
@@ -5382,7 +5503,7 @@ class SettingsWindow(ThemedWidget):
     #  课程表 — 刷新状态
     # ================================================================
     def _refresh_curriculum_status(self) -> None:
-        """刷新课程表状态标签文字。"""
+        """刷新课程表提示标签文字。"""
         if self._curriculum_status_label is not None:
             self._curriculum_status_label.setText(
                 self._get_curriculum_status_text()
@@ -5458,12 +5579,23 @@ class SettingsWindow(ThemedWidget):
             self._status_card.setStyleSheet(self._get_status_card_style())
         if self._status_label is not None:
             self._status_label.setStyleSheet(
-                f"color: {self._theme.font_color}; background: transparent; border: none;"
+                f"color: {self._theme.font_color}; background: transparent; border: none; opacity: 0.75;"
+            )
+        if self._timetable_file_label is not None:
+            self._timetable_file_label.setStyleSheet(
+                f"color: {self._theme.font_color}; background: transparent; opacity: 0.75;"
             )
         if self._table_frame is not None:
             self._table_frame.setStyleSheet(self._get_table_frame_style())
         if self._timetable_table is not None:
             self._style_table()
+            # 刷新操作列上下键按钮样式（跟随主题切换）
+            arrow_qss: str = self._get_entry_arrow_style()
+            for r in range(self._timetable_table.rowCount()):
+                w = self._timetable_table.cellWidget(r, 0)
+                if w is not None:
+                    for btn in w.findChildren(QPushButton):
+                        btn.setStyleSheet(arrow_qss)
         # 刷新课程表 UI
         if self._curriculum_status_card is not None:
             self._curriculum_status_card.setStyleSheet(
@@ -5471,7 +5603,11 @@ class SettingsWindow(ThemedWidget):
             )
         if self._curriculum_status_label is not None:
             self._curriculum_status_label.setStyleSheet(
-                f"color: {self._theme.font_color}; background: transparent; border: none;"
+                f"color: {self._theme.font_color}; background: transparent; border: none; opacity: 0.75;"
+            )
+        if self._curriculum_file_label is not None:
+            self._curriculum_file_label.setStyleSheet(
+                f"color: {self._theme.font_color}; background: transparent; opacity: 0.75;"
             )
         if self._curriculum_table_frame is not None:
             self._curriculum_table_frame.setStyleSheet(
