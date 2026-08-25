@@ -7,16 +7,17 @@
 ═══════════════════════════════════════════════════════════════════════════
 实现完整的"自动更新"能力：
 
-  1. 从 GitHub 更新仓库拉取版本清单 latest.json（多镜像源自动切换）
+  1. 从 Gitee 更新仓库拉取版本清单 latest.json（多镜像源自动切换）
   2. 与当前版本比较，决定是否需要更新、走全量包还是差分包
   3. 下载更新包（带进度回调）+ SHA-256 完整性校验
   4. 解压暂存 → 交给隐藏的 PowerShell 更新器脚本（apply_update.ps1）
      在程序退出后替换程序文件（main.exe 及各 DLL/.pyd），随后自动重启
 
-更新仓库布局（WenJin6470/Schedule4.0-Update）：
+更新仓库布局（zhao-chenyu-8633/Schedule4.0-Update）：
   latest.json                    ← 版本清单（始终指向最新版）
   updates/<版本号>/
     update-<版本号>-full.zip     ← 全量更新包（全部程序文件）
+    update-<版本号>-full.zip.partNNN ← 全量包分片（Gitee raw 大文件直链限制时自动分片）
     update-<版本号>-delta.zip    ← 差分更新包（仅变化的文件，可选）
     manifest.json                ← 该版本的完整文件清单（含 SHA-256）
 
@@ -25,8 +26,8 @@
     绝不包含 Config/（用户数据）、log/、images/（背景图）。
   - 差分包优先：当清单声明 delta.from == 当前版本时下载差分包，
     否则回退全量包。
-  - 多镜像源：raw.githubusercontent.com → jsDelivr CDN → github.com，
-    任一可达即用，适配国内网络。
+  - 多镜像源：Gitee raw 直链（国内节点，可达性好），失败自动降级，
+    适配国内网络。
   - 所有网络请求设置 UA 与超时，失败静默降级，绝不影响课表主功能。
 """
 
@@ -52,20 +53,16 @@ logger: logging.Logger = logging.getLogger(__name__)
 # ================================================================
 #  ★ 更新仓库配置 ★
 # ================================================================
-UPDATE_REPO_OWNER: str = "WenJin6470"
+UPDATE_REPO_OWNER: str = "zhao-chenyu-8633"
 UPDATE_REPO_NAME: str = "Schedule4.0-Update"
 UPDATE_REPO_BRANCH: str = "main"
 MANIFEST_NAME: str = "latest.json"
 
 # 多镜像源（按顺序尝试，第一个成功的即采用）
-# 国内网络下 raw.githubusercontent.com 常被阻断，故 jsDelivr 多节点优先；
-# 更新仓库必须为 Public，jsDelivr / raw 才能匿名访问。
+# Gitee raw 直链为国内节点，可达性好；更新仓库必须为 Public 才能匿名访问。
+# 后续如需增强容灾，可在此追加其它镜像（如 Cloudflare R2 自定义域名直链）。
 BASE_URLS: List[str] = [
-    f"https://cdn.jsdelivr.net/gh/{UPDATE_REPO_OWNER}/{UPDATE_REPO_NAME}@{UPDATE_REPO_BRANCH}/",
-    f"https://fastly.jsdelivr.net/gh/{UPDATE_REPO_OWNER}/{UPDATE_REPO_NAME}@{UPDATE_REPO_BRANCH}/",
-    f"https://gcore.jsdelivr.net/gh/{UPDATE_REPO_OWNER}/{UPDATE_REPO_NAME}@{UPDATE_REPO_BRANCH}/",
-    f"https://raw.githubusercontent.com/{UPDATE_REPO_OWNER}/{UPDATE_REPO_NAME}/{UPDATE_REPO_BRANCH}/",
-    f"https://github.com/{UPDATE_REPO_OWNER}/{UPDATE_REPO_NAME}/raw/{UPDATE_REPO_BRANCH}/",
+    f"https://gitee.com/{UPDATE_REPO_OWNER}/{UPDATE_REPO_NAME}/raw/{UPDATE_REPO_BRANCH}/",
 ]
 
 HTTP_TIMEOUT: int = 30
@@ -104,10 +101,12 @@ class UpdateInfo:
     full_url: str = ''
     full_sha256: str = ''
     full_size: int = 0
+    full_parts: List[Dict[str, Any]] = field(default_factory=list)  # [{url, sha256, size}]
     delta_from: Optional[str] = None
     delta_url: Optional[str] = None
     delta_sha256: Optional[str] = None
     delta_size: int = 0
+    delta_parts: List[Dict[str, Any]] = field(default_factory=list)  # [{url, sha256, size}]
     files: List[Dict[str, Any]] = field(default_factory=list)  # [{path, sha256, size}]
 
     @staticmethod
@@ -120,10 +119,12 @@ class UpdateInfo:
             full_url=str(full.get('url', '')),
             full_sha256=str(full.get('sha256', '')),
             full_size=int(full.get('size', 0) or 0),
+            full_parts=list(full.get('parts') or []),
             delta_from=str(delta.get('from')) if delta.get('from') else None,
             delta_url=str(delta.get('url', '')),
             delta_sha256=str(delta.get('sha256', '')),
             delta_size=int(delta.get('size', 0) or 0),
+            delta_parts=list(delta.get('parts') or []),
             files=list(data.get('files') or []),
         )
 
@@ -149,11 +150,19 @@ def fetch_json(url: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _abs_url(base: str, url: str) -> str:
+    """把清单里的相对路径补全为绝对 URL（下载阶段需要完整地址）。"""
+    if url.startswith('http://') or url.startswith('https://'):
+        return url
+    return base + url.lstrip('/')
+
+
 def fetch_manifest() -> Tuple[Optional[UpdateInfo], Optional[str]]:
     """
     按镜像顺序拉取最新清单。
     ------------------------
     返回 (UpdateInfo|None, error|None)。
+    清单内的相对 URL 会基于成功拉取的镜像源补全为绝对地址。
     """
     last_error: str = ''
     for base in BASE_URLS:
@@ -161,7 +170,16 @@ def fetch_manifest() -> Tuple[Optional[UpdateInfo], Optional[str]]:
         data = fetch_json(url)
         if data is not None:
             logger.info(f"更新清单拉取成功：{url}")
-            return UpdateInfo.from_dict(data), None
+            info: UpdateInfo = UpdateInfo.from_dict(data)
+            if info.full_url:
+                info.full_url = _abs_url(base, info.full_url)
+            if info.delta_url:
+                info.delta_url = _abs_url(base, info.delta_url)
+            for part in info.full_parts:
+                part['url'] = _abs_url(base, str(part.get('url', '')))
+            for part in info.delta_parts:
+                part['url'] = _abs_url(base, str(part.get('url', '')))
+            return info, None
         last_error = f"所有镜像源均不可达（最后尝试：{url}）"
     return None, last_error
 
@@ -207,20 +225,74 @@ def download_file(url: str, dest: str,
         return False
 
 
+def download_payload(payload: Dict[str, Any], dest: str,
+                     progress_cb: Optional[Callable[[int, int], None]] = None) -> bool:
+    """
+    下载更新包到 dest。
+    ------------------
+    payload 可为 {'url', 'sha256', 'size'}（单体文件）
+    或 {'parts': [{url, sha256, size}...], 'sha256', 'size'}（分片下载后合并，
+    合并结果即完整 zip，仍按 sha256 校验）。成功返回 True。
+    """
+    parts: List[Dict[str, Any]] = list(payload.get('parts') or [])
+    if parts:
+        total: int = sum(int(p.get('size') or 0) for p in parts)
+        done: int = 0
+        part_files: List[str] = []
+        try:
+            for i, part in enumerate(parts):
+                part_path: str = f"{dest}.part{i + 1}"
+                part_files.append(part_path)
+                base_done: int = done
+
+                def part_cb(d: int, t: int, _base: int = base_done) -> None:
+                    if progress_cb is not None:
+                        progress_cb(_base + d, total)
+
+                if not download_file(str(part.get('url', '')), part_path, part_cb):
+                    return False
+                done += int(part.get('size') or 0)
+            # 按序合并分片为完整 zip
+            with open(dest, 'wb') as out:
+                for pf in part_files:
+                    with open(pf, 'rb') as f:
+                        shutil.copyfileobj(f, out, 1024 * 1024)
+            return True
+        except OSError as exc:
+            logger.error(f"合并分片失败：{exc}")
+            return False
+        finally:
+            for pf in part_files:
+                try:
+                    if os.path.exists(pf):
+                        os.remove(pf)
+                except OSError:
+                    pass
+    url: str = str(payload.get('url') or '')
+    if not url:
+        logger.error("更新包清单缺少 url 与 parts")
+        return False
+    return download_file(url, dest, progress_cb)
+
+
 # ================================================================
 #  更新包选择 / 暂存 / 应用
 # ================================================================
-def pick_payload(info: UpdateInfo, current_version: str) -> Tuple[str, str, int, bool]:
+def pick_payload(info: UpdateInfo, current_version: str) -> Tuple[Dict[str, Any], bool]:
     """
     根据当前版本选择下载目标。
     --------------------------
-    返回 (url, sha256, size, is_delta)。
+    返回 (payload, is_delta)。payload 形如：
+      {'url': ..., 'sha256': ..., 'size': ...} 或
+      {'parts': [{url, sha256, size}...], 'sha256': ..., 'size': ...}
     清单声明 delta.from == 当前版本 → 用差分包；否则用全量包。
     """
     if (info.delta_from is not None and info.delta_url
             and parse_version(info.delta_from) == parse_version(current_version)):
-        return info.delta_url, info.delta_sha256, info.delta_size, True
-    return info.full_url, info.full_sha256, info.full_size, False
+        return {'url': info.delta_url, 'sha256': info.delta_sha256,
+                'size': info.delta_size, 'parts': info.delta_parts}, True
+    return {'url': info.full_url, 'sha256': info.full_sha256,
+            'size': info.full_size, 'parts': info.full_parts}, False
 
 
 def _verify_staged_files(stage_dir: str, files: List[Dict[str, Any]]) -> Tuple[bool, str]:
@@ -439,20 +511,26 @@ class UpdateWorker(QThread):
         app_dir: str = app_root()
         try:
             # 1. 选择下载目标
-            url, sha256, size, is_delta = pick_payload(self._info, self._current_version)
-            logger.info(f"开始下载更新包（{'差分' if is_delta else '全量'}）：{url}")
+            payload, is_delta = pick_payload(self._info, self._current_version)
+            show_url: str = str(payload.get('url') or '')
+            if not show_url:
+                part_list: List[Dict[str, Any]] = list(payload.get('parts') or [])
+                if part_list:
+                    show_url = str(part_list[0].get('url', ''))
+            logger.info(f"开始下载更新包（{'差分' if is_delta else '全量'}）：{show_url}")
 
-            # 2. 下载（带进度）
+            # 2. 下载（带进度；大文件按分片下载后合并）
             tmp_zip: str = os.path.join(app_dir, '_update_tmp.zip')
             if os.path.exists(tmp_zip):
                 os.remove(tmp_zip)
-            ok: bool = download_file(url, tmp_zip, self.progress.emit)
+            ok: bool = download_payload(payload, tmp_zip, self.progress.emit)
             if not ok:
                 self.apply_done.emit(False, "下载更新包失败，请检查网络后重试")
                 return
 
             # 3. 校验 SHA-256
             actual: str = sha256_file(tmp_zip)
+            sha256: str = str(payload.get('sha256') or '')
             if sha256 and actual.lower() != sha256.lower():
                 logger.error(f"SHA-256 校验失败：期望 {sha256}，实际 {actual}")
                 self.apply_done.emit(False, "更新包校验失败（文件可能被篡改），已中止")

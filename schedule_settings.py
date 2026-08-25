@@ -559,7 +559,7 @@ class SettingsWindow(ThemedWidget):
         # KnotLink 信号表格引用（事件新建确认后刷新信号列表时使用）
         self._knotlink_signal_table: Optional[QTableWidget] = None
 
-        # ---- 软件更新（GitHub 自动更新）引用 ----
+        # ---- 软件更新（Gitee 自动更新）引用 ----
         self._update_version_label: Optional[QLabel] = None
         self._update_status_label: Optional[QLabel] = None
         self._update_notes_label: Optional[QLabel] = None
@@ -749,7 +749,7 @@ class SettingsWindow(ThemedWidget):
         self._stack.addWidget(self._create_timetable_editor_page())
         # 页面 3：KnotLink（openSocket 接口规则 + signal 信号规则）
         self._stack.addWidget(self._create_knotlink_page())
-        # 页面 4：软件更新（检查 / 下载 / 应用 GitHub 自动更新）
+        # 页面 4：软件更新（检查 / 下载 / 应用 Gitee 自动更新）
         self._stack.addWidget(self._create_update_page())
         # 页面 5：关于
         self._stack.addWidget(self._create_about_page())
@@ -813,7 +813,7 @@ class SettingsWindow(ThemedWidget):
         -------------------
         功能：
           - 展示当前版本 / 最新版本 / 更新状态
-          - 「检查更新」：从 GitHub 更新仓库拉取 latest.json（多镜像）
+          - 「检查更新」：从 Gitee 更新仓库拉取 latest.json（多镜像）
           - 「立即更新」：下载更新包（带进度）→ 校验 → 自动重启完成更新
         说明：
           - 更新只替换程序文件（main.exe + _internal/），
@@ -967,7 +967,7 @@ class SettingsWindow(ThemedWidget):
         # ---- 提示文字 ----
         hint_label: QLabel = QLabel(
             "提示：更新仅替换程序文件，您的课表数据、设置与背景图不会受到影响；"
-            "更新完成后程序会自动重启。若自动更新不可用，可前往 GitHub 手动下载。"
+            "更新完成后程序会自动重启。若自动更新不可用，可前往 Gitee 仓库手动下载。"
         )
         hint_label.setFont(QFont("Microsoft YaHei", 9))
         hint_label.setStyleSheet(
@@ -988,7 +988,7 @@ class SettingsWindow(ThemedWidget):
             return
         self._set_update_ui_busy(True)
         self._update_status_label.setText("正在检查更新…")
-        self._update_notes_label.setText("正在从 GitHub 更新仓库获取最新版本信息…")
+        self._update_notes_label.setText("正在从 Gitee 更新仓库获取最新版本信息…")
         self._update_apply_btn.setEnabled(False)
 
         worker: UpdateWorker = UpdateWorker(
@@ -1096,7 +1096,7 @@ class SettingsWindow(ThemedWidget):
             self._set_update_ui_busy(False)
             self._update_progress.setVisible(False)
             self._update_status_label.setText(f"更新失败：{error}")
-            self._update_notes_label.setText("可稍后重试，或前往 GitHub 手动下载。")
+            self._update_notes_label.setText("可稍后重试，或前往 Gitee 仓库手动下载。")
             self._update_apply_btn.setEnabled(True)
 
     def _set_update_ui_busy(self, busy: bool) -> None:

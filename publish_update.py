@@ -11,9 +11,10 @@
   3. 生成更新包（仅含程序文件 main.exe + _internal/）：
        - 全量包  update-<版本>-full.zip
        - 差分包  update-<版本>-delta.zip（与上一版本对比，只打包变化的文件）
+       （超过 Gitee raw 直链限制的大文件自动切成 .partNNN 分片存储）
   4. 生成版本清单 latest.json（版本号 / 下载地址 / SHA-256 / 文件清单）
   5. 写入本地更新仓库 update_repo/ 并提交；--push 时推送到
-     https://github.com/WenJin6470/Schedule4.0-Update.git
+     https://gitee.com/zhao-chenyu-8633/Schedule4.0-Update.git
 
 📌 用法
 ═══════════════════════════════════════════════════════════════════════════
@@ -21,13 +22,13 @@
   参数：
     --version    必填，本次发布版本号（如 4.1.0）
     --notes      可选，更新说明（写入 latest.json 的 notes）
-    --push       可选，推送到 GitHub 更新仓库（需已配置 git 凭据）
+    --push       可选，推送到 Gitee 更新仓库（需已配置 git 凭据）
     --skip-build 可选，跳过 Nuitka 构建（复用 build/main.dist 已有产物）
 
 📌 依赖
 ═══════════════════════════════════════════════════════════════════════════
   - 本机已安装 Nuitka（venv 内）与 C 编译器（MSVC / MinGW64）
-  - 发布机器需能访问 GitHub（推送时）
+  - 发布机器需能访问 Gitee（推送时）
 """
 
 import argparse
@@ -62,13 +63,18 @@ ICON: Path = CODE_DIR / 'images' / 'Icons' / 'DAILY_SCHEDULE.ico'
 # （首次使用需在其中准备 venv：把 Code/venv 复制过去即可）。
 BUILD_ROOT: Path = Path(os.environ.get('SCHEDULE_BUILD_ROOT', r'D:\Schedule4Build'))
 
-UPDATE_REPO_URL: str = 'https://github.com/WenJin6470/Schedule4.0-Update.git'
+UPDATE_REPO_URL: str = 'https://gitee.com/zhao-chenyu-8633/Schedule4.0-Update.git'
 UPDATE_BRANCH: str = 'main'
 
 # 更新包只包含程序文件（不包含 Config / images / log）
 # Nuitka 4.x standalone 为扁平布局：程序文件 = dist 根下除数据目录外的全部条目
 # （main.exe + 各 DLL/.pyd + PySide6/ + shiboken6/）
 PAYLOAD_EXCLUDES: List[str] = ['Config', 'images']
+
+# Gitee raw 直链对超大单文件返回 403，超过阈值的更新包按字节切成 .partNNN 分片
+# 存入仓库，客户端逐片下载后合并（合并结果哈希不变）。分片大小留足余量。
+CHUNK_THRESHOLD: int = 10 * 1024 * 1024  # 超过 10MB 即分片
+CHUNK_SIZE: int = 8 * 1024 * 1024        # 每个分片 8MB
 
 
 def list_program_parts(dist: Path) -> List[str]:
@@ -80,8 +86,8 @@ def list_program_parts(dist: Path) -> List[str]:
     return parts
 
 MIRROR_HINTS: str = (
-    "更新包已生成，推送到 GitHub 后用户即可通过以下镜像源获取：\n"
-    "  raw.githubusercontent.com / cdn.jsdelivr.net / github.com raw"
+    "更新包已生成，推送到 Gitee 后用户即可通过以下地址获取：\n"
+    "  https://gitee.com/zhao-chenyu-8633/Schedule4.0-Update/raw/main/"
 )
 
 
@@ -154,6 +160,46 @@ def zip_payload(dist: Path, out_zip: Path, selected: List[str]) -> None:
             elif src.is_file():
                 zf.write(src, rel)
     print(f"已生成更新包：{out_zip}（{out_zip.stat().st_size / 1024 / 1024:.1f} MB）")
+
+
+def split_file(path: Path, chunk_size: int) -> List[Path]:
+    """把大文件按字节切成 .partNNN 分片，返回分片路径列表（已写入磁盘）。"""
+    parts: List[Path] = []
+    idx: int = 1
+    with open(path, 'rb') as f:
+        while True:
+            chunk: bytes = f.read(chunk_size)
+            if not chunk:
+                break
+            part: Path = path.with_name(f"{path.name}.part{idx:03d}")
+            part.write_bytes(chunk)
+            parts.append(part)
+            idx += 1
+    return parts
+
+
+def make_payload_entry(zip_path: Path, url_prefix: str, sha: str) -> Dict:
+    """
+    构造清单中的 full/delta 条目。
+    ------------------------------
+    小文件（≤ CHUNK_THRESHOLD）→ {'url', 'sha256', 'size'}；
+    大文件 → 切成 parts 并删除单体文件，返回
+    {'parts': [{url, sha256, size}...], 'sha256', 'size'}（sha256 为合并后哈希）。
+    """
+    entry: Dict = {'sha256': sha, 'size': zip_path.stat().st_size}
+    if zip_path.stat().st_size > CHUNK_THRESHOLD:
+        parts = split_file(zip_path, CHUNK_SIZE)
+        zip_path.unlink()  # Gitee raw 无法直链下载单体大文件，仅保留分片
+        entry['parts'] = [
+            {'url': f"{url_prefix}{p.name}", 'sha256': sha256_file(p),
+             'size': p.stat().st_size}
+            for p in parts
+        ]
+        print(f"  {zip_path.name} 超过 {CHUNK_THRESHOLD // 1024 // 1024}MB，"
+              f"已分片为 {len(parts)} 个分片（适配 Gitee raw 直链限制）")
+    else:
+        entry['url'] = f"{url_prefix}{zip_path.name}"
+    return entry
 
 
 # ================================================================
@@ -289,6 +335,7 @@ def generate_payloads(version: str, notes: str) -> None:
     # ---- 全量包 ----
     zip_payload(DIST_DIR, full_zip, list_program_parts(DIST_DIR))
     full_sha: str = sha256_file(full_zip)
+    full_entry: Dict = make_payload_entry(full_zip, f"updates/{version}/", full_sha)
 
     # ---- 差分包（与上一版本对比）----
     delta_info: Dict = {}
@@ -307,12 +354,10 @@ def generate_payloads(version: str, notes: str) -> None:
             if 'main.exe' not in changed:
                 changed.insert(0, 'main.exe')
             zip_payload(DIST_DIR, delta_zip, changed)
-            delta_info = {
-                'from': prev_ver,
-                'url': f"updates/{version}/update-{version}-delta.zip",
-                'sha256': sha256_file(delta_zip),
-                'size': delta_zip.stat().st_size,
-            }
+            delta_entry: Dict = make_payload_entry(
+                delta_zip, f"updates/{version}/", sha256_file(delta_zip))
+            delta_info = {'from': prev_ver}
+            delta_info.update(delta_entry)
             print(f"差分包相对 {prev_ver}：{len(changed)} 个文件变化")
         else:
             print(f"相对上一版本 {prev_ver} 无文件变化，跳过差分包")
@@ -323,11 +368,7 @@ def generate_payloads(version: str, notes: str) -> None:
     latest: Dict = {
         'version': version,
         'notes': notes,
-        'full': {
-            'url': f"updates/{version}/update-{version}-full.zip",
-            'sha256': full_sha,
-            'size': full_zip.stat().st_size,
-        },
+        'full': full_entry,
         'delta': delta_info or None,
         'files': files,
     }
@@ -371,7 +412,7 @@ def git_commit_push(push: bool) -> None:
     else:
         print("无变更需要提交")
     if push:
-        print("尝试推送到 GitHub...")
+        print("尝试推送到 Gitee...")
         result = subprocess.run(
             ['git', 'push', '-u', 'origin', UPDATE_BRANCH],
             cwd=str(UPDATE_REPO),
@@ -383,7 +424,7 @@ def git_commit_push(push: bool) -> None:
             print("   请手动执行：")
             print(f"     cd {UPDATE_REPO}")
             print(f"     git push -u origin {UPDATE_BRANCH}")
-            print("   推送前请确认 GitHub 上已存在仓库 Schedule4.0-Update（可先在网页创建空仓库）。")
+            print("   推送前请确认 Gitee 上已存在仓库 Schedule4.0-Update（可先在网页创建空仓库）。")
     else:
         print("已提交到本地更新仓库（未推送）。如需推送，请执行：")
         print(f"  cd {UPDATE_REPO}")
@@ -397,7 +438,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description='Schedule4.0 一键构建 + 发布更新')
     parser.add_argument('--version', required=True, help='本次发布版本号，如 4.1.0')
     parser.add_argument('--notes', default='新版本发布，建议更新。', help='更新说明')
-    parser.add_argument('--push', action='store_true', help='推送到 GitHub 更新仓库')
+    parser.add_argument('--push', action='store_true', help='推送到 Gitee 更新仓库')
     parser.add_argument('--skip-build', action='store_true', help='跳过 Nuitka 构建')
     args = parser.parse_args()
 
