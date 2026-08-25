@@ -6552,11 +6552,11 @@ class TimetableEntryDialog(ThemedDialog):
         btn_row.addStretch()
 
         if self._stay_open:
-            done_btn: QPushButton = QPushButton("完成")
-            done_btn.setFont(QFont("Microsoft YaHei", 11))
-            done_btn.setMinimumHeight(32)
-            done_btn.clicked.connect(self.reject)
-            btn_row.addWidget(done_btn)
+            close_btn: QPushButton = QPushButton("关闭")
+            close_btn.setFont(QFont("Microsoft YaHei", 11))
+            close_btn.setMinimumHeight(32)
+            close_btn.clicked.connect(self.reject)
+            btn_row.addWidget(close_btn)
         else:
             cancel_btn: QPushButton = QPushButton("取消")
             cancel_btn.setFont(QFont("Microsoft YaHei", 11))

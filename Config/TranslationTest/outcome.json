@@ -2,30 +2,6 @@
     "history": {
         "youdao": [
             {
-                "ts": "2026-08-23 10:49:05",
-                "duration": 0.225,
-                "correct": false,
-                "Need Teanslate": "化学",
-                "Expected English": "Chemistry",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 11:11:37",
-                "duration": 0.223,
-                "correct": false,
-                "Need Teanslate": "通用技术",
-                "Expected English": "General Technology",
-                "Translation": ""
-            },
-            {
-                "ts": "2026-08-23 11:15:03",
-                "duration": 0.254,
-                "correct": false,
-                "Need Teanslate": "活动",
-                "Expected English": "Activity",
-                "Translation": ""
-            },
-            {
                 "ts": "2026-08-23 11:20:28",
                 "duration": 0.217,
                 "correct": false,
@@ -160,33 +136,33 @@
                 "Need Teanslate": "美术",
                 "Expected English": "Art",
                 "Translation": ""
-            }
-        ],
-        "baidu": [
-            {
-                "ts": "2026-08-23 10:49:05",
-                "duration": 0.156,
-                "correct": false,
-                "Need Teanslate": "化学",
-                "Expected English": "Chemistry",
-                "Translation": "chemistry; chem.; chymist; chymistry"
             },
             {
-                "ts": "2026-08-23 11:11:37",
-                "duration": 0.186,
+                "ts": "2026-08-25 21:49:55",
+                "duration": 0.227,
                 "correct": false,
                 "Need Teanslate": "通用技术",
                 "Expected English": "General Technology",
                 "Translation": ""
             },
             {
-                "ts": "2026-08-23 11:15:03",
-                "duration": 0.191,
+                "ts": "2026-08-25 21:56:22",
+                "duration": 0.185,
                 "correct": false,
-                "Need Teanslate": "活动",
-                "Expected English": "Activity",
-                "Translation": "activity; campaign; exercise; flexible"
+                "Need Teanslate": "化学",
+                "Expected English": "Chemistry",
+                "Translation": ""
             },
+            {
+                "ts": "2026-08-25 21:57:29",
+                "duration": 0.187,
+                "correct": false,
+                "Need Teanslate": "音乐",
+                "Expected English": "Music",
+                "Translation": ""
+            }
+        ],
+        "baidu": [
             {
                 "ts": "2026-08-23 11:20:28",
                 "duration": 0.175,
@@ -322,33 +298,33 @@
                 "Need Teanslate": "美术",
                 "Expected English": "Art",
                 "Translation": "art; painting; the fine arts; beaux-arts; fine art"
+            },
+            {
+                "ts": "2026-08-25 21:49:55",
+                "duration": 0.208,
+                "correct": false,
+                "Need Teanslate": "通用技术",
+                "Expected English": "General Technology",
+                "Translation": ""
+            },
+            {
+                "ts": "2026-08-25 21:56:22",
+                "duration": 0.155,
+                "correct": false,
+                "Need Teanslate": "化学",
+                "Expected English": "Chemistry",
+                "Translation": "chemistry; chem.; chymist; chymistry"
+            },
+            {
+                "ts": "2026-08-25 21:57:29",
+                "duration": 0.198,
+                "correct": false,
+                "Need Teanslate": "音乐",
+                "Expected English": "Music",
+                "Translation": "music; [电影]Ongaku"
             }
         ],
         "mymemory": [
-            {
-                "ts": "2026-08-23 10:49:05",
-                "duration": 0.699,
-                "correct": true,
-                "Need Teanslate": "化学",
-                "Expected English": "Chemistry",
-                "Translation": "Chemistry"
-            },
-            {
-                "ts": "2026-08-23 11:11:37",
-                "duration": 0.746,
-                "correct": true,
-                "Need Teanslate": "通用技术",
-                "Expected English": "General Technology",
-                "Translation": "General Technology"
-            },
-            {
-                "ts": "2026-08-23 11:15:03",
-                "duration": 1.506,
-                "correct": false,
-                "Need Teanslate": "活动",
-                "Expected English": "Activity",
-                "Translation": "Event"
-            },
             {
                 "ts": "2026-08-23 11:20:28",
                 "duration": 0.722,
@@ -484,6 +460,30 @@
                 "Need Teanslate": "美术",
                 "Expected English": "Art",
                 "Translation": "Art"
+            },
+            {
+                "ts": "2026-08-25 21:49:55",
+                "duration": 0.963,
+                "correct": true,
+                "Need Teanslate": "通用技术",
+                "Expected English": "General Technology",
+                "Translation": "General Technology"
+            },
+            {
+                "ts": "2026-08-25 21:56:22",
+                "duration": 0.834,
+                "correct": true,
+                "Need Teanslate": "化学",
+                "Expected English": "Chemistry",
+                "Translation": "Chemistry"
+            },
+            {
+                "ts": "2026-08-25 21:57:29",
+                "duration": 0.878,
+                "correct": true,
+                "Need Teanslate": "音乐",
+                "Expected English": "Music",
+                "Translation": "Music"
             }
         ],
         "bing": [
@@ -558,14 +558,38 @@
                 "Need Teanslate": "美术",
                 "Expected English": "Art",
                 "Translation": "Fine Arts"
+            },
+            {
+                "ts": "2026-08-25 21:49:55",
+                "duration": 1.681,
+                "correct": true,
+                "Need Teanslate": "通用技术",
+                "Expected English": "General Technology",
+                "Translation": "General Technology"
+            },
+            {
+                "ts": "2026-08-25 21:56:22",
+                "duration": 2.077,
+                "correct": true,
+                "Need Teanslate": "化学",
+                "Expected English": "Chemistry",
+                "Translation": "Chemistry"
+            },
+            {
+                "ts": "2026-08-25 21:57:29",
+                "duration": 1.586,
+                "correct": true,
+                "Need Teanslate": "音乐",
+                "Expected English": "Music",
+                "Translation": "Music"
             }
         ]
     },
     "scores": {
         "youdao": 0.0,
-        "baidu": 14.902125,
-        "mymemory": 54.48375000000001,
-        "bing": 77.04683333333334
+        "baidu": 14.901425,
+        "mymemory": 59.49065,
+        "bing": 82.56245833333334
     },
-    "updated_at": "2026-08-25 20:26:48"
+    "updated_at": "2026-08-25 21:57:29"
 }
