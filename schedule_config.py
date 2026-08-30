@@ -178,6 +178,12 @@ class ThemeManager:
         # ---- 关于页版本号（主配置文件 version）----
         self.version: str = '4.0.0.0'
 
+        # ---- 高考倒计时：年级 / 班级（注册表读取失败时使用；默认高一一班）----
+        self.grade: int = 1
+        self.class_: int = 1
+        # ---- 高考倒计时窗口是否默认打开（默认 True）----
+        self.countdown_enabled: bool = True
+
         # ---- 加载配置 ----
         self._load_config()
         self._load_subject_config()
@@ -288,6 +294,31 @@ class ThemeManager:
             # --- version（关于页版本号）---
             version_str: str = parser.get('Schedule', 'version', fallback='4.0.0.0')
             self.version = version_str.strip() or '4.0.0.0'
+
+            # --- grade / class（高考倒计时年级 / 班级，默认高一一班）---
+            grade_str: str = parser.get('Schedule', 'grade', fallback='1')
+            try:
+                self.grade = int(grade_str.strip())
+            except (ValueError, TypeError):
+                self.grade = 1
+            class_str: str = parser.get('Schedule', 'class', fallback='1')
+            try:
+                self.class_ = int(class_str.strip())
+            except (ValueError, TypeError):
+                self.class_ = 1
+            # 合法性兜底：年级限 1~3，班级限 1~99
+            if self.grade < 1 or self.grade > 3:
+                self.grade = 1
+            if self.class_ < 1 or self.class_ > 99:
+                self.class_ = 1
+
+            # --- countdown_enabled（高考倒计时窗口是否默认打开，默认 true）---
+            cd_enabled_str: str = parser.get(
+                'Schedule', 'countdown_enabled', fallback='true'
+            )
+            self.countdown_enabled = cd_enabled_str.strip().lower() in (
+                'true', '1', 'yes', 'on'
+            )
 
             self._apply_theme()
 

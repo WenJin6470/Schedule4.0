@@ -406,6 +406,31 @@ def main() -> None:
     logger.info("窗口内容已显示")
 
     # ================================================================
+    #  第6.4步：高考倒计时窗口（默认打开，按主配置 countdown_enabled 控制）
+    #  ★ 延迟到事件循环启动后创建，避免阻塞启动流程
+    # ================================================================
+
+    def _init_countdown() -> None:
+        """启动后按配置打开高考倒计时窗口（默认开启）。"""
+        try:
+            from schedule_countdown import show_countdown_window  # noqa: E402
+        except ImportError as e:
+            logger.warning(f"高考倒计时模块加载失败：{e}")
+            return
+        if not getattr(theme_manager, 'countdown_enabled', True):
+            logger.info("高考倒计时已关闭（countdown_enabled=false），跳过默认打开")
+            return
+        show_countdown_window(
+            grade=getattr(theme_manager, 'grade', 1),
+            class_=getattr(theme_manager, 'class_', 1),
+            screen_width=theme_manager.screen_width,
+            screen_height=theme_manager.screen_height,
+        )
+        logger.info("高考倒计时窗口已默认打开")
+
+    QTimer.singleShot(0, _init_countdown)
+
+    # ================================================================
     #  第6.5步：延迟初始化 KnotLink 桥接（窗口内容显示后再进行）
     # ================================================================
     logger.info("KnotLink 桥接已安排，将在窗口内容显示后初始化...")
