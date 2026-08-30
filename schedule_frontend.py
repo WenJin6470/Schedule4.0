@@ -190,7 +190,6 @@ class ScheduleMainWindow(ThemedWidget):
         # ---- 窗口属性 ----
         self.setWindowFlags(
             Qt.FramelessWindowHint           # type: ignore
-            | Qt.WindowStaysOnTopHint        # type: ignore
             | Qt.Tool                        # type: ignore
         )
         self.setAutoFillBackground(True)
@@ -201,6 +200,9 @@ class ScheduleMainWindow(ThemedWidget):
         # ===== 课时标签区域 =====
         ui_scale: float = self._theme.ui_scale  # 分辨率缩放系数（2K ≈ 1.33）
         close_btn_height: int = round(36 * ui_scale)
+        # LG=true 时按钮栏上方显示署名：条带加高以容纳署名行 + 与课程的空隙
+        if getattr(self._theme, 'lg', False):
+            close_btn_height += max(14, round(18 * ui_scale)) + 6
         divider_height: int = 6
         # 从时间表数据中获取实际课时数和分隔线位置
         lesson_count: int = self._schedule_data.get_lesson_count()
@@ -273,6 +275,10 @@ class ScheduleMainWindow(ThemedWidget):
 
         logger.info(f"图标后缀：'{icon_suffix}'（主题={self._theme.theme}）")
 
+        # ===== 署名标签（仅 LG=true 时显示，位于按钮栏上方）=====
+        # 与「关于」页一致的署名规则：LG=true → 高2026届 赵晨羽
+        self._sync_author_label(y_offset)
+
         button_configs = [
             ('_fullscreen_btn', 'FullScreenTime', self._on_fullscreen_time_clicked),
             ('_edit_btn',       'EDIT_S',        self._on_quick_edit_clicked),
@@ -284,7 +290,12 @@ class ScheduleMainWindow(ThemedWidget):
         btn_count: int = len(button_configs)
         total_btn_width: int = btn_count * btn_size
         spacing: int = (self._win_width - total_btn_width) // (btn_count + 1)
-        btn_y: int = y_offset + (close_btn_height - btn_size) // 2
+        if getattr(self._theme, 'lg', False):
+            # LG=true：署名行占条带顶部，按钮位于署名行下方居中
+            btn_y = y_offset + max(14, round(18 * ui_scale)) + 6 \
+                + (round(36 * ui_scale) - btn_size) // 2
+        else:
+            btn_y = y_offset + (round(36 * ui_scale) - btn_size) // 2
 
         for i, (attr_name, image_base, handler) in enumerate(button_configs):
             icon_path: str = os.path.join(images_dir, f"{image_base}{icon_suffix}.svg")
@@ -312,6 +323,50 @@ class ScheduleMainWindow(ThemedWidget):
 
         # ★ 启动优化：所有控件创建完毕，恢复界面更新并触发一次性刷新
         self.setUpdatesEnabled(True)
+
+    # ================================================================
+    #  署名标签（LG=true 时显示，位于底部按钮栏上方）
+    # ================================================================
+    def _sync_author_label(self, content_bottom_y: int) -> None:
+        """
+        同步署名标签：LG=true 时创建/更新，LG=false 时隐藏。
+        ------------------------------------------------------
+        参数：
+            content_bottom_y（int）：课时内容区的底部 y（= 按钮栏条带顶部）
+
+        署名规则与「关于」页一致：LG=true → 「高2026届 赵晨羽」。
+        """
+        author_h: int = max(14, round(18 * self._theme.ui_scale))
+        if not getattr(self._theme, 'lg', False):
+            # LG=false：隐藏（若有）并返回
+            label: Optional[QLabel] = getattr(self, '_author_label', None)
+            if label is not None:
+                label.hide()
+            return
+
+        if not hasattr(self, '_author_label') or self._author_label is None:
+            self._author_label = QLabel(self)
+            self._author_label.setObjectName('author_signature')
+            self._author_label.setAlignment(Qt.AlignCenter)  # type: ignore
+
+        author_font_size: int = max(8, round(10 * self._theme.ui_scale))
+        self._author_label.setText("高2026届 赵晨羽")
+        self._author_label.setFont(QFont("Microsoft YaHei", author_font_size))
+        # 与主窗口主字体色一致，略微透明融入背景
+        self._author_label.setStyleSheet(
+            f"color: {self._theme.main_font_color};"
+            f"background: transparent;"
+            f"opacity: 0.65;"
+        )
+        # 署名位于按钮栏条带顶部（content_bottom_y = 条带顶部 = 课程区底部），
+        # 上方留 6px 空隙，确保署名与最后一节课之间不紧贴。
+        author_y: int = content_bottom_y + 6
+        self._author_label.setGeometry(0, author_y, self._win_width, author_h)
+        self._author_label.show()
+        logger.info(
+            f"署名标签已更新（LG=true）：位置 y={author_y}，"
+            f"高度 {author_h}px，文字「高2026届 赵晨羽」"
+        )
 
     # ================================================================
     #  按钮点击槽函数
@@ -496,8 +551,10 @@ class ScheduleMainWindow(ThemedWidget):
         self.period_labels.clear()
         self._period_raw_subjects.clear()
 
-        # 重新计算布局参数
-        close_btn_height: int = 36
+        # 重新计算布局参数（与 _setup_ui 保持一致：LG=true 时条带加高容纳署名行）
+        close_btn_height: int = round(36 * self._theme.ui_scale)
+        if getattr(self._theme, 'lg', False):
+            close_btn_height += max(14, round(18 * self._theme.ui_scale)) + 6
         divider_height: int = 6
         lesson_count: int = self._schedule_data.get_lesson_count()
         divider_indices: List[int] = self._schedule_data.get_divider_indices()
@@ -557,6 +614,9 @@ class ScheduleMainWindow(ThemedWidget):
 
         # 重置光标索引
         self._cursor_index = 0
+
+        # 同步刷新署名标签（若 LG=true 且尚未创建则补建，位置跟随新 y_offset）
+        self._sync_author_label(y_offset)
 
         logger.info(
             f"课时标签重建完成：共 {len(self.period_labels)} 个标签，"

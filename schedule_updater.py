@@ -346,6 +346,11 @@ def stage_update(zip_path: str, info: UpdateInfo,
         with open(os.path.join(updater_dir, 'type.txt'), 'w', encoding='utf-8') as f:
             f.write('delta' if is_delta else 'full')
 
+        # 写入目标版本号（供更新器脚本更新 Config/schedule_config.ini 的 version 键，
+        # 避免更新后配置文件版本号仍是旧值导致反复触发更新下载）
+        with open(os.path.join(updater_dir, 'version.txt'), 'w', encoding='utf-8') as f:
+            f.write(str(info.version).strip())
+
         # 生成 PowerShell 应用脚本
         ps_script: str = os.path.join(updater_dir, 'apply_update.ps1')
         with open(ps_script, 'w', encoding='utf-8-sig', newline='\r\n') as f:
@@ -410,6 +415,38 @@ try {
         # 差分：变化文件合并覆盖到现有程序文件上
         Copy-Item -Recurse -Force (Join-Path $stage '*') $appDir
         Write-Log '程序文件已合并更新（delta）'
+    }
+
+    # ---- 2.5 同步 Config/schedule_config.ini 的 version 键为最新版本 ----
+    # 更新包不包含 Config/（用户数据），若不更新版本号会导致客户端
+    # 每次启动都认为有新版本，反复下载更新。
+    $verFile = Join-Path $PSScriptRoot 'version.txt'
+    $iniPath = Join-Path $appDir 'Config\schedule_config.ini'
+    if (Test-Path $verFile) {
+        $newVer = (Get-Content $verFile -Raw).Trim()
+        if (Test-Path $iniPath) {
+            $lines = Get-Content $iniPath -Encoding UTF8
+            $updated = $false
+            $out = @()
+            foreach ($line in $lines) {
+                $stripped = $line.TrimStart()
+                if ($stripped -and -not $stripped.StartsWith(';') -and -not $stripped.StartsWith('#') -and $line -match '=') {
+                    $key = ($line -split '=', 2)[0].Trim()
+                    if ($key -eq 'version' -and -not $updated) {
+                        $out += "version = $newVer"
+                        $updated = $true
+                        continue
+                    }
+                }
+                $out += $line
+            }
+            if (-not $updated) { $out += "version = $newVer" }
+            # 保持 UTF-8 无 BOM 写入（与程序读取方式一致）
+            [System.IO.File]::WriteAllLines($iniPath, $out, (New-Object System.Text.UTF8Encoding($false)))
+            Write-Log ("Config 版本号已更新为 " + $newVer)
+        } else {
+            Write-Log ('Config 配置文件不存在，跳过版本号更新：' + $iniPath)
+        }
     }
 
     # ---- 3. 重新启动主程序 ----

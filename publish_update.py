@@ -220,10 +220,14 @@ def build_nuitka(version: str) -> None:
     build_py: Path = BUILD_ROOT / 'venv' / 'Scripts' / 'python.exe'
     for f in CODE_DIR.glob('*.py'):
         shutil.copy2(f, BUILD_ROOT / f.name)
-    if not (BUILD_ROOT / 'images').exists():
-        shutil.copytree(CODE_DIR / 'images', BUILD_ROOT / 'images')
-    if not (BUILD_ROOT / 'Config').exists():
-        shutil.copytree(CODE_DIR / 'Config', BUILD_ROOT / 'Config')
+    # 强制使用开发环境中的 Config / images 备份（每次构建都整体覆盖，
+    # 避免构建目录残留旧配置文件导致打包产物配置过期）。
+    for data_dir in ('Config', 'images'):
+        target: Path = BUILD_ROOT / data_dir
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(CODE_DIR / data_dir, target)
+        print(f"已同步开发环境 {data_dir}/ → 构建目录（{data_dir}/）")
 
     jobs: int = max(1, min(8, os.cpu_count() or 4))
     cmd: List[str] = [

@@ -3468,15 +3468,47 @@ class SettingsWindow(ThemedWidget):
 
     def _restart_app(self) -> None:
         """
-        重启软件：先关闭所有窗口，再启动新进程并退出当前程序。
+        重启软件：先启动新进程，再关闭窗口并退出当前程序。
         ---------------------------------------------------------
-        说明：仅调用 app.quit() 时事件循环退出但窗口不一定会销毁，
-        置顶时间窗口 / 主窗口可能残留屏幕。因此先遍历关闭全部
-        顶层窗口（含 Qt.Tool 置顶窗口与倒计时窗口），确保干净退出。
+        说明：
+          - 先 Popen 拉起新进程（分离会话、不继承句柄），确保新进程
+            已开始启动后再关闭旧窗口、退出事件循环；
+          - 仅调用 app.quit() 时事件循环退出但窗口不一定会销毁，
+            置顶时间窗口 / 主窗口可能残留屏幕。因此退出前遍历关闭
+            全部顶层窗口（含 Qt.Tool 置顶窗口与倒计时窗口）。
         """
         script_dir: str = app_root()
 
-        # 0. 先关闭所有顶层窗口，避免退出后窗口残留
+        # 1. 先启动新进程（打包环境 = main.exe；开发环境 = python main.py）
+        try:
+            if is_frozen():
+                # 打包环境：直接重启 exe（main.py 不存在于产物中）
+                cmd: List[str] = [sys.executable]
+            else:
+                main_script: str = os.path.join(script_dir, 'main.py')
+                cmd = [sys.executable, main_script]
+
+            creation_flags: int = 0
+            if sys.platform == 'win32':
+                # 分离新进程：不继承父进程句柄，避免旧进程退出影响新进程
+                creation_flags = (
+                    subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore
+                    | subprocess.DETACHED_PROCESS  # type: ignore
+                )
+            subprocess.Popen(
+                cmd,
+                cwd=script_dir,
+                close_fds=True,
+                creationflags=creation_flags,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            logger.info(f"已启动新进程：{' '.join(cmd)}")
+        except Exception as e:
+            logger.error(f"启动新进程失败：{e}")
+
+        # 2. 关闭所有顶层窗口，避免退出后窗口残留
         app = QApplication.instance()
         if app is not None:
             for w in app.topLevelWidgets():  # type: ignore
@@ -3488,20 +3520,7 @@ class SettingsWindow(ThemedWidget):
                     logger.warning(f"关闭窗口失败（忽略）：{e}")
             app.processEvents()
 
-        # 1. 启动新进程
-        try:
-            if is_frozen():
-                # 打包环境：直接重启 exe（main.py 不存在于产物中）
-                subprocess.Popen([sys.executable], cwd=script_dir)
-                logger.info(f"已启动新进程：{sys.executable}")
-            else:
-                main_script: str = os.path.join(script_dir, 'main.py')
-                subprocess.Popen([sys.executable, main_script], cwd=script_dir)
-                logger.info(f"已启动新进程：{sys.executable} {main_script}")
-        except Exception as e:
-            logger.error(f"启动新进程失败：{e}")
-
-        # 2. 退出事件循环
+        # 3. 退出事件循环
         if app is not None:
             app.quit()
 
@@ -3569,9 +3588,12 @@ class SettingsWindow(ThemedWidget):
         self._refresh_usage_card()
 
         # 6. 通知主窗口重建课时标签（重启前内存已一致）
-        self.changes_applied.emit()
+        try:
+            self.changes_applied.emit()
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"通知主窗口重建标签失败（忽略，继续重启）：{e}")
 
-        # 7. 重启软件以立即生效
+        # 7. 重启软件以立即生效（无论上面是否异常都执行）
         logger.info("应用修改：重启软件以立即生效")
         self._restart_app()
 
