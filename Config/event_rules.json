@@ -16,20 +16,9 @@
         "weekday": 0,
         "month": 1,
         "day": 1,
-        "time": "23:00",
+        "time": "22:35",
         "name": "下午放学",
         "signal_var": "onAfternoonAfterSchool",
         "desc": "第四节晚自习结束，回寝睡觉"
-    },
-    {
-        "type": "daily",
-        "date": "",
-        "weekday": 0,
-        "month": 1,
-        "day": 1,
-        "time": "10:15",
-        "name": "眼保健操",
-        "signal_var": "onEyerobics",
-        "desc": "眼保健操提醒"
     }
 ]

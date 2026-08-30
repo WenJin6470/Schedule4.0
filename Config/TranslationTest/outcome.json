@@ -2,14 +2,6 @@
     "history": {
         "youdao": [
             {
-                "ts": "2026-08-23 14:01:57",
-                "duration": 0.254,
-                "correct": false,
-                "Need Teanslate": "英语",
-                "Expected English": "English",
-                "Translation": ""
-            },
-            {
                 "ts": "2026-08-23 14:26:28",
                 "duration": 0.191,
                 "correct": false,
@@ -160,17 +152,17 @@
                 "Need Teanslate": "英语",
                 "Expected English": "English",
                 "Translation": ""
+            },
+            {
+                "ts": "2026-08-30 10:40:42",
+                "duration": 18.93,
+                "correct": false,
+                "Need Teanslate": "语文",
+                "Expected English": "Chinese",
+                "Translation": ""
             }
         ],
         "baidu": [
-            {
-                "ts": "2026-08-23 14:01:57",
-                "duration": 0.207,
-                "correct": true,
-                "Need Teanslate": "英语",
-                "Expected English": "English",
-                "Translation": "English"
-            },
             {
                 "ts": "2026-08-23 14:26:28",
                 "duration": 0.212,
@@ -322,17 +314,17 @@
                 "Need Teanslate": "英语",
                 "Expected English": "English",
                 "Translation": "English"
+            },
+            {
+                "ts": "2026-08-30 10:40:42",
+                "duration": 0.234,
+                "correct": false,
+                "Need Teanslate": "语文",
+                "Expected English": "Chinese",
+                "Translation": "（中文） Chinese; （语言文字） language ; （语言和文学） language a"
             }
         ],
         "mymemory": [
-            {
-                "ts": "2026-08-23 14:01:57",
-                "duration": 0.783,
-                "correct": false,
-                "Need Teanslate": "英语",
-                "Expected English": "English",
-                "Translation": "EN."
-            },
             {
                 "ts": "2026-08-23 14:26:28",
                 "duration": 1.791,
@@ -484,6 +476,14 @@
                 "Need Teanslate": "英语",
                 "Expected English": "English",
                 "Translation": "EN."
+            },
+            {
+                "ts": "2026-08-30 10:40:42",
+                "duration": 2.157,
+                "correct": true,
+                "Need Teanslate": "语文",
+                "Expected English": "Chinese",
+                "Translation": "Chinese"
             }
         ],
         "bing": [
@@ -590,14 +590,22 @@
                 "Need Teanslate": "英语",
                 "Expected English": "English",
                 "Translation": "English"
+            },
+            {
+                "ts": "2026-08-30 10:40:42",
+                "duration": 2.634,
+                "correct": false,
+                "Need Teanslate": "语文",
+                "Expected English": "Chinese",
+                "Translation": "Chinese (Language)"
             }
         ]
     },
     "scores": {
         "youdao": 0.0,
-        "baidu": 19.8874,
-        "mymemory": 54.483250000000005,
-        "bing": 83.72088461538462
+        "baidu": 14.886725,
+        "mymemory": 59.4489,
+        "bing": 77.64675
     },
-    "updated_at": "2026-08-30 09:18:54"
+    "updated_at": "2026-08-30 10:40:42"
 }

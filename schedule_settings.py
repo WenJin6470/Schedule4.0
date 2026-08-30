@@ -3467,8 +3467,28 @@ class SettingsWindow(ThemedWidget):
             logger.info(f"开机自启动状态已更新：{'开启' if enabled else '关闭'}")
 
     def _restart_app(self) -> None:
-        """重启软件：启动新进程并退出当前程序。"""
+        """
+        重启软件：先关闭所有窗口，再启动新进程并退出当前程序。
+        ---------------------------------------------------------
+        说明：仅调用 app.quit() 时事件循环退出但窗口不一定会销毁，
+        置顶时间窗口 / 主窗口可能残留屏幕。因此先遍历关闭全部
+        顶层窗口（含 Qt.Tool 置顶窗口与倒计时窗口），确保干净退出。
+        """
         script_dir: str = app_root()
+
+        # 0. 先关闭所有顶层窗口，避免退出后窗口残留
+        app = QApplication.instance()
+        if app is not None:
+            for w in app.topLevelWidgets():  # type: ignore
+                try:
+                    if w is not None and w.isVisible():
+                        logger.info(f"重启前关闭窗口：{w.__class__.__name__}")
+                        w.close()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"关闭窗口失败（忽略）：{e}")
+            app.processEvents()
+
+        # 1. 启动新进程
         try:
             if is_frozen():
                 # 打包环境：直接重启 exe（main.py 不存在于产物中）
@@ -3480,7 +3500,8 @@ class SettingsWindow(ThemedWidget):
                 logger.info(f"已启动新进程：{sys.executable} {main_script}")
         except Exception as e:
             logger.error(f"启动新进程失败：{e}")
-        app = QApplication.instance()
+
+        # 2. 退出事件循环
         if app is not None:
             app.quit()
 
@@ -7924,18 +7945,34 @@ class SubjectEditDialog(ThemedDialog):
     # ================================================================
     #  关闭事件：取消进行中的翻译线程
     # ================================================================
-    def closeEvent(self, event: QCloseEvent) -> None:
-        """关闭时取消翻译工作线程，避免后台线程残留。"""
+    def _cleanup_translate_worker(self) -> None:
+        """
+        取消并隔离进行中的翻译工作线程。
+        ---------------------------------
+        线程仍在运行时移交孤儿池持有引用（finished 后自动清理），
+        防止 QThread 对象销毁时（线程未结束）导致 Qt 崩溃。
+        """
         if self._worker is not None:
             self._worker.cancel()
             if self._worker.isRunning():
-                # 线程仍在后台运行：移交孤儿池持有引用，
-                # 防止 QThread 对象销毁时（线程未结束）导致 Qt 崩溃
                 _ORPHAN_WORKERS.append(self._worker)
                 self._worker.finished.connect(
                     lambda w=self._worker: _cleanup_orphan_worker(w)
                 )
             self._worker = None
+
+    def done(self, result: int) -> None:
+        """
+        重写 done()：accept()/reject()/close() 均会经过此处，
+        确保任何方式关闭对话框都清理翻译线程（closeEvent 不覆盖
+        accept/reject 路径，是此前 QThread 崩溃的根因）。
+        """
+        self._cleanup_translate_worker()
+        super().done(result)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """关闭时取消翻译工作线程，避免后台线程残留。"""
+        self._cleanup_translate_worker()
         super().closeEvent(event)
 
 
@@ -9269,17 +9306,34 @@ class EventRuleDialog(ThemedDialog):
             worker.deleteLater()
             self._worker = None
 
-    def closeEvent(self, event: QCloseEvent) -> None:
-        """关闭时取消进行中的翻译线程，避免后台线程残留。"""
+    def _cleanup_translate_worker(self) -> None:
+        """
+        取消并隔离进行中的翻译工作线程。
+        ---------------------------------
+        线程仍在运行时移交孤儿池持有引用（finished 后自动清理），
+        防止 QThread 对象销毁时（线程未结束）导致 Qt 崩溃。
+        """
         if self._worker is not None:
             self._worker.cancel()
             if self._worker.isRunning():
-                # 线程仍在后台运行：移交孤儿池持有引用，防止 Qt 崩溃
                 _ORPHAN_WORKERS.append(self._worker)
                 self._worker.finished.connect(
                     lambda w=self._worker: _cleanup_orphan_worker(w)
                 )
             self._worker = None
+
+    def done(self, result: int) -> None:
+        """
+        重写 done()：accept()/reject()/close() 均会经过此处，
+        确保任何方式关闭对话框都清理翻译线程（closeEvent 不覆盖
+        accept/reject 路径，是此前 QThread 崩溃的根因）。
+        """
+        self._cleanup_translate_worker()
+        super().done(result)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """关闭时取消翻译工作线程，避免后台线程残留。"""
+        self._cleanup_translate_worker()
         super().closeEvent(event)
 
     # ================================================================

@@ -176,10 +176,11 @@ class GaokaoCountdownWindow(QWidget):
     #  窗口属性
     # ----------------------------------------------------------------
     def _setup_window(self) -> None:
-        """设置无边框 / 半透明 / 白底 / 置顶等窗口属性。"""
+        """设置无边框 / 半透明 / 白底 / 置顶 / 不进任务栏等窗口属性。"""
         self.setWindowFlags(
             Qt.FramelessWindowHint  # type: ignore
             | Qt.WindowStaysOnTopHint  # type: ignore
+            | Qt.Tool  # type: ignore   # Tool 窗口不显示在任务栏
         )
         self.setWindowOpacity(self._opacity)
         self.setAttribute(Qt.WA_TranslucentBackground, False)  # type: ignore
