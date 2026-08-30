@@ -2,14 +2,6 @@
     "history": {
         "youdao": [
             {
-                "ts": "2026-08-23 11:20:28",
-                "duration": 0.217,
-                "correct": false,
-                "Need Teanslate": "化学",
-                "Expected English": "Chemistry",
-                "Translation": ""
-            },
-            {
                 "ts": "2026-08-23 14:01:57",
                 "duration": 0.254,
                 "correct": false,
@@ -160,17 +152,17 @@
                 "Need Teanslate": "音乐",
                 "Expected English": "Music",
                 "Translation": ""
+            },
+            {
+                "ts": "2026-08-30 09:18:54",
+                "duration": 10.414,
+                "correct": false,
+                "Need Teanslate": "英语",
+                "Expected English": "English",
+                "Translation": ""
             }
         ],
         "baidu": [
-            {
-                "ts": "2026-08-23 11:20:28",
-                "duration": 0.175,
-                "correct": false,
-                "Need Teanslate": "化学",
-                "Expected English": "Chemistry",
-                "Translation": "chemistry; chem.; chymist; chymistry"
-            },
             {
                 "ts": "2026-08-23 14:01:57",
                 "duration": 0.207,
@@ -322,17 +314,17 @@
                 "Need Teanslate": "音乐",
                 "Expected English": "Music",
                 "Translation": "music; [电影]Ongaku"
+            },
+            {
+                "ts": "2026-08-30 09:18:54",
+                "duration": 0.736,
+                "correct": true,
+                "Need Teanslate": "英语",
+                "Expected English": "English",
+                "Translation": "English"
             }
         ],
         "mymemory": [
-            {
-                "ts": "2026-08-23 11:20:28",
-                "duration": 0.722,
-                "correct": true,
-                "Need Teanslate": "化学",
-                "Expected English": "Chemistry",
-                "Translation": "Chemistry"
-            },
             {
                 "ts": "2026-08-23 14:01:57",
                 "duration": 0.783,
@@ -484,6 +476,14 @@
                 "Need Teanslate": "音乐",
                 "Expected English": "Music",
                 "Translation": "Music"
+            },
+            {
+                "ts": "2026-08-30 09:18:54",
+                "duration": 1.018,
+                "correct": false,
+                "Need Teanslate": "英语",
+                "Expected English": "English",
+                "Translation": "EN."
             }
         ],
         "bing": [
@@ -582,14 +582,22 @@
                 "Need Teanslate": "音乐",
                 "Expected English": "Music",
                 "Translation": "Music"
+            },
+            {
+                "ts": "2026-08-30 09:18:54",
+                "duration": 4.756,
+                "correct": true,
+                "Need Teanslate": "英语",
+                "Expected English": "English",
+                "Translation": "English"
             }
         ]
     },
     "scores": {
         "youdao": 0.0,
-        "baidu": 14.901425,
-        "mymemory": 59.49065,
-        "bing": 82.56245833333334
+        "baidu": 19.8874,
+        "mymemory": 54.483250000000005,
+        "bing": 83.72088461538462
     },
-    "updated_at": "2026-08-25 21:57:29"
+    "updated_at": "2026-08-30 09:18:54"
 }

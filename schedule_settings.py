@@ -463,6 +463,14 @@ class SettingsWindow(ThemedWidget):
         self._timetable_file_label: Optional[QLabel] = None
         self._curriculum_file_label: Optional[QLabel] = None
 
+        # 「当前使用」卡片：展示程序当前实际运行使用的时间表 / 课程表
+        self._usage_card: Optional[QFrame] = None
+        self._usage_title_label: Optional[QLabel] = None
+        self._usage_tt_title: Optional[QLabel] = None
+        self._usage_cv_title: Optional[QLabel] = None
+        self._usage_tt_label: Optional[QLabel] = None
+        self._usage_cv_label: Optional[QLabel] = None
+
         # 课程表编辑器引用
         self._curriculum_table: Optional[QTableWidget] = None
         self._curriculum_status_label: Optional[QLabel] = None
@@ -2302,6 +2310,71 @@ class SettingsWindow(ThemedWidget):
         page_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
         layout.addWidget(page_title)
 
+        # ---- 卡片：当前使用的时间表 / 课程表 ----
+        # 位于「时间表」编辑区上方，展示程序当前实际运行使用的时间表与课程表文件。
+        self._usage_card = QFrame()
+        self._usage_card.setStyleSheet(self._get_status_card_style())
+        self._usage_card.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Fixed  # type: ignore
+        )
+        usage_card_layout: QVBoxLayout = QVBoxLayout(self._usage_card)
+        usage_card_layout.setContentsMargins(20, 12, 20, 12)
+        usage_card_layout.setSpacing(8)
+
+        # 卡片标题行
+        self._usage_title_label = QLabel("📋 当前使用")
+        self._usage_title_label.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))  # type: ignore
+        self._usage_title_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none;"
+        )
+        usage_card_layout.addWidget(self._usage_title_label)
+
+        # 内容行：两列（时间表 / 课程表）
+        usage_row: QHBoxLayout = QHBoxLayout()
+        usage_row.setSpacing(32)
+
+        # 列1：当前使用的时间表
+        tt_col: QVBoxLayout = QVBoxLayout()
+        tt_col.setSpacing(4)
+        self._usage_tt_title = QLabel("当前时间表")
+        self._usage_tt_title.setFont(QFont("Microsoft YaHei", 9))
+        self._usage_tt_title.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none; opacity: 0.6;"
+        )
+        tt_col.addWidget(self._usage_tt_title)
+        self._usage_tt_label = QLabel("—")
+        self._usage_tt_label.setFont(QFont("Microsoft YaHei", 13, QFont.Bold))  # type: ignore
+        self._usage_tt_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none;"
+        )
+        tt_col.addWidget(self._usage_tt_label)
+        usage_row.addLayout(tt_col)
+
+        # 列2：当前使用的课程表
+        cv_col: QVBoxLayout = QVBoxLayout()
+        cv_col.setSpacing(4)
+        self._usage_cv_title = QLabel("当前课程表")
+        self._usage_cv_title.setFont(QFont("Microsoft YaHei", 9))
+        self._usage_cv_title.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none; opacity: 0.6;"
+        )
+        cv_col.addWidget(self._usage_cv_title)
+        self._usage_cv_label = QLabel("—")
+        self._usage_cv_label.setFont(QFont("Microsoft YaHei", 13, QFont.Bold))  # type: ignore
+        self._usage_cv_label.setStyleSheet(
+            f"color: {fc}; background: transparent; border: none;"
+        )
+        cv_col.addWidget(self._usage_cv_label)
+        usage_row.addLayout(cv_col)
+
+        usage_row.addStretch()
+        usage_card_layout.addLayout(usage_row)
+
+        # 首次填充卡片内容
+        self._refresh_usage_card()
+
+        layout.addWidget(self._usage_card)
+
         # ---- 一级标题：时间表 ----
         section_title: QLabel = QLabel("时间表")
         section_title.setFont(QFont("Microsoft YaHei", 18, QFont.Bold))  # type: ignore
@@ -3217,6 +3290,7 @@ class SettingsWindow(ThemedWidget):
         self._refresh_apply_button()
         self._refresh_status_label()
         self._refresh_curriculum_status()
+        self._refresh_usage_card()
 
         # 6. 通知主窗口重建课时标签（重启前内存已一致）
         self.changes_applied.emit()
@@ -3543,6 +3617,39 @@ class SettingsWindow(ThemedWidget):
         )
         fname: str = os.path.basename(path) if path else '未加载'
         self._curriculum_file_label.setText(f"当前课程表：{fname}")
+
+    def _refresh_usage_card(self) -> None:
+        """
+        刷新「当前使用」卡片内容。
+        -------------------------
+        展示程序当前实际运行使用的时间表与课程表文件名，
+        并附上简要信息（时间表课时数 / 课程表天数）。
+        """
+        if self._usage_tt_label is None or self._usage_cv_label is None:
+            return
+
+        if self._schedule_data is None:
+            self._usage_tt_label.setText("—")
+            self._usage_cv_label.setText("—")
+            return
+
+        # ---- 时间表 ----
+        tt_path: str = self._schedule_data.timetable_path or ''
+        tt_name: str = os.path.basename(tt_path) if tt_path else '未加载'
+        tt_lesson_count: int = self._schedule_data.get_lesson_count()
+        tt_text: str = tt_name
+        if tt_lesson_count > 0:
+            tt_text += f"（{tt_lesson_count} 节）"
+        self._usage_tt_label.setText(tt_text)
+
+        # ---- 课程表 ----
+        cv_path: str = self._schedule_data.curriculum_path or ''
+        cv_name: str = os.path.basename(cv_path) if cv_path else '未加载'
+        cv_days: int = len(self._schedule_data.curriculum_data or {})
+        cv_text: str = cv_name
+        if cv_days > 0:
+            cv_text += f"（{cv_days} 天）"
+        self._usage_cv_label.setText(cv_text)
 
     # ================================================================
     #  科目编辑 — 数据加载与渲染
@@ -4032,20 +4139,23 @@ class SettingsWindow(ThemedWidget):
     #  表格样式
     # ================================================================
     def _style_table(self) -> None:
-        """根据主题刷新表格样式。"""
+        """根据主题刷新表格样式（hover/选中使用主窗口光标蓝色系）。"""
         fc: str = self._theme.font_color
         bc: str = self._theme.root_back_color
+        blue: str = '33, 150, 243'  # 主窗口闪烁光标蓝（RGB）
 
         if self._theme.theme == 'darkcolor':
             header_bg: str = '#2d2d2d'
             alt_bg: str = '#252525'
-            sel_bg: str = 'rgba(255,255,255,0.08)'
-            hover_bg: str = 'rgba(255,255,255,0.04)'
+            sel_bg: str = f'rgba({blue}, 0.30)'
+            hover_bg: str = f'rgba({blue}, 0.12)'
+            grid_color: str = 'rgba(255,255,255,0.06)'
         else:
             header_bg = '#f5f5f5'
             alt_bg = '#fafafa'
-            sel_bg = 'rgba(0,0,0,0.04)'
-            hover_bg = 'rgba(0,0,0,0.02)'
+            sel_bg = f'rgba({blue}, 0.30)'
+            hover_bg = f'rgba({blue}, 0.06)'
+            grid_color = 'rgba(0,0,0,0.06)'
 
         assert self._timetable_table is not None
         # type: ignore  # pyright: ignore[reportOptionalMemberAccess]
@@ -4055,20 +4165,22 @@ class SettingsWindow(ThemedWidget):
                 color: {fc};
                 border: none;
                 border-radius: 7px;
+                gridline-color: {grid_color};
             }}
             QTableWidget::item {{
-                padding: 8px 12px;
+                padding: 2px 4px;
+                border: none;
                 border-bottom: 1px solid transparent;
             }}
             QTableWidget::item:hover {{
                 background-color: {hover_bg};
             }}
+            QTableWidget::item:alternate {{
+                background-color: {alt_bg};
+            }}
             QTableWidget::item:selected {{
                 background-color: {sel_bg};
                 color: {fc};
-            }}
-            QTableWidget::item:alternate {{
-                background-color: {alt_bg};
             }}
             QHeaderView::section {{
                 background-color: {header_bg};
@@ -4450,7 +4562,7 @@ class SettingsWindow(ThemedWidget):
         down_btn: QPushButton = QPushButton('▼')
         for btn in (up_btn, down_btn):
             btn.setFixedSize(24, 24)
-            btn.setFont(QFont('Arial', 9, QFont.Bold))  # type: ignore
+            btn.setFont(QFont('Arial', 10, QFont.Bold))  # type: ignore
             btn.setCursor(Qt.PointingHandCursor)  # type: ignore
             btn.setStyleSheet(self._get_entry_arrow_style())
         up_btn.setToolTip('上移该行')
@@ -4463,20 +4575,41 @@ class SettingsWindow(ThemedWidget):
         return cell
 
     def _get_entry_arrow_style(self) -> str:
-        """返回操作列上下键按钮的 QSS 样式（与显示规则上下键一致）。"""
+        """返回操作列上下键按钮的 QSS 样式（hover 使用主窗口光标蓝色）。"""
         theme = self._theme
         fc: str = theme.font_color
+        blue: str = '33, 150, 243'  # 主窗口闪烁光标蓝（RGB）
         if theme.theme == 'darkcolor':
             arrow_bg: str = 'rgba(255, 255, 255, 0.06)'
-            arrow_hover: str = 'rgba(255, 255, 255, 0.12)'
+            arrow_hover: str = f'rgba({blue}, 0.30)'
+            arrow_pressed: str = f'rgba({blue}, 0.45)'
+            arrow_border: str = 'rgba(255, 255, 255, 0.14)'
+            hover_border: str = f'rgba({blue}, 0.70)'
         else:
             arrow_bg = 'rgba(0, 0, 0, 0.04)'
-            arrow_hover = 'rgba(0, 0, 0, 0.10)'
+            arrow_hover = f'rgba({blue}, 0.18)'
+            arrow_pressed = f'rgba({blue}, 0.30)'
+            arrow_border = 'rgba(0, 0, 0, 0.10)'
+            hover_border = f'rgba({blue}, 0.55)'
         return (
             f'QPushButton {{ background-color: {arrow_bg}; color: {fc};'
-            f' border: none; border-radius: 4px; }}'
-            f'QPushButton:hover {{ background-color: {arrow_hover}; }}'
+            f' border: 1px solid {arrow_border}; border-radius: 6px; }}'
+            f'QPushButton:hover {{ background-color: {arrow_hover};'
+            f' border: 1px solid {hover_border}; }}'
+            f'QPushButton:pressed {{ background-color: {arrow_pressed};'
+            f' border: 1px solid {hover_border}; }}'
         )
+
+    def _highlight_entry_row(self, row: int) -> None:
+        """将指定行用主窗口光标蓝色选中高亮（同主窗口闪烁光标蓝色）。"""
+        if self._timetable_table is None:
+            return
+        if row < 0 or row >= self._timetable_table.rowCount():
+            return
+        # 清除当前选中后重新选中该行，触发 QSS :selected 蓝色背景
+        self._timetable_table.clearSelection()
+        self._timetable_table.selectRow(row)
+        self._timetable_table.viewport().update()  # type: ignore
 
     def _on_move_entry(self, row: int, direction: int) -> None:
         """操作列上下键：将该行时间规则整体上移（-1）或下移（+1），并直接保存。"""
@@ -4493,7 +4626,9 @@ class SettingsWindow(ThemedWidget):
         idx: int = keys.index(key)
         new_idx: int = idx + direction
         if new_idx < 0 or new_idx >= len(keys):
-            return  # 已在最上/最下，无需移动
+            # 已在最上/最下：无法移动，仍高亮当前行作为点击反馈
+            self._highlight_entry_row(row)
+            return
         items: List[tuple] = list(data.items())
         items[idx], items[new_idx] = items[new_idx], items[idx]
         self._editing_timetable_data = dict(items)
@@ -4503,6 +4638,9 @@ class SettingsWindow(ThemedWidget):
         self._refresh_table()
         self._refresh_status_label()
         self._refresh_apply_button()
+
+        # 高亮移动后的行（蓝色突出显示本次操作的行）
+        self._highlight_entry_row(new_idx)
 
     # ================================================================
     #  课程表 — 提示文本
@@ -5580,6 +5718,29 @@ class SettingsWindow(ThemedWidget):
         if self._status_label is not None:
             self._status_label.setStyleSheet(
                 f"color: {self._theme.font_color}; background: transparent; border: none; opacity: 0.75;"
+            )
+        # 刷新「当前使用」卡片
+        if self._usage_card is not None:
+            self._usage_card.setStyleSheet(self._get_status_card_style())
+        if self._usage_title_label is not None:
+            self._usage_title_label.setStyleSheet(
+                f"color: {self._theme.font_color}; background: transparent; border: none;"
+            )
+        if self._usage_tt_title is not None:
+            self._usage_tt_title.setStyleSheet(
+                f"color: {self._theme.font_color}; background: transparent; border: none; opacity: 0.6;"
+            )
+        if self._usage_cv_title is not None:
+            self._usage_cv_title.setStyleSheet(
+                f"color: {self._theme.font_color}; background: transparent; border: none; opacity: 0.6;"
+            )
+        if self._usage_tt_label is not None:
+            self._usage_tt_label.setStyleSheet(
+                f"color: {self._theme.font_color}; background: transparent; border: none;"
+            )
+        if self._usage_cv_label is not None:
+            self._usage_cv_label.setStyleSheet(
+                f"color: {self._theme.font_color}; background: transparent; border: none;"
             )
         if self._timetable_file_label is not None:
             self._timetable_file_label.setStyleSheet(
