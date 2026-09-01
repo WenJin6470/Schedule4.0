@@ -27,6 +27,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from PySide6.QtWidgets import QApplication, QWidget
 from PySide6.QtGui import QColor, QPainter, QPaintEvent
 from app_paths import app_root
+from schedule_countdown import (  # noqa: E402
+    GK_YEAR_START,
+    GK_YEAR_END,
+    default_gk_year,
+    resolve_gk_year,
+)
 
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -178,9 +184,10 @@ class ThemeManager:
         # ---- 关于页版本号（主配置文件 version）----
         self.version: str = '4.0.0.0'
 
-        # ---- 高考倒计时：年级 / 班级（注册表读取失败时使用；默认高一一班）----
-        self.grade: int = 1
-        self.class_: int = 1
+        # ---- 高考倒计时：高考年份（可选范围 2026 ~ 2075，默认 2026）----
+        self.gk_year: int = GK_YEAR_START
+        # ---- 高考倒计时：年份最后一次修改日期（YYYY-MM-DD，用于 8 月 1 日只推一年）----
+        self.gk_year_last_modified: str = ''
         # ---- 高考倒计时窗口是否默认打开（默认 True）----
         self.countdown_enabled: bool = True
 
@@ -295,22 +302,25 @@ class ThemeManager:
             version_str: str = parser.get('Schedule', 'version', fallback='4.0.0.0')
             self.version = version_str.strip() or '4.0.0.0'
 
-            # --- grade / class（高考倒计时年级 / 班级，默认高一一班）---
-            grade_str: str = parser.get('Schedule', 'grade', fallback='1')
+            # --- gk_year / gk_year_last_modified（高考倒计时年份）---
+            gk_year_str: str = parser.get(
+                'Schedule', 'gk_year', fallback=str(default_gk_year())
+            )
             try:
-                self.grade = int(grade_str.strip())
+                self.gk_year = int(gk_year_str.strip())
             except (ValueError, TypeError):
-                self.grade = 1
-            class_str: str = parser.get('Schedule', 'class', fallback='1')
-            try:
-                self.class_ = int(class_str.strip())
-            except (ValueError, TypeError):
-                self.class_ = 1
-            # 合法性兜底：年级限 1~3，班级限 1~99
-            if self.grade < 1 or self.grade > 3:
-                self.grade = 1
-            if self.class_ < 1 or self.class_ > 99:
-                self.class_ = 1
+                self.gk_year = GK_YEAR_START
+            # 合法性兜底：年份限制在可选范围内
+            if self.gk_year < GK_YEAR_START or self.gk_year > GK_YEAR_END:
+                self.gk_year = GK_YEAR_START
+
+            # 最后一次修改年份的日期（YYYY-MM-DD；用于 8 月 1 日当天只推一年）
+            self.gk_year_last_modified: str = parser.get(
+                'Schedule', 'gk_year_last_modified', fallback=''
+            ).strip()
+
+            # 自动滚动「每年 8 月 1 日 +1」在 apply_gk_year_auto_advance() 中执行，
+            # 以便复用 DebugConfig 的模拟日期（见 _load_config 之后的方法）。
 
             # --- countdown_enabled（高考倒计时窗口是否默认打开，默认 true）---
             cd_enabled_str: str = parser.get(
@@ -350,6 +360,98 @@ class ThemeManager:
             self.log_retention_days = 7
             self.subject_font = 'Arial'
             self._apply_theme()
+
+    # ================================================================
+    #  高考年份自动滚动（每年 8 月 1 日 +1，当天只推一次）
+    # ================================================================
+    def apply_gk_year_auto_advance(self, debug_config=None) -> None:
+        """
+        根据当前日期应用「每年 8 月 1 日 +1」自动滚动规则。
+        --------------------------------------------------
+        参数：
+            debug_config（DebugConfig | None）：调试配置管理器；
+                 若启用且提供了模拟日期，则用模拟日期判断 8 月 1 日，
+                 否则回退到系统真实日期。传 None 表示不使用调试日期。
+
+        规则：
+          - 仅在 8 月 1 日触发；且当天只推一年（用 gk_year_last_modified 去重）；
+          - 若滚动后年份发生变化，则写回 schedule_config.ini 持久化。
+        说明：本方法需在 DebugConfig 创建后调用（此时才能拿到模拟日期），
+             因此不在 _load_config 中执行，而是在 main.py 中调用。
+        """
+        today = None
+        if debug_config is not None and debug_config.enabled:
+            today = debug_config.get_current_datetime()
+
+        resolved_year, new_last = resolve_gk_year(
+            self.gk_year, self.gk_year_last_modified, today
+        )
+        if resolved_year != self.gk_year or new_last != self.gk_year_last_modified:
+            self.gk_year = resolved_year
+            self.gk_year_last_modified = new_last
+            self._save_gk_year_to_config()
+            logger.info(
+                f"高考年份已按 8 月 1 日规则自动滚动：{resolved_year} "
+                f"（last_modified={new_last}）"
+            )
+
+    # ================================================================
+    #  高考年份写回配置（自动滚动时使用）
+    # ================================================================
+    def _save_gk_year_to_config(self) -> None:
+        """
+        把当前 gk_year / gk_year_last_modified 写回 schedule_config.ini。
+        --------------------------------------------------------------
+        仅在启动时检测到「8 月 1 日自动滚动」需要更新年份时调用，
+        用于把滚动后的年份与本次修改日期持久化，避免同一天重复滚动。
+        """
+        script_dir: str = app_root()
+        ini_path: str = os.path.join(script_dir, 'Config', 'schedule_config.ini')
+        if not os.path.exists(ini_path):
+            logger.warning(f"配置文件不存在，无法写回高考年份：{ini_path}")
+            return
+        try:
+            with open(ini_path, 'r', encoding='utf-8') as f:
+                lines: List[str] = f.readlines()
+
+            updated: Dict[str, bool] = {
+                'gk_year': False,
+                'gk_year_last_modified': False,
+            }
+            out: List[str] = []
+            for line in lines:
+                stripped: str = line.lstrip()
+                if stripped.startswith(';') or stripped.startswith('#'):
+                    out.append(line)
+                    continue
+                if '=' in line:
+                    key: str = line.split('=', 1)[0].strip()
+                    if key == 'gk_year' and not updated['gk_year']:
+                        out.append(f"gk_year = {self.gk_year}\n")
+                        updated['gk_year'] = True
+                        continue
+                    if key == 'gk_year_last_modified' and not updated['gk_year_last_modified']:
+                        out.append(f"gk_year_last_modified = {self.gk_year_last_modified}\n")
+                        updated['gk_year_last_modified'] = True
+                        continue
+                out.append(line)
+
+            if not updated['gk_year']:
+                out.append(f"gk_year = {self.gk_year}\n")
+            if not updated['gk_year_last_modified']:
+                out.append(
+                    f"gk_year_last_modified = {self.gk_year_last_modified}\n"
+                )
+
+            with open(ini_path, 'w', encoding='utf-8') as f:
+                f.writelines(out)
+            logger.info(
+                f"已把高考年份写回 schedule_config.ini："
+                f"gk_year={self.gk_year}, "
+                f"gk_year_last_modified={self.gk_year_last_modified}"
+            )
+        except Exception as e:
+            logger.error(f"写回 schedule_config.ini 高考年份失败：{e}")
 
     # ================================================================
     #  应用主题颜色

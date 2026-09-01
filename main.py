@@ -252,6 +252,12 @@ def main() -> None:
     debug_config: DebugConfig = DebugConfig()
     logger.info(f"DebugConfig 创建完成：enabled={debug_config.enabled}")
 
+    #  3c-1. 高考倒计时年份自动滚动（复用 DebugConfig 模拟日期：每年 8 月 1 日 +1）
+    try:
+        theme_manager.apply_gk_year_auto_advance(debug_config)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"高考倒计时年份自动滚动失败（忽略）：{e}")
+
     #  3d. 解析显示规则：命中则覆盖时间表/课程表路径并写回 INI
     logger.info("正在解析显示规则...")
     display_rules: DisplayRulesManager = DisplayRulesManager()
@@ -421,8 +427,7 @@ def main() -> None:
             logger.info("高考倒计时已关闭（countdown_enabled=false），跳过默认打开")
             return
         show_countdown_window(
-            grade=getattr(theme_manager, 'grade', 1),
-            class_=getattr(theme_manager, 'class_', 1),
+            gk_year=getattr(theme_manager, 'gk_year', 2026),
             screen_width=theme_manager.screen_width,
             screen_height=theme_manager.screen_height,
         )

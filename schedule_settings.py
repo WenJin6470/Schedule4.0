@@ -55,6 +55,11 @@ from schedule_translate import TranslateWorker, load_sites, get_default_site
 from knotlink_bridge import APPID, SOCKET_ID, SIGNAL_ID
 from app_paths import app_root, is_frozen
 from schedule_updater import UpdateWorker, UpdateInfo, is_newer
+from schedule_countdown import (  # noqa: E402
+    GK_YEAR_START,
+    GK_YEAR_END,
+    gk_year_options,
+)
 
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -519,15 +524,15 @@ class SettingsWindow(ThemedWidget):
         self._language_hint_label: Optional[QLabel] = None
         self._applied_language: str = self._theme.language
 
-        # 基础设置 — 高考倒计时：年级 / 班级引用（默认高一一班）
-        self._grade_class_card: Optional[QFrame] = None
-        self._grade_combo: Optional[QComboBox] = None
-        self._class_combo: Optional[QComboBox] = None
-        self._grade_class_title_label: Optional[QLabel] = None
-        self._grade_class_hint_label: Optional[QLabel] = None
+        # 基础设置 — 高考倒计时：高考年份（可选范围 2026 ~ 2075，默认 2026）
+        self._gk_card: Optional[QFrame] = None
+        self._gk_combo: Optional[QComboBox] = None
+        self._gk_card_title_label: Optional[QLabel] = None
+        self._gk_card_hint_label: Optional[QLabel] = None
         self._countdown_switch: Optional[ToggleSwitch] = None
-        self._applied_grade: int = getattr(self._theme, 'grade', 1)
-        self._applied_class: int = getattr(self._theme, 'class_', 1)
+        self._applied_gk_year: int = int(
+            getattr(self._theme, 'gk_year', GK_YEAR_START)
+        )
         # 高考倒计时窗口是否已打开（应用修改时持久化）
         self._applied_countdown_enabled: bool = getattr(
             self._theme, 'countdown_enabled', True
@@ -1957,44 +1962,46 @@ class SettingsWindow(ThemedWidget):
 
         layout.addWidget(self._language_card)
 
-        # ---- 高考倒计时：年级 / 班级卡片 ----
-        self._grade_class_card = QFrame()
-        self._grade_class_card.setStyleSheet(self._get_status_card_style())
-        self._grade_class_card.setSizePolicy(
+        # ---- 高考倒计时：高考年份卡片 ----
+        self._gk_card = QFrame()
+        self._gk_card.setStyleSheet(self._get_status_card_style())
+        self._gk_card.setSizePolicy(
             QSizePolicy.Expanding, QSizePolicy.Fixed  # type: ignore
         )
-        gc_card_layout: QVBoxLayout = QVBoxLayout(self._grade_class_card)
+        gc_card_layout: QVBoxLayout = QVBoxLayout(self._gk_card)
         gc_card_layout.setContentsMargins(20, 12, 20, 12)
         gc_card_layout.setSpacing(8)
 
-        # 顶部：左侧（标题 + 提示） + 右侧（年级/班级下拉框）
+        # 顶部：左侧（标题 + 提示） + 右侧（倒计时窗口开关）
         gc_top_row: QHBoxLayout = QHBoxLayout()
         gc_top_row.setSpacing(16)
 
         gc_left_col: QVBoxLayout = QVBoxLayout()
         gc_left_col.setSpacing(6)
 
-        self._grade_class_title_label = QLabel("高考倒计时")
-        self._grade_class_title_label.setFont(
+        self._gk_card_title_label = QLabel("高考倒计时")
+        self._gk_card_title_label.setFont(
             QFont("Microsoft YaHei", 14, QFont.Bold)  # type: ignore
         )
-        self._grade_class_title_label.setStyleSheet(
+        self._gk_card_title_label.setStyleSheet(
             f"color: {fc}; background: transparent; border: none;"
         )
-        gc_left_col.addWidget(self._grade_class_title_label)
+        gc_left_col.addWidget(self._gk_card_title_label)
 
-        self._grade_class_hint_label = QLabel(
+        self._gk_card_hint_label = QLabel(
             "开关控制高考倒计时窗口的打开与关闭（默认开启，启动时自动显示）；\n"
-            "倒计时窗口优先读取本机注册表中的年级/班级，读取失败时使用此处配置。"
+            "切换到目标高考年份即可按该年 6 月 7 日倒计时，可选范围为 "
+            f"{GK_YEAR_START} ~ {GK_YEAR_END} 年（共 50 年）；\n"
+            "每年 8 月 1 日会自动把年份向后推一年，且当天只推一次。"
         )
         gc_hint_font: QFont = QFont("Microsoft YaHei", 9)
         gc_hint_font.setItalic(True)
-        self._grade_class_hint_label.setFont(gc_hint_font)
-        self._grade_class_hint_label.setStyleSheet(
+        self._gk_card_hint_label.setFont(gc_hint_font)
+        self._gk_card_hint_label.setStyleSheet(
             f"color: {fc}; background: transparent; border: none; opacity: 0.6;"
         )
-        self._grade_class_hint_label.setWordWrap(True)
-        gc_left_col.addWidget(self._grade_class_hint_label)
+        self._gk_card_hint_label.setWordWrap(True)
+        gc_left_col.addWidget(self._gk_card_hint_label)
 
         gc_top_row.addLayout(gc_left_col, stretch=1)
 
@@ -2006,59 +2013,39 @@ class SettingsWindow(ThemedWidget):
         )
         gc_card_layout.addLayout(gc_top_row)
 
-        # 下方：年级 / 班级下拉框
+        # 下方：高考年份下拉框
         gc_select_row: QHBoxLayout = QHBoxLayout()
         gc_select_row.setSpacing(12)
 
-        gc_grade_label: QLabel = QLabel("年级：")
-        gc_grade_label.setFont(QFont("Microsoft YaHei", 10))
-        gc_grade_label.setStyleSheet(
+        gc_year_label: QLabel = QLabel("高考年份：")
+        gc_year_label.setFont(QFont("Microsoft YaHei", 10))
+        gc_year_label.setStyleSheet(
             f"color: {fc}; background: transparent; border: none;"
         )
-        gc_select_row.addWidget(gc_grade_label)
+        gc_select_row.addWidget(gc_year_label)
 
-        self._grade_combo = QComboBox()
-        self._grade_combo.setMinimumWidth(120)
-        self._grade_combo.setCursor(Qt.PointingHandCursor)  # type: ignore
-        self._grade_combo.setStyleSheet(self._get_font_combo_style())
-        self._grade_combo.addItem("高一", 1)
-        self._grade_combo.addItem("高二", 2)
-        self._grade_combo.addItem("高三", 3)
-        grade_idx: int = self._grade_combo.findData(self._applied_grade)
-        if grade_idx >= 0:
-            self._grade_combo.setCurrentIndex(grade_idx)
-        gc_select_row.addWidget(self._grade_combo)
-
-        gc_class_label: QLabel = QLabel("班级：")
-        gc_class_label.setFont(QFont("Microsoft YaHei", 10))
-        gc_class_label.setStyleSheet(
-            f"color: {fc}; background: transparent; border: none;"
-        )
-        gc_select_row.addWidget(gc_class_label)
-
-        self._class_combo = QComboBox()
-        self._class_combo.setMinimumWidth(120)
-        self._class_combo.setCursor(Qt.PointingHandCursor)  # type: ignore
-        self._class_combo.setStyleSheet(self._get_font_combo_style())
-        for c in range(1, 31):
-            self._class_combo.addItem(f"{c}班", c)
-        class_idx: int = self._class_combo.findData(self._applied_class)
-        if class_idx >= 0:
-            self._class_combo.setCurrentIndex(class_idx)
-        gc_select_row.addWidget(self._class_combo)
+        self._gk_combo = QComboBox()
+        self._gk_combo.setMinimumWidth(140)
+        self._gk_combo.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self._gk_combo.setStyleSheet(self._get_font_combo_style())
+        for y in gk_year_options():
+            self._gk_combo.addItem(f"{y}年", y)
+        gk_idx: int = self._gk_combo.findData(self._applied_gk_year)
+        if gk_idx >= 0:
+            self._gk_combo.setCurrentIndex(gk_idx)
+        gc_select_row.addWidget(self._gk_combo)
 
         gc_select_row.addStretch()
         gc_card_layout.addLayout(gc_select_row)
 
-        layout.addWidget(self._grade_class_card)
+        layout.addWidget(self._gk_card)
         layout.addStretch(1)
 
         # 先设置初始值，再连接信号，避免初始化时触发脏标记
         self._font_combo.currentTextChanged.connect(self._on_font_changed)
         self._language_combo.currentIndexChanged.connect(self._on_language_changed)
         self._autostart_switch.toggled.connect(self._on_autostart_toggled)
-        self._grade_combo.currentIndexChanged.connect(self._on_grade_class_changed)
-        self._class_combo.currentIndexChanged.connect(self._on_grade_class_changed)
+        self._gk_combo.currentIndexChanged.connect(self._on_gk_year_changed)
         self._countdown_switch.toggled.connect(self._on_countdown_toggled)
 
         return page
@@ -2975,18 +2962,15 @@ class SettingsWindow(ThemedWidget):
         """语言下拉框选择变化：刷新「应用修改」按钮状态。"""
         self._refresh_apply_button()
 
-    def _on_grade_class_changed(self, index: int) -> None:
-        """年级/班级下拉框选择变化：刷新「应用修改」按钮状态。"""
+    def _on_gk_year_changed(self, index: int) -> None:
+        """高考年份下拉框选择变化：刷新「应用修改」按钮状态。"""
         self._refresh_apply_button()
 
-    def _grade_class_is_dirty(self) -> bool:
-        """判断年级/班级下拉框当前选择是否与已应用配置不同。"""
-        if self._grade_combo is None or self._class_combo is None:
+    def _gk_year_is_dirty(self) -> bool:
+        """判断高考年份下拉框当前选择是否与已应用配置不同。"""
+        if self._gk_combo is None:
             return False
-        return (
-            self._grade_combo.currentData() != self._applied_grade
-            or self._class_combo.currentData() != self._applied_class
-        )
+        return self._gk_combo.currentData() != self._applied_gk_year
 
     def _countdown_is_dirty(self) -> bool:
         """判断倒计时开关当前状态是否与已应用状态不同。"""
@@ -3015,19 +2999,13 @@ class SettingsWindow(ThemedWidget):
             return
 
         if checked:
-            grade: int = (
-                self._grade_combo.currentData()
-                if self._grade_combo is not None
-                else self._applied_grade
-            )
-            class_: int = (
-                self._class_combo.currentData()
-                if self._class_combo is not None
-                else self._applied_class
+            gk_year: int = (
+                self._gk_combo.currentData()
+                if self._gk_combo is not None
+                else self._applied_gk_year
             )
             show_countdown_window(
-                grade=grade,
-                class_=class_,
+                gk_year=gk_year,
                 screen_width=self._theme.screen_width,
                 screen_height=self._theme.screen_height,
             )
@@ -3035,13 +3013,17 @@ class SettingsWindow(ThemedWidget):
             hide_countdown_window()
         self._refresh_apply_button()
 
-    def _persist_grade_class(self) -> None:
-        """把当前选中的年级/班级与倒计时开关状态写回 schedule_config.ini。"""
-        if self._grade_combo is None or self._class_combo is None:
+    def _persist_gk_year(self) -> None:
+        """把当前选中的高考年份与倒计时开关状态写回 schedule_config.ini。
+
+        若用户本次修改了年份，则把 gk_year_last_modified 记为今天，
+        用于「8 月 1 日当天只能自动修改一次」的去重（手动修改也算一次）。
+        若未修改年份，则沿用配置文件里已有的 gk_year_last_modified。
+        """
+        if self._gk_combo is None:
             return
-        grade_value = self._grade_combo.currentData()
-        class_value = self._class_combo.currentData()
-        if grade_value is None or class_value is None:
+        gk_value = self._gk_combo.currentData()
+        if gk_value is None:
             return
         countdown_enabled: bool = (
             self._countdown_switch.isChecked()
@@ -3049,17 +3031,27 @@ class SettingsWindow(ThemedWidget):
             else True
         )
 
+        # 用户是否真正修改了年份（决定是否刷新 last_modified）
+        if gk_value != self._applied_gk_year:
+            last_modified: str = date.today().isoformat()
+        else:
+            last_modified = str(
+                getattr(self._theme, 'gk_year_last_modified', '')
+            )
+
         script_dir: str = app_root()
         ini_path: str = os.path.join(script_dir, 'Config', 'schedule_config.ini')
         if not os.path.exists(ini_path):
-            logger.warning(f"配置文件不存在，无法写回年级/班级：{ini_path}")
+            logger.warning(f"配置文件不存在，无法写回高考年份：{ini_path}")
             return
         try:
             with open(ini_path, 'r', encoding='utf-8') as f:
                 lines: List[str] = f.readlines()
 
             updated: Dict[str, bool] = {
-                'grade': False, 'class': False, 'countdown_enabled': False,
+                'gk_year': False,
+                'gk_year_last_modified': False,
+                'countdown_enabled': False,
             }
             out: List[str] = []
             for line in lines:
@@ -3069,13 +3061,13 @@ class SettingsWindow(ThemedWidget):
                     continue
                 if '=' in line:
                     key: str = line.split('=', 1)[0].strip()
-                    if key == 'grade' and not updated['grade']:
-                        out.append(f"grade = {grade_value}\n")
-                        updated['grade'] = True
+                    if key == 'gk_year' and not updated['gk_year']:
+                        out.append(f"gk_year = {gk_value}\n")
+                        updated['gk_year'] = True
                         continue
-                    if key == 'class' and not updated['class']:
-                        out.append(f"class = {class_value}\n")
-                        updated['class'] = True
+                    if key == 'gk_year_last_modified' and not updated['gk_year_last_modified']:
+                        out.append(f"gk_year_last_modified = {last_modified}\n")
+                        updated['gk_year_last_modified'] = True
                         continue
                     if key == 'countdown_enabled' and not updated['countdown_enabled']:
                         out.append(
@@ -3086,26 +3078,29 @@ class SettingsWindow(ThemedWidget):
                         continue
                 out.append(line)
 
-            if not updated['grade']:
-                out.append(f"grade = {grade_value}\n")
-            if not updated['class']:
-                out.append(f"class = {class_value}\n")
+            if not updated['gk_year']:
+                out.append(f"gk_year = {gk_value}\n")
+            if not updated['gk_year_last_modified']:
+                out.append(f"gk_year_last_modified = {last_modified}\n")
             if not updated['countdown_enabled']:
                 out.append(
                     f"countdown_enabled = "
                     f"{'true' if countdown_enabled else 'false'}\n"
                 )
-            if not updated['class']:
-                out.append(f"class = {class_value}\n")
 
             with open(ini_path, 'w', encoding='utf-8') as f:
                 f.writelines(out)
+
+            # 同步共享主题对象，保证内存一致
+            self._theme.gk_year = int(gk_value)
+            self._theme.gk_year_last_modified = last_modified
+
             logger.info(
-                f"已把年级/班级写回 schedule_config.ini："
-                f"grade={grade_value}, class={class_value}"
+                f"已把高考年份写回 schedule_config.ini："
+                f"gk_year={gk_value}, gk_year_last_modified={last_modified}"
             )
         except Exception as e:
-            logger.error(f"写回 schedule_config.ini 年级/班级失败：{e}")
+            logger.error(f"写回 schedule_config.ini 高考年份失败：{e}")
 
     def _on_autostart_toggled(self, checked: bool) -> None:
         """自启动开关状态变化：刷新「应用修改」按钮状态。"""
@@ -3127,7 +3122,7 @@ class SettingsWindow(ThemedWidget):
             or self._language_is_dirty()
             or self._autostart_is_dirty()
             or self._appearance_is_dirty()
-            or self._grade_class_is_dirty()
+            or self._gk_year_is_dirty()
             or self._countdown_is_dirty()
         )
         self._apply_btn.setEnabled(enabled)
@@ -3536,12 +3531,10 @@ class SettingsWindow(ThemedWidget):
         if self._language_combo is not None:
             self._applied_language = self._language_combo.currentData()
 
-        # 1b-2. 持久化年级/班级设置（高考倒计时用）
-        self._persist_grade_class()
-        if self._grade_combo is not None:
-            self._applied_grade = self._grade_combo.currentData()
-        if self._class_combo is not None:
-            self._applied_class = self._class_combo.currentData()
+        # 1b-2. 持久化高考年份设置（高考倒计时用）
+        self._persist_gk_year()
+        if self._gk_combo is not None:
+            self._applied_gk_year = self._gk_combo.currentData()
         if self._countdown_switch is not None:
             self._applied_countdown_enabled = self._countdown_switch.isChecked()
 
@@ -3609,12 +3602,10 @@ class SettingsWindow(ThemedWidget):
         if self._language_combo is not None:
             self._applied_language = self._language_combo.currentData()
 
-        # 1b-2. 持久化年级/班级设置（高考倒计时用）
-        self._persist_grade_class()
-        if self._grade_combo is not None:
-            self._applied_grade = self._grade_combo.currentData()
-        if self._class_combo is not None:
-            self._applied_class = self._class_combo.currentData()
+        # 1b-2. 持久化高考年份设置（高考倒计时用）
+        self._persist_gk_year()
+        if self._gk_combo is not None:
+            self._applied_gk_year = self._gk_combo.currentData()
         if self._countdown_switch is not None:
             self._applied_countdown_enabled = self._countdown_switch.isChecked()
 
@@ -5995,20 +5986,18 @@ class SettingsWindow(ThemedWidget):
         if self._language_combo is not None:
             self._language_combo.setStyleSheet(self._get_font_combo_style())
         # 刷新基础设置 — 高考倒计时年级/班级卡片
-        if self._grade_class_card is not None:
-            self._grade_class_card.setStyleSheet(self._get_status_card_style())
-        if self._grade_class_title_label is not None:
-            self._grade_class_title_label.setStyleSheet(
+        if self._gk_card is not None:
+            self._gk_card.setStyleSheet(self._get_status_card_style())
+        if self._gk_card_title_label is not None:
+            self._gk_card_title_label.setStyleSheet(
                 f"color: {self._theme.font_color}; background: transparent; border: none;"
             )
-        if self._grade_class_hint_label is not None:
-            self._grade_class_hint_label.setStyleSheet(
+        if self._gk_card_hint_label is not None:
+            self._gk_card_hint_label.setStyleSheet(
                 f"color: {self._theme.font_color}; background: transparent; border: none; opacity: 0.6;"
             )
-        if self._grade_combo is not None:
-            self._grade_combo.setStyleSheet(self._get_font_combo_style())
-        if self._class_combo is not None:
-            self._class_combo.setStyleSheet(self._get_font_combo_style())
+        if self._gk_combo is not None:
+            self._gk_combo.setStyleSheet(self._get_font_combo_style())
         if self._countdown_switch is not None:
             # 开关控件自绘，主题切换时仅重绘即可
             self._countdown_switch.update()
