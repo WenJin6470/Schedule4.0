@@ -190,6 +190,8 @@ class ThemeManager:
         self.gk_year_last_modified: str = ''
         # ---- 高考倒计时窗口是否默认打开（默认 True）----
         self.countdown_enabled: bool = True
+        # ---- 开机自启动（默认开启，启动时注册到注册表 Run 键）----
+        self.autostart: bool = True
 
         # ---- 加载配置 ----
         self._load_config()
@@ -327,6 +329,14 @@ class ThemeManager:
                 'Schedule', 'countdown_enabled', fallback='true'
             )
             self.countdown_enabled = cd_enabled_str.strip().lower() in (
+                'true', '1', 'yes', 'on'
+            )
+
+            # --- autostart（开机自启动，默认 true）---
+            autostart_str: str = parser.get(
+                'Schedule', 'autostart', fallback='true'
+            )
+            self.autostart = autostart_str.strip().lower() in (
                 'true', '1', 'yes', 'on'
             )
 

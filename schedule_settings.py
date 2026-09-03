@@ -143,6 +143,75 @@ _AUTOSTART_REG_KEY: str = r'Software\Microsoft\Windows\CurrentVersion\Run'
 _AUTOSTART_VALUE_NAME: str = 'Schedule4.0'
 
 
+def build_autostart_command() -> str:
+    """
+    构造写入注册表的自启动启动命令（模块级，供设置页与启动流程共用）。
+    ---------------------------------
+    已打包（Nuitka standalone）时直接使用当前主程序路径；
+    源码运行时使用「python 解释器 + main.py」组合。
+    """
+    if is_frozen():
+        return f'"{os.path.abspath(sys.executable)}"'
+    script_dir: str = app_root()
+    main_script: str = os.path.join(script_dir, 'main.py')
+    return f'"{sys.executable}" "{main_script}"'
+
+
+def is_autostart_enabled() -> bool:
+    """查询注册表 Run 键，判断开机自启动是否已开启（模块级）。"""
+    if sys.platform != 'win32':
+        logger.warning("非 Windows 平台，跳过开机自启动查询")
+        return False
+    try:
+        import winreg  # noqa: PLC0415
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, _AUTOSTART_REG_KEY
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, _AUTOSTART_VALUE_NAME)
+        return bool(value)
+    except OSError:
+        return False
+
+
+def set_autostart_enabled(enabled: bool) -> bool:
+    """
+    写入或删除注册表 Run 键下的自启动项（模块级，供设置页与启动流程共用）。
+    ---------------------------------
+    参数：
+        enabled（bool）：True 写入启动命令，False 删除自启动项
+
+    返回值：
+        bool：操作是否成功
+    """
+    if sys.platform != 'win32':
+        logger.warning("非 Windows 平台，无法修改开机自启动")
+        return False
+    try:
+        import winreg  # noqa: PLC0415
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, _AUTOSTART_REG_KEY,
+            0, winreg.KEY_SET_VALUE
+        ) as key:
+            if enabled:
+                winreg.SetValueEx(
+                    key, _AUTOSTART_VALUE_NAME, 0,
+                    winreg.REG_SZ, build_autostart_command()
+                )
+            else:
+                try:
+                    winreg.DeleteValue(key, _AUTOSTART_VALUE_NAME)
+                except FileNotFoundError:
+                    pass  # 值不存在视为已删除
+        logger.info(
+            f"开机自启动已{'开启' if enabled else '关闭'}："
+            f"{_AUTOSTART_VALUE_NAME} @ HKCU\\{_AUTOSTART_REG_KEY}"
+        )
+        return True
+    except OSError as e:
+        logger.error(f"修改注册表开机自启动失败：{e}")
+        return False
+
+
 # ==================== KnotLink 接口 / 信号目录 ====================
 #
 # KnotLink 接口（openSocket）与信号（signal）的参考目录数据现已外置到
@@ -543,7 +612,10 @@ class SettingsWindow(ThemedWidget):
         self._autostart_switch: Optional[ToggleSwitch] = None
         self._autostart_title_label: Optional[QLabel] = None
         self._autostart_hint_label: Optional[QLabel] = None
-        self._applied_autostart: bool = self._is_autostart_enabled()
+        # 以配置偏好为准（默认开启）：启动流程会据此注册自启动项
+        self._applied_autostart: bool = bool(
+            getattr(self._theme, 'autostart', True)
+        )
 
         # 美化 — 明暗模式 / 主题色引用
         self._applied_theme: str = self._theme.theme
@@ -3384,74 +3456,23 @@ class SettingsWindow(ThemedWidget):
     #  开机自启动（注册表）
     # ================================================================
     def _build_autostart_command(self) -> str:
-        """
-        构造写入注册表的自启动启动命令。
-        ---------------------------------
-        已打包（PyInstaller）时直接使用当前可执行文件；
-        源码运行时使用「python 解释器 + main.py」组合，
-        与 _restart_app 的启动方式保持一致。
-        """
-        if is_frozen():
-            return f'"{sys.executable}"'
-        script_dir: str = app_root()
-        main_script: str = os.path.join(script_dir, 'main.py')
-        return f'"{sys.executable}" "{main_script}"'
+        """构造写入注册表的自启动启动命令（复用模块级函数）。"""
+        return build_autostart_command()
 
     def _is_autostart_enabled(self) -> bool:
-        """查询注册表 Run 键，判断开机自启动是否已开启。"""
-        if sys.platform != 'win32':
-            logger.warning("非 Windows 平台，跳过开机自启动查询")
-            return False
-        try:
-            import winreg  # noqa: PLC0415
-            with winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER, _AUTOSTART_REG_KEY
-            ) as key:
-                value, _ = winreg.QueryValueEx(key, _AUTOSTART_VALUE_NAME)
-            return bool(value)
-        except OSError:
-            return False
+        """查询注册表 Run 键，判断开机自启动是否已开启（复用模块级函数）。"""
+        return is_autostart_enabled()
 
     def _set_autostart_enabled(self, enabled: bool) -> bool:
-        """
-        写入或删除注册表 Run 键下的自启动项。
-        -------------------------------------
-        参数：
-            enabled（bool）：True 写入启动命令，False 删除自启动项
-
-        返回值：
-            bool：操作是否成功
-        """
-        if sys.platform != 'win32':
-            logger.warning("非 Windows 平台，无法修改开机自启动")
-            return False
-        try:
-            import winreg  # noqa: PLC0415
-            with winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER, _AUTOSTART_REG_KEY,
-                0, winreg.KEY_SET_VALUE
-            ) as key:
-                if enabled:
-                    winreg.SetValueEx(
-                        key, _AUTOSTART_VALUE_NAME, 0,
-                        winreg.REG_SZ, self._build_autostart_command()
-                    )
-                else:
-                    try:
-                        winreg.DeleteValue(key, _AUTOSTART_VALUE_NAME)
-                    except FileNotFoundError:
-                        pass  # 值不存在视为已删除
-            logger.info(
-                f"开机自启动已{'开启' if enabled else '关闭'}："
-                f"{_AUTOSTART_VALUE_NAME} @ HKCU\\{_AUTOSTART_REG_KEY}"
-            )
-            return True
-        except OSError as e:
-            logger.error(f"修改注册表开机自启动失败：{e}")
-            return False
+        """写入或删除注册表 Run 键下的自启动项（复用模块级函数）。"""
+        return set_autostart_enabled(enabled)
 
     def _persist_autostart(self) -> None:
-        """把当前选中的开机自启动状态写入注册表（立即生效）。"""
+        """把当前选中的开机自启动状态写入注册表并同步配置文件（立即生效）。
+
+        仅在开关状态相对「已应用」发生变化时写入注册表；
+        同时把偏好写回 ini，供下次启动「按配置注册自启动」时判断。
+        """
         if self._autostart_switch is None:
             return
         enabled: bool = self._autostart_switch.isChecked()
@@ -3459,7 +3480,42 @@ class SettingsWindow(ThemedWidget):
             return
         if self._set_autostart_enabled(enabled):
             self._applied_autostart = enabled
+            self._theme.autostart = enabled
+            self._save_autostart_to_config()
             logger.info(f"开机自启动状态已更新：{'开启' if enabled else '关闭'}")
+
+    def _save_autostart_to_config(self) -> None:
+        """把当前 autostart 偏好写回 schedule_config.ini。"""
+        script_dir: str = app_root()
+        ini_path: str = os.path.join(script_dir, 'Config', 'schedule_config.ini')
+        if not os.path.exists(ini_path):
+            logger.warning(f"配置文件不存在，无法写回开机自启动：{ini_path}")
+            return
+        try:
+            with open(ini_path, 'r', encoding='utf-8') as f:
+                lines: List[str] = f.readlines()
+            autostart_val: str = 'true' if self._theme.autostart else 'false'
+            updated: bool = False
+            out: List[str] = []
+            for line in lines:
+                stripped: str = line.lstrip()
+                if stripped.startswith(';') or stripped.startswith('#'):
+                    out.append(line)
+                    continue
+                if '=' in line:
+                    key: str = line.split('=', 1)[0].strip()
+                    if key == 'autostart' and not updated:
+                        out.append(f"autostart = {autostart_val}\n")
+                        updated = True
+                        continue
+                out.append(line)
+            if not updated:
+                out.append(f"autostart = {autostart_val}\n")
+            with open(ini_path, 'w', encoding='utf-8') as f:
+                f.writelines(out)
+            logger.info(f"已把开机自启动偏好写回配置：autostart={autostart_val}")
+        except Exception as e:
+            logger.error(f"写回 schedule_config.ini 开机自启动失败：{e}")
 
     def _restart_app(self) -> None:
         """

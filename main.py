@@ -436,6 +436,28 @@ def main() -> None:
     QTimer.singleShot(0, _init_countdown)
 
     # ================================================================
+    #  第6.4b步：开机自启动（默认开启，按主配置 autostart 注册到注册表 Run 键）
+    #  ★ 延迟到事件循环启动后执行，避免阻塞启动流程；若用户已在设置
+    #    关闭自启动，则按配置删除注册表项，保证开关状态一致。
+    # ================================================================
+
+    def _init_autostart() -> None:
+        """启动后按配置把开机自启动写入注册表 Run 键（默认开启）。"""
+        try:
+            from schedule_settings import set_autostart_enabled  # noqa: E402
+        except ImportError as e:
+            logger.warning(f"开机自启动模块加载失败：{e}")
+            return
+        enabled: bool = bool(getattr(theme_manager, 'autostart', True))
+        try:
+            set_autostart_enabled(enabled)
+            logger.info(f"开机自启动已按配置应用：{'开启' if enabled else '关闭'}")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"应用开机自启动失败（忽略）：{e}")
+
+    QTimer.singleShot(0, _init_autostart)
+
+    # ================================================================
     #  第6.5步：延迟初始化 KnotLink 桥接（窗口内容显示后再进行）
     # ================================================================
     logger.info("KnotLink 桥接已安排，将在窗口内容显示后初始化...")
