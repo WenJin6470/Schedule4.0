@@ -143,22 +143,88 @@ _AUTOSTART_REG_KEY: str = r'Software\Microsoft\Windows\CurrentVersion\Run'
 _AUTOSTART_VALUE_NAME: str = 'Schedule4.0'
 
 
+def _to_long_path(path: str) -> str:
+    """把 Windows 8.3 短路径转换为长路径（转换失败时原样返回）。"""
+    try:
+        import ctypes  # noqa: PLC0415
+        buf = ctypes.create_unicode_buffer(4096)
+        length = ctypes.windll.kernel32.GetLongPathNameW(path, buf, len(buf))
+        if 0 < length < len(buf):
+            return buf.value
+    except Exception:  # noqa: BLE001
+        pass
+    return path
+
+
+def _resolve_frozen_exe() -> str:
+    """
+    解析打包环境下真实的主程序 exe 路径（修复开机自启动失效）。
+    ---------------------------------------------
+    Nuitka standalone 下 sys.executable 会指向部署目录里并不存在的
+    python.exe（而不是 main.exe）。把该路径写入注册表 Run 键后，
+    火绒等安全软件会把启动项判定为「无效」，开机也无法启动。
+    因此按优先级解析真实主程序：
+      1. sys.argv[0]（系统传入的真实启动路径）
+      2. sys.executable（若确实是一个存在的 exe）
+      3. sys.executable 同目录下的 main.exe（Nuitka 产物约定）
+    命中后统一转换为长路径（避免 8.3 短路径写入注册表）。
+    """
+    candidates = []
+    argv0: str = (
+        getattr(sys, 'argv', [''])[0] if getattr(sys, 'argv', None) else ''
+    )
+    if argv0:
+        candidates.append(os.path.abspath(argv0))
+    exe: str = os.path.abspath(getattr(sys, 'executable', '') or '')
+    if exe:
+        candidates.append(exe)
+    for cand in candidates:
+        if cand.lower().endswith('.exe') and os.path.isfile(cand):
+            return _to_long_path(cand)
+    exe_dir: str = os.path.dirname(exe)
+    if exe_dir:
+        main_exe: str = os.path.join(exe_dir, 'main.exe')
+        if os.path.isfile(main_exe):
+            return _to_long_path(main_exe)
+    return _to_long_path(exe)
+
+
 def build_autostart_command() -> str:
     """
     构造写入注册表的自启动启动命令（模块级，供设置页与启动流程共用）。
     ---------------------------------
-    已打包（Nuitka standalone）时直接使用当前主程序路径；
+    已打包（Nuitka standalone）时使用真实主程序 main.exe 的绝对路径
+    （见 _resolve_frozen_exe：Nuitka 下 sys.executable 不可靠）；
     源码运行时使用「python 解释器 + main.py」组合。
     """
     if is_frozen():
-        return f'"{os.path.abspath(sys.executable)}"'
+        return f'"{_resolve_frozen_exe()}"'
     script_dir: str = app_root()
     main_script: str = os.path.join(script_dir, 'main.py')
     return f'"{sys.executable}" "{main_script}"'
 
 
+def _extract_command_target(command: str) -> str:
+    """从 Run 键命令串中提取目标 exe 路径（首个引号片段或空格前片段）。"""
+    cmd: str = (command or '').strip()
+    if not cmd:
+        return ''
+    if cmd.startswith('"'):
+        end: int = cmd.find('"', 1)
+        if end > 1:
+            return cmd[1:end]
+        return ''
+    return cmd.split(' ', 1)[0]
+
+
 def is_autostart_enabled() -> bool:
-    """查询注册表 Run 键，判断开机自启动是否已开启（模块级）。"""
+    """
+    查询注册表 Run 键，判断开机自启动是否已开启（模块级）。
+    ---------------------------------
+    除「值是否存在」外，还校验目标文件是否真实存在：
+    旧版本写入的 python.exe 已随部署形态变更而不存在，
+    这类失效启动项视为未开启（启动流程随即会自愈重写）。
+    """
     if sys.platform != 'win32':
         logger.warning("非 Windows 平台，跳过开机自启动查询")
         return False
@@ -168,7 +234,10 @@ def is_autostart_enabled() -> bool:
             winreg.HKEY_CURRENT_USER, _AUTOSTART_REG_KEY
         ) as key:
             value, _ = winreg.QueryValueEx(key, _AUTOSTART_VALUE_NAME)
-        return bool(value)
+        if not value:
+            return False
+        target: str = _extract_command_target(str(value))
+        return bool(target) and os.path.isfile(target)
     except OSError:
         return False
 
@@ -188,6 +257,7 @@ def set_autostart_enabled(enabled: bool) -> bool:
         return False
     try:
         import winreg  # noqa: PLC0415
+        command: str = build_autostart_command()
         with winreg.OpenKey(
             winreg.HKEY_CURRENT_USER, _AUTOSTART_REG_KEY,
             0, winreg.KEY_SET_VALUE
@@ -195,7 +265,7 @@ def set_autostart_enabled(enabled: bool) -> bool:
             if enabled:
                 winreg.SetValueEx(
                     key, _AUTOSTART_VALUE_NAME, 0,
-                    winreg.REG_SZ, build_autostart_command()
+                    winreg.REG_SZ, command
                 )
             else:
                 try:
@@ -205,6 +275,7 @@ def set_autostart_enabled(enabled: bool) -> bool:
         logger.info(
             f"开机自启动已{'开启' if enabled else '关闭'}："
             f"{_AUTOSTART_VALUE_NAME} @ HKCU\\{_AUTOSTART_REG_KEY}"
+            + (f"，命令={command}" if enabled else '')
         )
         return True
     except OSError as e:
