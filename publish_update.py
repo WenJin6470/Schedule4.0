@@ -42,6 +42,8 @@ import zipfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from migration import MIGRATE_DIR_SCRIPT, MIGRATE_SCRIPT_NAME
+
 # 控制台可能为 GBK 编码，统一输出 UTF-8，避免 emoji 打印崩溃
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -376,6 +378,23 @@ def generate_payloads(version: str, notes: str) -> None:
         'delta': delta_info or None,
         'files': files,
     }
+
+    # ---- 目录迁移脚本（旧安装目录 Schedule → Schedule4.0）----
+    # 与 Code/migration.py 中 MIGRATE_DIR_SCRIPT 保持一致（唯一权威来源）。
+    # 客户端（4.1.6+）更新器下载后，在替换程序文件后执行该脚本完成迁移。
+    # 注意：必须以 LF 行尾写入——git（core.autocrlf=true）提交时会把 CRLF
+    # 归一化为 LF，Gitee raw 实际下发 LF 版本；哈希必须按下发字节计算，
+    # 否则客户端 SHA-256 校验会失败。
+    mig_script: Path = ver_dir / MIGRATE_SCRIPT_NAME
+    mig_script.write_text(MIGRATE_DIR_SCRIPT, encoding='utf-8-sig', newline='\n')
+    mig_sha: str = sha256_file(mig_script)
+    latest['migration'] = {
+        'url': f'updates/{version}/{MIGRATE_SCRIPT_NAME}',
+        'sha256': mig_sha,
+        'size': mig_script.stat().st_size,
+    }
+    print(f"已生成目录迁移脚本：{mig_script}（SHA-256：{mig_sha[:16]}…）")
+
     ver_dir.mkdir(parents=True, exist_ok=True)
     (ver_dir / 'manifest.json').write_text(
         json.dumps(latest, ensure_ascii=False, indent=2), encoding='utf-8'

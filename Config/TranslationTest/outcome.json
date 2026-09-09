@@ -2,14 +2,6 @@
     "history": {
         "youdao": [
             {
-                "ts": "2026-08-23 14:26:28",
-                "duration": 0.191,
-                "correct": false,
-                "Need Teanslate": "生物",
-                "Expected English": "Biology",
-                "Translation": ""
-            },
-            {
                 "ts": "2026-08-23 15:11:10",
                 "duration": 0.271,
                 "correct": false,
@@ -160,17 +152,17 @@
                 "Need Teanslate": "语文",
                 "Expected English": "Chinese",
                 "Translation": ""
+            },
+            {
+                "ts": "2026-09-01 21:43:22",
+                "duration": 0.333,
+                "correct": false,
+                "Need Teanslate": "历史",
+                "Expected English": "History",
+                "Translation": ""
             }
         ],
         "baidu": [
-            {
-                "ts": "2026-08-23 14:26:28",
-                "duration": 0.212,
-                "correct": false,
-                "Need Teanslate": "生物",
-                "Expected English": "Biology",
-                "Translation": "biology; organisms; living things; living beings"
-            },
             {
                 "ts": "2026-08-23 15:11:10",
                 "duration": 0.173,
@@ -322,17 +314,17 @@
                 "Need Teanslate": "语文",
                 "Expected English": "Chinese",
                 "Translation": "（中文） Chinese; （语言文字） language ; （语言和文学） language a"
+            },
+            {
+                "ts": "2026-09-01 21:43:22",
+                "duration": 0.247,
+                "correct": false,
+                "Need Teanslate": "历史",
+                "Expected English": "History",
+                "Translation": "history; past records; annals"
             }
         ],
         "mymemory": [
-            {
-                "ts": "2026-08-23 14:26:28",
-                "duration": 1.791,
-                "correct": false,
-                "Need Teanslate": "生物",
-                "Expected English": "Biology",
-                "Translation": "creatures"
-            },
             {
                 "ts": "2026-08-23 15:11:10",
                 "duration": 0.722,
@@ -484,6 +476,14 @@
                 "Need Teanslate": "语文",
                 "Expected English": "Chinese",
                 "Translation": "Chinese"
+            },
+            {
+                "ts": "2026-09-01 21:43:22",
+                "duration": 1.491,
+                "correct": true,
+                "Need Teanslate": "历史",
+                "Expected English": "History",
+                "Translation": "HISTORY"
             }
         ],
         "bing": [
@@ -598,14 +598,22 @@
                 "Need Teanslate": "语文",
                 "Expected English": "Chinese",
                 "Translation": "Chinese (Language)"
+            },
+            {
+                "ts": "2026-09-01 21:43:22",
+                "duration": 1.667,
+                "correct": true,
+                "Need Teanslate": "历史",
+                "Expected English": "History",
+                "Translation": "History"
             }
         ]
     },
     "scores": {
         "youdao": 0.0,
-        "baidu": 14.886725,
-        "mymemory": 59.4489,
-        "bing": 77.64675
+        "baidu": 14.88585,
+        "mymemory": 64.4564,
+        "bing": 79.0814
     },
-    "updated_at": "2026-08-30 10:40:42"
+    "updated_at": "2026-09-01 21:43:22"
 }

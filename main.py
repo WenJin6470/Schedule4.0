@@ -45,6 +45,7 @@ from schedule_translate import TranslationMonitor
 from knotlink_bridge import KnotLinkBridge
 from app_paths import app_root, is_frozen
 from schedule_updater import UpdateWorker, is_newer
+from migration import migrate_install_dir_if_needed
 
 # 模块级日志器（main() 内的局部 logger 与之同名，等价）
 logger: logging.Logger = logging.getLogger('main')
@@ -227,6 +228,17 @@ def main() -> None:
 
     logger: logging.Logger = logging.getLogger('main')
     logger.info(f"日志系统已就绪，日志文件：{log_filepath}")
+
+    # ================================================================
+    #  第1.5步：安装目录迁移检查（旧目录 Schedule → Schedule4.0）
+    #  ================================================================
+    #  4.1.6 起默认安装目录规范化为 ...\Schedule4.0。旧版本自动更新到
+    #  本版本后仍运行于 ...\Schedule，此处检测并启动迁移助手：
+    #  程序立即退出，由助手在退出后重命名目录、修正注册表/快捷方式，
+    #  再从新目录自动重启（仅打包环境 + 旧默认目录时触发）。
+    if migrate_install_dir_if_needed():
+        logger.info("安装目录迁移助手已接管，程序退出等待迁移完成")
+        sys.exit(0)
 
     # ================================================================
     #  第2步：创建 QApplication

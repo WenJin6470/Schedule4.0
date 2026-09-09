@@ -108,11 +108,16 @@ class UpdateInfo:
     delta_size: int = 0
     delta_parts: List[Dict[str, Any]] = field(default_factory=list)  # [{url, sha256, size}]
     files: List[Dict[str, Any]] = field(default_factory=list)  # [{path, sha256, size}]
+    # 目录迁移脚本（可选）：{url, sha256, size}，供更新器在替换文件后执行
+    migration_url: str = ''
+    migration_sha256: str = ''
+    migration_size: int = 0
 
     @staticmethod
     def from_dict(data: Dict[str, Any]) -> 'UpdateInfo':
         full: Dict[str, Any] = data.get('full') or {}
         delta: Dict[str, Any] = data.get('delta') or {}
+        migration: Dict[str, Any] = data.get('migration') or {}
         return UpdateInfo(
             version=str(data.get('version', '')),
             notes=str(data.get('notes', '')),
@@ -126,6 +131,9 @@ class UpdateInfo:
             delta_size=int(delta.get('size', 0) or 0),
             delta_parts=list(delta.get('parts') or []),
             files=list(data.get('files') or []),
+            migration_url=str(migration.get('url', '')),
+            migration_sha256=str(migration.get('sha256', '')),
+            migration_size=int(migration.get('size', 0) or 0),
         )
 
 
@@ -179,6 +187,8 @@ def fetch_manifest() -> Tuple[Optional[UpdateInfo], Optional[str]]:
                 part['url'] = _abs_url(base, str(part.get('url', '')))
             for part in info.delta_parts:
                 part['url'] = _abs_url(base, str(part.get('url', '')))
+            if info.migration_url:
+                info.migration_url = _abs_url(base, info.migration_url)
             return info, None
         last_error = f"所有镜像源均不可达（最后尝试：{url}）"
     return None, last_error
@@ -373,6 +383,10 @@ $logDir = Join-Path $appDir 'log'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $log = Join-Path $logDir 'updater.log'
 
+# 把工作目录移出安装目录：后续若执行目录迁移（重命名安装文件夹），
+# 本进程的 CWD 句柄会阻止重命名，必须先释放。
+try { Set-Location $env:TEMP } catch {}
+
 function Write-Log($msg) {
     $line = "[{0}] {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $msg
     try { Add-Content -Path $log -Value $line -Encoding UTF8 } catch {}
@@ -449,11 +463,26 @@ try {
         }
     }
 
-    # ---- 3. 重新启动主程序 ----
+    # ---- 3. 安装目录迁移（旧目录 Schedule → Schedule4.0）----
+    # 若更新包附带了迁移脚本（更新仓库 updates/<版本>/migrate_dir.ps1），
+    # 交给独立的 PowerShell 进程执行：它负责等待主程序退出、重命名目录、
+    # 修正注册表/快捷方式并从新目录重启程序；执行完本更新器直接退出。
+    $migrateScript = Join-Path $PSScriptRoot 'migrate_dir.ps1'
+    if (Test-Path -LiteralPath $migrateScript) {
+        Write-Log '检测到目录迁移脚本，执行安装目录迁移（由迁移脚本负责重启程序）...'
+        $argLine = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -AppDir "{1}" -AppPid {2}' -f $migrateScript, $appDir, $AppPid
+        $migProc = Start-Process -FilePath 'powershell.exe' -ArgumentList $argLine -WorkingDirectory $env:TEMP -PassThru -Wait
+        Write-Log ("目录迁移脚本已执行完成（exit=" + $migProc.ExitCode + "），更新器退出")
+        Remove-Item -Recurse -Force (Join-Path $appDir '_update') -ErrorAction SilentlyContinue
+        Remove-Item -Recurse -Force (Join-Path (Join-Path (Split-Path -Parent $appDir) 'Schedule4.0') '_update') -ErrorAction SilentlyContinue
+        exit 0
+    }
+
+    # ---- 4. 重新启动主程序（未附带迁移脚本时的默认路径）----
     Start-Process -FilePath $exe -WorkingDirectory $appDir
     Write-Log '新版本已启动'
 
-    # ---- 4. 清理 ----
+    # ---- 5. 清理 ----
     Remove-Item -Recurse -Force (Join-Path $appDir '_update')
     if (Test-Path $exeOld) { Remove-Item -Force $exeOld }
     Write-Log '更新完成，清理临时文件'
@@ -578,6 +607,24 @@ class UpdateWorker(QThread):
             if not ok:
                 self.apply_done.emit(False, err)
                 return
+
+            # 4.5 下载目录迁移脚本（最佳努力：失败只影响旧目录迁移，不阻断更新）
+            if self._info.migration_url:
+                mig_dest: str = os.path.join(app_dir, '_update', 'migrate_dir.ps1')
+                logger.info(f"下载目录迁移脚本：{self._info.migration_url}")
+                if download_file(self._info.migration_url, mig_dest):
+                    mig_actual: str = sha256_file(mig_dest)
+                    if (self._info.migration_sha256
+                            and mig_actual.lower() != self._info.migration_sha256.lower()):
+                        logger.error("目录迁移脚本 SHA-256 校验失败，已丢弃")
+                        try:
+                            os.remove(mig_dest)
+                        except OSError:
+                            pass
+                    else:
+                        logger.info("目录迁移脚本已就绪，更新器将在替换文件后执行")
+                else:
+                    logger.warning("目录迁移脚本下载失败（忽略，仅影响旧目录迁移）")
 
             # 5. 清理临时 zip
             try:
