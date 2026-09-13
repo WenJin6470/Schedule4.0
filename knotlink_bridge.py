@@ -12,11 +12,13 @@
     ✅ 自注册为 KnotLink 独立式节点（释放内嵌清单 + 写注册表，见文件末尾）
     ✅ 完全解耦：knotlink SDK 未安装时静默降级，不影响课表正常运行
 
-📌 架构
+📌 连接健壮性
 ═══════════════════════════════════════════════════════════════════════════
-  外部节点 ──(KnotLink协议)──▶ knotlink_bridge.py ──(方法调用)──▶ 业务模块
-                             knotlink_bridge.py ◀──(信号订阅)──  TimeManager
-  外部节点 ◀──(KnotLink协议)── knotlink_bridge.py
+  KnotLink 的中继服务是 Windows 服务 KnotLinkService。它未运行时，
+  SDK 直连会报 WinError 10061（连接被拒绝）。因此本文件：
+    - 先用带超时的探测确认服务在监听，再创建 SDK 对象（不刷 ERROR 日志）
+    - 连接过程放在后台线程并每 30s 重试，服务启动后自动接上
+    - 服务不在时静默降级，课表本体功能完全不受影响
 
 📌 使用方式
 ═══════════════════════════════════════════════════════════════════════════
@@ -28,13 +30,18 @@
           main_window=main_window,
           debug_config=debug_config,
       )
+  退出时（事件循环结束后）调用：
+      KnotLinkBridge.teardown()
 """
 
 import atexit
+import importlib
 import json
 import logging
 import os
 import shutil
+import socket
+import threading
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -94,6 +101,135 @@ _VALID_WEEKDAYS: set = {
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  连接层加固（服务探测 + 连接超时 + 后台重连）
+# ═══════════════════════════════════════════════════════════════════════════
+#
+#  📌 背景
+#  ═══════════════════════════════════════════════════════════════════════════
+#  KnotLink 的四个角色（6370 发送者 / 6372 订阅者 / 6376 询问者 /
+#  6378 回复者）都是「连出去」的客户端，本机必须有一个中继服务在监听
+#  这些端口 —— 即 KnotLinkService（Windows 服务）。服务未运行时，
+#  SDK 的 connect 会抛 WinError 10061（连接被拒绝）。
+#
+#  SDK 原生行为有三个问题：
+#    1. connect 是阻塞调用且未设超时，在主线程执行会卡住界面
+#    2. 连接失败只尝试一次，之后永不重连（先开课表、后开服务就永远是死的）
+#    3. 每次失败都直接 logger.error，服务长期不在时会持续刷错误日志
+#
+#  对策：先用带超时的探测判断服务是否在监听，只有确认可用才创建 SDK
+#  对象；整套连接过程放在后台线程并周期性重试。
+
+# SDK 内写死的两个端口（见 SDK 的 OpenSocketResponser / SignalSender）
+_RESPONSER_PORT: int = 6378
+_SENDER_PORT: int = 6370
+
+# 服务探测超时（秒）。loopback 上正常应为亚毫秒级，0.5s 足够宽松。
+_CONNECT_TIMEOUT: float = 0.5
+
+# KnotLinkService 不可用时的重试间隔（秒）
+_RECONNECT_INTERVAL: float = 30.0
+
+
+def _probe_port(port: int, timeout: float = _CONNECT_TIMEOUT) -> bool:
+    """
+    探测本机端口是否有进程在监听。
+    ------------------------------
+    用一次带超时的连接做快速判断。先探测、再创建 SDK 对象，
+    可以避免服务不在时由 SDK 刷出 ERROR 级日志。
+
+    参数：
+        port    （int）：  目标端口
+        timeout （float）：探测超时（秒）
+
+    返回值：
+        bool：True 表示端口可连接（服务在监听）
+    """
+    try:
+        with socket.create_connection(('127.0.0.1', port), timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _install_connect_timeout(timeout: float = _CONNECT_TIMEOUT) -> bool:
+    """
+    为 KnotLink SDK 的 TcpClient 安装连接超时。
+    ------------------------------------------
+    SDK 内部 `TcpClient.connect_to_server()` 使用阻塞 socket 且未设超时：
+    回环连接被拒绝时通常立刻返回，但若被安全软件过滤/丢弃，connect 可能
+    阻塞到系统默认值（约 20 秒）。
+
+    做法：不修改 site-packages，而是用子类替换 SDK 模块内的 TcpClient
+    名字 —— `OpenSocketResponser.py` / `SignalSender.py` 都是
+    `from .tcpclient import TcpClient`，运行时按模块全局名解析，
+    因此重绑定模块属性即可生效（子类关系不变，isinstance 仍成立）。
+
+    ★ 超时只能覆盖「连接瞬间」。连接成功后 SDK 会立刻启动接收线程做
+      阻塞 recv，若此时超时仍然生效，第一次 recv 就会抛
+      socket.timeout，SDK 会打出 "Failed to receive data: timed out"
+      并误判连接断开（实测会导致 0.3s 一次的连接抖动）。
+      由于接收线程是在 connect 内部启动的，无法在 connect 返回后再恢复，
+      因此改为**在 receive_data / send_data 的最开头**恢复阻塞模式 ——
+      这两个入口必然先于任何真正的收发动作执行，不存在竞态窗口。
+
+    参数：
+        timeout（float）：连接阶段超时（秒）
+
+    返回值：
+        bool：True 表示安装成功；False 表示退回 SDK 原生行为
+              （SDK 结构变化时不影响功能，只是失去超时保护）
+    """
+    if not _HAS_KNOTLINK:
+        return False
+    try:
+        tcp_mod = importlib.import_module('knotlink.tcpclient')
+        resp_mod = importlib.import_module('knotlink.OpenSocketResponser')
+        send_mod = importlib.import_module('knotlink.SignalSender')
+
+        base_client = tcp_mod.TcpClient
+        if getattr(base_client, '_schedule4_timeout_installed', False):
+            return True
+
+        class _TimeoutTcpClient(base_client):  # type: ignore[misc, valid-type]
+            """仅连接阶段带超时的 TcpClient，正式收发阶段保持阻塞模式。"""
+
+            def _restore_blocking(self) -> None:
+                """恢复阻塞模式（失败忽略：socket 可能已关闭）。"""
+                try:
+                    self.tcp_socket.settimeout(None)
+                except OSError:
+                    pass
+
+            def connect_to_server(self, ip: str, port: int) -> None:
+                try:
+                    self.tcp_socket.settimeout(timeout)
+                except OSError:
+                    pass
+                # 不在此处恢复：接收线程由 connect 内部启动，
+                # 这里的 finally 与它存在竞态窗口
+                super().connect_to_server(ip, port)
+
+            def receive_data(self) -> None:
+                # ★ 必须在任何 recv 之前恢复阻塞模式
+                self._restore_blocking()
+                super().receive_data()
+
+            def send_data(self, data: bytes) -> None:
+                # 注册键在 connect 后立即发送，同样要确保非超时模式
+                self._restore_blocking()
+                super().send_data(data)
+
+        _TimeoutTcpClient._schedule4_timeout_installed = True  # type: ignore[attr-defined]
+        resp_mod.TcpClient = _TimeoutTcpClient
+        send_mod.TcpClient = _TimeoutTcpClient
+        logger.debug(f"已为 KnotLink TcpClient 安装连接超时：{timeout}s")
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"安装 KnotLink 连接超时失败（退回 SDK 默认行为）：{e}")
+        return False
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  KnotLinkBridge — 桥接主类
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -125,6 +261,10 @@ class KnotLinkBridge:
     _prev_state: str = "unknown"       # "in_class" | "break" | "after_school" | "unknown"
     _initialized: bool = False
 
+    # ---- 后台连接线程（服务不在时周期性重试） ----
+    _connector_thread: Optional[threading.Thread] = None
+    _stop_event: Optional[threading.Event] = None
+
     # ══════════════════════════════════════════════════════════════════
     #  公开方法：初始化桥接
     # ══════════════════════════════════════════════════════════════════
@@ -141,9 +281,15 @@ class KnotLinkBridge:
         必须在所有前端窗口和后端实例创建完毕后调用。
         此方法会：
           1. 保存组件引用
-          2. 如果 SDK 可用，创建 OpenSocketResponser 并注册请求处理函数
-          3. 订阅 TimeManager.time_tick 以检测上课/下课/放学事件
-          4. 自注册为 KnotLink 独立式节点（释放清单 + 写注册表）
+          2. 订阅 TimeManager.time_tick 以检测上课/下课/放学事件
+          3. 自注册为 KnotLink 独立式节点（释放清单 + 写注册表）
+          4. 启动后台线程建立 KnotLink 网络连接（不阻塞主线程）
+
+        ★ 网络连接为什么放后台线程：
+          SDK 的 connect 是阻塞调用。KnotLinkService 未运行时，本机回环
+          连接被拒绝实测耗时约 2s（受安全软件网络过滤影响，正常应为
+          亚毫秒级），若在主线程执行，界面启动时会卡住约 4 秒。
+          后台线程还会周期性重试，服务启动后自动接上。
         """
         if cls._initialized:
             logger.warning("KnotLinkBridge 已经初始化过，跳过重复设置")
@@ -159,26 +305,171 @@ class KnotLinkBridge:
             cls._initialized = True
             return
 
-        # 创建 OpenSocketResponser 并注册处理函数
-        cls._responser = OpenSocketResponser(APPID, SOCKET_ID)
-        cls._responser.set_RecvFunc(cls._handle_request)
-        logger.info(f"OpenSocketResponser 已创建：appID={APPID}, socketID={SOCKET_ID}")
-
-        # 创建 SignalSender
-        cls._sender = SignalSender(APPID, SIGNAL_ID)
-        logger.info(f"SignalSender 已创建：appID={APPID}, signalID={SIGNAL_ID}")
-
-        # 订阅 TimeManager.time_tick 以检测状态变化
+        # 订阅 TimeManager.time_tick（纯 Qt 信号连接，不涉及网络，开销可忽略）
         time_manager.time_tick.connect(cls._on_time_tick)
         logger.info("已订阅 TimeManager.time_tick，开始监测上课/下课/放学事件")
 
         # 自注册为 KnotLink 独立式节点。
         # 放在 SDK 可用性检查之后：清单声明了本节点提供的接口，
         # 若 SDK 缺失则请求无法响应，注册出去只会让 Hub 看到一个死节点。
+        # 该步骤只写文件与注册表，与 TCP 连接是否成功无关。
         register_self()
 
+        # 给 SDK 的 TcpClient 装上连接超时，避免异常网络下长时间阻塞
+        _install_connect_timeout()
+
+        # 后台连接线程（daemon：不阻止进程退出；teardown() 会显式收尾）
+        stop_event: threading.Event = threading.Event()
+        cls._stop_event = stop_event
+        cls._connector_thread = threading.Thread(
+            target=cls._connect_worker,
+            args=(stop_event,),
+            name='KnotLinkConnector',
+            daemon=True,
+        )
+        cls._connector_thread.start()
+
         cls._initialized = True
-        logger.info("KnotLinkBridge 初始化完成")
+        logger.info("KnotLinkBridge 初始化完成（网络连接在后台建立）")
+
+    @classmethod
+    def teardown(cls) -> None:
+        """
+        停止桥接：结束后台连接线程并断开 SDK 连接。
+        ------------------------------------------
+        由 main.py 在事件循环退出后调用；可重复调用（幂等）。
+        """
+        stop_event: Optional[threading.Event] = cls._stop_event
+        if stop_event is not None:
+            stop_event.set()
+
+        thread: Optional[threading.Thread] = cls._connector_thread
+        if thread is not None and thread.is_alive():
+            # 连接线程最多阻塞在带超时的 connect 上，1.5s 足够收尾
+            thread.join(timeout=1.5)
+        cls._connector_thread = None
+        cls._stop_event = None
+
+        cls._discard_connections("程序退出")
+        cls._initialized = False
+        logger.info("KnotLinkBridge 已停止")
+
+    # ══════════════════════════════════════════════════════════════════
+    #  后台连接线程：建立 / 重建 SDK 连接
+    # ══════════════════════════════════════════════════════════════════
+
+    @classmethod
+    def _connect_worker(cls, stop_event: threading.Event) -> None:
+        """
+        后台连接线程主体。
+        ------------------
+        周期性检查连接状态：
+          - 未连接（服务未启动 / 启动时服务不在）→ 探测并尝试连接
+          - 已连接但连接失效（如服务被重启）      → 丢弃旧对象后重连
+
+        服务不在时只在**首次**打一条 INFO 说明已静默降级，之后静默重试，
+        不再刷日志（避免把 SDK 的 ERROR 刷屏换成我们自己的 INFO 刷屏）。
+        """
+        logger.info(
+            f"KnotLink 连接线程已启动（服务不可用时每 "
+            f"{_RECONNECT_INTERVAL:.0f}s 重试一次）"
+        )
+        degraded_logged: bool = False
+
+        while not stop_event.is_set():
+            if cls._responser is not None and cls._connection_alive():
+                # 连接正常：等待下一轮检查
+                degraded_logged = False
+                stop_event.wait(_RECONNECT_INTERVAL)
+                continue
+
+            if cls._responser is not None:
+                # 连接存在但已失效（服务重启过）→ 丢弃后重连
+                cls._discard_connections("连接已失效（KnotLinkService 可能被重启）")
+
+            if cls._try_connect():
+                degraded_logged = False
+            elif not degraded_logged:
+                logger.info(
+                    f"KnotLinkService 未运行，KnotLink 功能已静默降级"
+                    f"（每 {_RECONNECT_INTERVAL:.0f}s 重试，服务启动后自动接上）"
+                )
+                degraded_logged = True
+
+            stop_event.wait(_RECONNECT_INTERVAL)
+
+        logger.info("KnotLink 连接线程已退出")
+
+    @classmethod
+    def _try_connect(cls) -> bool:
+        """
+        尝试建立 SDK 连接（仅在后台线程中调用）。
+        ----------------------------------------
+        先用带超时的探测确认 KnotLinkService 在监听，再创建 SDK 对象：
+        服务不在时直接跳过，既避免 SDK 刷 ERROR 日志，也避免无谓等待。
+
+        返回值：
+            bool：True 表示连接已建立
+        """
+        if not (_probe_port(_RESPONSER_PORT) and _probe_port(_SENDER_PORT)):
+            return False
+
+        responser: Any = None
+        try:
+            responser = OpenSocketResponser(APPID, SOCKET_ID)
+            responser.set_RecvFunc(cls._handle_request)
+            sender = SignalSender(APPID, SIGNAL_ID)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"建立 KnotLink 连接失败，稍后重试：{e}")
+            if responser is not None:
+                try:
+                    responser.disconnect()
+                except Exception:  # noqa: BLE001
+                    pass
+            return False
+
+        # 两个对象都创建成功后再一次性赋值，避免 _on_time_tick 读到半成品
+        cls._responser = responser
+        cls._sender = sender
+        logger.info(
+            f"KnotLink 已连接：appID={APPID}, "
+            f"socketID={SOCKET_ID}, signalID={SIGNAL_ID}"
+        )
+        return True
+
+    @classmethod
+    def _connection_alive(cls) -> bool:
+        """
+        判断当前 SDK 连接是否仍然有效。
+        ------------------------------
+        读取 SDK 内部的连接标志（best-effort）：取不到标志时保守认为
+        连接仍然有效，避免因 SDK 结构变化而反复重连。
+        """
+        for obj, attr in ((cls._responser, 'KLresponser'),
+                          (cls._sender, 'KLsender')):
+            if obj is None:
+                continue
+            client: Any = getattr(obj, attr, None)
+            connected: Any = getattr(client, 'connected', None)
+            if connected is False:
+                return False
+        return True
+
+    @classmethod
+    def _discard_connections(cls, reason: str) -> None:
+        """断开并清空当前 SDK 连接对象（失败只记日志）。"""
+        if cls._responser is None and cls._sender is None:
+            return
+        logger.info(f"释放 KnotLink 连接：{reason}")
+        for obj in (cls._responser, cls._sender):
+            if obj is None:
+                continue
+            try:
+                obj.disconnect()
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"断开 KnotLink 连接失败（忽略）：{e}")
+        cls._responser = None
+        cls._sender = None
 
     # ══════════════════════════════════════════════════════════════════
     #  请求处理：入口

@@ -499,6 +499,17 @@ def main() -> None:
     # ================================================================
     exit_code: int = app.exec()
     logger.info(f"事件循环已退出（exit_code={exit_code}），程序结束")
+
+    # ================================================================
+    #  第9步：收尾 — 断开 KnotLink 连接并结束后台重连线程
+    #  ★ 事件循环退出后必须显式收尾：后台连接线程仍是活的，
+    #    且 SDK 的 socket 需要 disconnect() 才会正常关闭。
+    # ================================================================
+    try:
+        KnotLinkBridge.teardown()
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"KnotLink 桥接清理失败（忽略）：{e}")
+
     sys.exit(exit_code)
 
 
