@@ -188,10 +188,17 @@ class ScheduleMainWindow(ThemedWidget):
         self.setUpdatesEnabled(False)
 
         # ---- 窗口属性 ----
-        self.setWindowFlags(
+        # 调试模式（Config/debug_config.ini → enabled = true）下主窗口置顶：
+        # 调试时常需要同时观察课表与日志/其他窗口，置顶后不必来回切换。
+        # 注意：调试配置需重启程序生效，因此这里在构造时一次性决定窗口标志。
+        main_flags = (  # type: ignore
             Qt.FramelessWindowHint           # type: ignore
             | Qt.Tool                        # type: ignore
         )
+        if self._debug_config.enabled:
+            main_flags |= Qt.WindowStaysOnTopHint  # type: ignore
+            logger.info("调试模式已启用（debug_config.ini）：主窗口置顶显示")
+        self.setWindowFlags(main_flags)
         self.setAutoFillBackground(True)
         self.setWindowOpacity(self._theme.window_opacity)
         self.setFixedSize(self._win_width, self._win_height)

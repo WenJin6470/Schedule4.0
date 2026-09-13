@@ -2,14 +2,6 @@
     "history": {
         "youdao": [
             {
-                "ts": "2026-08-23 15:32:38",
-                "duration": 0.238,
-                "correct": false,
-                "Need Teanslate": "英语",
-                "Expected English": "English",
-                "Translation": ""
-            },
-            {
                 "ts": "2026-08-23 16:14:14",
                 "duration": 0.2,
                 "correct": false,
@@ -160,17 +152,17 @@
                 "Need Teanslate": "化学",
                 "Expected English": "Chemistry",
                 "Translation": ""
+            },
+            {
+                "ts": "2026-09-13 10:02:05",
+                "duration": 4.277,
+                "correct": false,
+                "Need Teanslate": "语文",
+                "Expected English": "Chinese",
+                "Translation": ""
             }
         ],
         "baidu": [
-            {
-                "ts": "2026-08-23 15:32:38",
-                "duration": 0.185,
-                "correct": true,
-                "Need Teanslate": "英语",
-                "Expected English": "English",
-                "Translation": "English"
-            },
             {
                 "ts": "2026-08-23 16:14:14",
                 "duration": 0.187,
@@ -322,17 +314,17 @@
                 "Need Teanslate": "化学",
                 "Expected English": "Chemistry",
                 "Translation": "chemistry; chem.; chymist; chymistry"
+            },
+            {
+                "ts": "2026-09-13 10:02:05",
+                "duration": 0.676,
+                "correct": false,
+                "Need Teanslate": "语文",
+                "Expected English": "Chinese",
+                "Translation": "（中文） Chinese; （语言文字） language ; （语言和文学） language a"
             }
         ],
         "mymemory": [
-            {
-                "ts": "2026-08-23 15:32:38",
-                "duration": 1.569,
-                "correct": false,
-                "Need Teanslate": "英语",
-                "Expected English": "English",
-                "Translation": "EN."
-            },
             {
                 "ts": "2026-08-23 16:14:14",
                 "duration": 1.138,
@@ -484,6 +476,14 @@
                 "Need Teanslate": "化学",
                 "Expected English": "Chemistry",
                 "Translation": "Chemistry"
+            },
+            {
+                "ts": "2026-09-13 10:02:05",
+                "duration": 1.115,
+                "correct": true,
+                "Need Teanslate": "语文",
+                "Expected English": "Chinese",
+                "Translation": "Chinese"
             }
         ],
         "bing": [
@@ -614,14 +614,22 @@
                 "Need Teanslate": "化学",
                 "Expected English": "Chemistry",
                 "Translation": "Chemistry"
+            },
+            {
+                "ts": "2026-09-13 10:02:05",
+                "duration": 2.163,
+                "correct": false,
+                "Need Teanslate": "语文",
+                "Expected English": "Chinese",
+                "Translation": "Chinese (Language)"
             }
         ]
     },
     "scores": {
         "youdao": 0.0,
-        "baidu": 14.8733,
-        "mymemory": 64.4256,
-        "bing": 80.34465625
+        "baidu": 9.861025,
+        "mymemory": 69.43695,
+        "bing": 75.55488235294118
     },
-    "updated_at": "2026-09-13 09:44:49"
+    "updated_at": "2026-09-13 10:02:05"
 }
