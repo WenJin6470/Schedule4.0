@@ -9,6 +9,7 @@
   本文件是 Schedule 4.0 与 KnotLink 协议之间的桥接层，负责：
     ✅ 接收其他节点发来的请求（3 个 openSocket 接口）
     ✅ 向外广播课表事件（2 个 signal 信号：onClassStart / onClassEnd）
+    ✅ 自注册为 KnotLink 独立式节点（释放内嵌清单 + 写注册表，见文件末尾）
     ✅ 完全解耦：knotlink SDK 未安装时静默降级，不影响课表正常运行
 
 📌 架构
@@ -29,9 +30,15 @@
       )
 """
 
+import atexit
+import json
 import logging
+import os
+import shutil
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
+
+from app_paths import app_root, is_frozen
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -136,6 +143,7 @@ class KnotLinkBridge:
           1. 保存组件引用
           2. 如果 SDK 可用，创建 OpenSocketResponser 并注册请求处理函数
           3. 订阅 TimeManager.time_tick 以检测上课/下课/放学事件
+          4. 自注册为 KnotLink 独立式节点（释放清单 + 写注册表）
         """
         if cls._initialized:
             logger.warning("KnotLinkBridge 已经初始化过，跳过重复设置")
@@ -163,6 +171,11 @@ class KnotLinkBridge:
         # 订阅 TimeManager.time_tick 以检测状态变化
         time_manager.time_tick.connect(cls._on_time_tick)
         logger.info("已订阅 TimeManager.time_tick，开始监测上课/下课/放学事件")
+
+        # 自注册为 KnotLink 独立式节点。
+        # 放在 SDK 可用性检查之后：清单声明了本节点提供的接口，
+        # 若 SDK 缺失则请求无法响应，注册出去只会让 Hub 看到一个死节点。
+        register_self()
 
         cls._initialized = True
         logger.info("KnotLinkBridge 初始化完成")
@@ -687,3 +700,334 @@ class KnotLinkBridge:
             days_until = 0  # 今天就算
         next_date: datetime = today + timedelta(days=days_until)
         return next_date.strftime('%Y-%m-%d')
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  节点自注册（KnotLink 独立式节点）
+# ═══════════════════════════════════════════════════════════════════════════
+#
+#  📌 作用
+#  ═══════════════════════════════════════════════════════════════════════════
+#  让 KnotLink Hub 能在「独立式节点」列表中发现本程序。做法：
+#    1. 启动时把内嵌的节点清单释放到
+#         %LOCALAPPDATA%\KnotLink\<APP_ID>\
+#       （清单必须内嵌进源码：打包后 exe 内没有仓库文件，无法从磁盘读取，
+#         而 KnotLink Hub 需要 standalone_manifest.json + FuncList.json）
+#    2. 写注册表
+#         HKCU\Software\KnotLink\StandaloneNodes\<APP_ID> → 清单目录
+#    3. 退出时（atexit）删除注册表项并清理清单目录
+#
+#  ⚠️ 内嵌清单的权威来源
+#  ═══════════════════════════════════════════════════════════════════════════
+#  下面两个常量是以下文件的**逐字节副本**：
+#      KnotLink-Output/release/<APP_ID>/standalone_manifest.json
+#      KnotLink-Output/release/<APP_ID>/FuncList.json
+#  新增/删除 openSocket 接口或 signal 信号后，必须同步更新这两个常量，
+#  否则 KnotLink Hub 会看到并不存在的接口。
+#  （开发环境启动时会自动比对磁盘文件，不一致给出 warning，见
+#    _check_embedded_manifests。）
+#
+#  📌 与安装包的关系
+#  ═══════════════════════════════════════════════════════════════════════════
+#  KnotLink-Output/nsis-registry.nsh 提供了等价的 ${KL_Register} /
+#  ${KL_Unregister} 宏（注册表指向 $INSTDIR）。当前安装包并未
+#  !include 它，也不需要：本模块的自注册不依赖安装目录里存在清单文件。
+
+# 内嵌清单的权威来源（仅开发环境存在，用于漂移自检）
+_MANIFEST_SRC_REL: str = os.path.join('KnotLink-Output', 'release', APPID)
+_MANIFEST_NAME: str = 'standalone_manifest.json'
+_FUNCLIST_NAME: str = 'FuncList.json'
+
+# 清单释放目标目录：%LOCALAPPDATA%\KnotLink\<APP_ID>
+_MANIFEST_DEST_DIR: str = os.path.join(
+    os.environ.get('LOCALAPPDATA', os.path.expanduser('~')),
+    'KnotLink',
+    APPID,
+)
+
+# KnotLink Hub 扫描独立式节点的注册表位置
+_REG_KEY_PATH: str = r'Software\KnotLink\StandaloneNodes'
+
+# atexit 退出清理只注册一次
+_atexit_registered: bool = False
+
+
+# === 内嵌 standalone_manifest.json（与 KnotLink-Output/release/<APP_ID>/ 逐字节一致）===
+_EMBEDDED_STANDALONE_MANIFEST: str = '''{
+  "app_id": "com.github.wenjin6470.schedule4",
+  "app_name": "Schedule 4.0",
+  "author": "WenJin",
+  "version": "v1.0.0",
+  "description": "桌面浮动电子课表系统 — 半透明置顶窗口实时显示课时科目与当前时间，支持快捷编辑、临时换课、考试/创意全屏模式",
+  "download_url": "https://github.com/WenJin6470/Schedule4.0/releases/latest"
+}
+'''
+
+# === 内嵌 FuncList.json（与 KnotLink-Output/release/<APP_ID>/ 逐字节一致）===
+_EMBEDDED_FUNCLIST: str = '''{
+  "appName": "Schedule 4.0",
+  "specVersion": "1.0",
+  "manifestVersion": "1.0.0",
+  "openSocket": {
+    "get-lesson-state": {
+      "appID": "com.github.wenjin6470.schedule4",
+      "openSocketID": "schedule",
+      "description": "查询当前实时上课状态，包括当前科目、剩余时间、下一节课、是否上课中/课间/放学",
+      "args": {
+        "action": {
+          "type": "static",
+          "value": "get-lesson-state",
+          "description": "命令类型（固定为 get-lesson-state）"
+        }
+      },
+      "returns": [
+        ["请求状态（ok/err）", "status"],
+        ["是否正在上课（true/false）", "isInClass"],
+        ["是否课间休息（true/false）", "isBreak"],
+        ["当前课时序号（从1开始，无则为-1）", "currentPeriod"],
+        ["当前科目名称", "currentSubject"],
+        ["当前课时开始时间（HH:MM:SS）", "currentStartTime"],
+        ["当前课时结束时间（HH:MM:SS）", "currentEndTime"],
+        ["当前课时剩余时间（HH:MM:SS）", "remainingTime"],
+        ["下一节课时序号（无则为-1）", "nextPeriod"],
+        ["下一节科目名称", "nextSubject"],
+        ["下一节课开始时间（HH:MM:SS）", "nextStartTime"],
+        ["错误信息（status=err时返回）", "message"]
+      ]
+    },
+    "get-today-schedule": {
+      "appID": "com.github.wenjin6470.schedule4",
+      "openSocketID": "schedule",
+      "description": "获取当天或指定星期全部课时的科目与时间安排，含分隔线位置",
+      "args": {
+        "action": {
+          "type": "static",
+          "value": "get-today-schedule",
+          "description": "命令类型（固定为 get-today-schedule）"
+        },
+        "day": {
+          "type": "input",
+          "defaultVal": "",
+          "description": "目标星期（Monday~Sunday），留空则取当天"
+        }
+      },
+      "returns": [
+        ["请求状态（ok/err）", "status"],
+        ["实际返回的星期名称", "day"],
+        ["课表数据（JSON数组，每项含period/key/subject/startTime/endTime）", "lessons"],
+        ["分隔线位置（JSON数组，值为分隔线前的课时索引0-based）", "dividerIndices"],
+        ["总课时数", "totalPeriods"],
+        ["错误信息（status=err时返回）", "message"]
+      ]
+    },
+    "swap-course": {
+      "appID": "com.github.wenjin6470.schedule4",
+      "openSocketID": "schedule",
+      "description": "临时换课：记录换课信息到swap_schedule.json，在指定日期当天自动将对应课时的科目替换为新科目，过期自动清理",
+      "args": {
+        "action": {
+          "type": "static",
+          "value": "swap-course",
+          "description": "命令类型（固定为 swap-course）"
+        },
+        "day_name": {
+          "type": "input",
+          "defaultVal": "",
+          "description": "星期名称（Monday~Sunday）"
+        },
+        "lesson_key": {
+          "type": "input",
+          "defaultVal": "",
+          "description": "课时键名（如lesson_2）"
+        },
+        "old_subject": {
+          "type": "input",
+          "defaultVal": "",
+          "description": "换课前的原始科目名称"
+        },
+        "new_subject": {
+          "type": "input",
+          "defaultVal": "",
+          "description": "换课后的新科目名称"
+        },
+        "swap_date": {
+          "type": "input",
+          "defaultVal": "",
+          "description": "换课生效日期（YYYY-MM-DD），留空则自动取该星期的下一个匹配日期"
+        }
+      },
+      "returns": [
+        ["请求状态（ok/err）", "status"],
+        ["实际生效日期（YYYY-MM-DD）", "swap_date"],
+        ["错误信息（status=err时返回）", "message"]
+      ]
+    }
+  },
+  "signal": {
+    "onClassStart": {
+      "appID": "com.github.wenjin6470.schedule4",
+      "signalID": "events",
+      "description": "上课事件，新一节课开始时触发推送",
+      "returns": {
+        "event": {
+          "description": "事件标识（固定值onClassStart），用于鉴别信号类型",
+          "verification": "onClassStart"
+        },
+        "period": {
+          "description": "课时序号（从1开始）"
+        },
+        "subject": {
+          "description": "当前科目名称"
+        },
+        "startTime": {
+          "description": "课时开始时间（HH:MM:SS）"
+        },
+        "endTime": {
+          "description": "课时结束时间（HH:MM:SS）"
+        }
+      }
+    },
+    "onClassEnd": {
+      "appID": "com.github.wenjin6470.schedule4",
+      "signalID": "events",
+      "description": "下课事件，一节课结束时触发推送，含下一节课预告信息",
+      "returns": {
+        "event": {
+          "description": "事件标识（固定值onClassEnd），用于鉴别信号类型",
+          "verification": "onClassEnd"
+        },
+        "nextPeriod": {
+          "description": "下一节课时序号（无则为-1）"
+        },
+        "nextSubject": {
+          "description": "下一节科目名称（无则为空字符串）"
+        },
+        "nextStartTime": {
+          "description": "下一节课开始时间（HH:MM:SS）"
+        },
+        "leftTime": {
+          "description": "课间剩余时间（HH:MM:SS格式，距下一节课还有多久）"
+        }
+      }
+    }
+  }
+}
+'''
+
+
+def _check_embedded_manifests() -> None:
+    """
+    开发环境自检：内嵌清单与仓库中的权威文件是否一致。
+    --------------------------------------------------
+    打包环境直接跳过（exe 旁不会有 KnotLink-Output/）；
+    文件不存在时静默跳过；只在内容不一致时打 warning。
+    """
+    if is_frozen():
+        return
+    try:
+        src_dir: str = os.path.join(app_root(), _MANIFEST_SRC_REL)
+        pairs = (
+            (_MANIFEST_NAME, _EMBEDDED_STANDALONE_MANIFEST),
+            (_FUNCLIST_NAME, _EMBEDDED_FUNCLIST),
+        )
+        for fname, embedded in pairs:
+            path: str = os.path.join(src_dir, fname)
+            if not os.path.isfile(path):
+                continue
+            with open(path, 'r', encoding='utf-8') as f:
+                on_disk: str = f.read()
+            if on_disk != embedded:
+                logger.warning(
+                    f"[KnotLink] 内嵌 {fname} 与 {path} 不一致！"
+                    f"请同步 knotlink_bridge.py 中的内嵌常量，"
+                    f"否则 Hub 会看到过期的接口/信号列表"
+                )
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"内嵌清单自检跳过：{e}")
+
+
+def register_self() -> None:
+    """
+    启动时：把内嵌清单释放到 %LOCALAPPDATA% 并写入注册表。
+    -----------------------------------------------------
+    每次启动都覆盖写入，确保清单内容与当前版本一致。
+    开发环境与打包环境都会执行（便于源码运行时被 KnotLink Hub 识别）。
+    注册成功后在 atexit 注册 unregister_self，退出时自动清理。
+    """
+    _check_embedded_manifests()
+
+    # 1. 从内嵌字符串写入清单文件
+    try:
+        os.makedirs(_MANIFEST_DEST_DIR, exist_ok=True)
+
+        manifest_path: str = os.path.join(_MANIFEST_DEST_DIR, _MANIFEST_NAME)
+        funclist_path: str = os.path.join(_MANIFEST_DEST_DIR, _FUNCLIST_NAME)
+
+        with open(manifest_path, 'w', encoding='utf-8') as f:
+            f.write(_EMBEDDED_STANDALONE_MANIFEST)
+        logger.info(f"[KnotLink] 已释放: {_MANIFEST_NAME} → {manifest_path}")
+
+        with open(funclist_path, 'w', encoding='utf-8') as f:
+            f.write(_EMBEDDED_FUNCLIST)
+        logger.info(f"[KnotLink] 已释放: {_FUNCLIST_NAME} → {funclist_path}")
+    except OSError as e:
+        logger.warning(f"[KnotLink] 释放节点清单失败，跳过自注册：{e}")
+        return
+
+    # 2. 写入注册表
+    try:
+        import winreg  # noqa: PLC0415
+
+        try:
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                _REG_KEY_PATH,
+                0, winreg.KEY_SET_VALUE,
+            )
+        except FileNotFoundError:
+            key = winreg.CreateKey(
+                winreg.HKEY_CURRENT_USER,
+                _REG_KEY_PATH,
+            )
+
+        winreg.SetValueEx(key, APPID, 0, winreg.REG_SZ, _MANIFEST_DEST_DIR)
+        winreg.CloseKey(key)
+        logger.info(f"[KnotLink] 注册表已写入: {APPID} → {_MANIFEST_DEST_DIR}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[KnotLink] 写入自注册表项失败，跳过自注册：{e}")
+        return
+
+    # 3. 注册退出清理（确保只注册一次）
+    global _atexit_registered
+    if not _atexit_registered:
+        atexit.register(unregister_self)
+        _atexit_registered = True
+        logger.info("[KnotLink] 已注册退出清理回调")
+
+
+def unregister_self() -> None:
+    """退出时：删除注册表项 + 清理释放的清单文件。"""
+    # 1. 删除注册表项
+    try:
+        import winreg  # noqa: PLC0415
+
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            _REG_KEY_PATH,
+            0, winreg.KEY_SET_VALUE,
+        )
+        winreg.DeleteValue(key, APPID)
+        winreg.CloseKey(key)
+        logger.info(f"[KnotLink] 注册表项已删除: {APPID}")
+    except FileNotFoundError:
+        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[KnotLink] 删除注册表项失败: {e}")
+
+    # 2. 删除释放的清单目录
+    if os.path.exists(_MANIFEST_DEST_DIR):
+        try:
+            shutil.rmtree(_MANIFEST_DEST_DIR)
+            logger.info(f"[KnotLink] 清单目录已清理: {_MANIFEST_DEST_DIR}")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[KnotLink] 清理清单目录失败: {e}")
