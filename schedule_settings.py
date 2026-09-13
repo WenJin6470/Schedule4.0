@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
     QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
     QTableWidget, QTableWidgetItem, QHeaderView, QDialog,
     QLineEdit, QComboBox, QRadioButton, QFileDialog, QAbstractItemView,
-    QScrollArea, QScroller, QMessageBox, QProgressBar,
+    QScrollArea, QScroller, QMessageBox, QProgressBar, QGridLayout,
 )
 from PySide6.QtCore import Qt, Signal, SignalInstance, QTimer, QPointF
 from PySide6.QtGui import (
@@ -49,6 +49,8 @@ from schedule_config import (
     DisplayRulesManager, parse_display_rule,
     SubjectConfigManager, parse_subject_entry, is_color_dark,
     EventRulesManager, SwapManager, KnotLinkCatalogManager,
+    WEEK_PARITY_ODD, WEEK_PARITY_EVEN,
+    normalize_week_parity, week_parity_label,
 )
 from schedule_backend import TimeWheelPicker, WheelColumn
 from schedule_translate import TranslateWorker, load_sites, get_default_site
@@ -404,6 +406,50 @@ def abbreviate_english_name(name: str, max_len: int = SUBJECT_EN_MAX_LEN) -> str
 
 # ==================== 开关控件 ====================
 
+# CSS 风格颜色：rgba(r, g, b, a)（a 支持 0~1 小数或 0~255 整数）
+_RGBA_PATTERN: re.Pattern = re.compile(
+    r'rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})'
+    r'\s*(?:,\s*([\d.]+)\s*)?\)',
+    re.IGNORECASE,
+)
+
+
+def _qcolor(spec: Any, fallback: str = '#000000') -> QColor:
+    """
+    把颜色字符串安全转换为 QColor。
+    --------------------------------
+    ★ QColor(string) 只识别 #RRGGBB / 颜色名，**不识别** CSS 的
+      rgba(...) 写法（会得到 invalid 颜色，QBrush 随后按纯黑绘制）。
+      项目里大量颜色常量是 rgba(...) 形式（供 QSS 使用），
+      在 QPainter 中必须先经本函数转换。
+
+    参数：
+        spec     （Any）：颜色字符串，支持 '#RRGGBB'、'rgba(r,g,b,a)'、
+                          'rgb(r,g,b)'、Qt 颜色名
+        fallback （str）：无法解析时的兜底色（默认黑色）
+
+    返回值：
+        QColor：一定有效的颜色对象
+    """
+    text: str = str(spec or '').strip()
+    match = _RGBA_PATTERN.fullmatch(text)
+    if match:
+        r, g, b = (int(match.group(i)) for i in (1, 2, 3))
+        alpha: int = 255
+        alpha_txt: Optional[str] = match.group(4)
+        if alpha_txt is not None:
+            value: float = float(alpha_txt)
+            # 0~1 视为比例，>1 视为 0~255 整数
+            alpha = int(round(value * 255)) if value <= 1.0 else int(round(value))
+        color: QColor = QColor(r, g, b)
+        color.setAlpha(max(0, min(255, alpha)))
+        return color
+    color = QColor(text)
+    if color.isValid():
+        return color
+    return QColor(fallback)
+
+
 class ToggleSwitch(QWidget):
     """
     # ToggleSwitch — 简单的开关按钮
@@ -452,6 +498,246 @@ class ToggleSwitch(QWidget):
         knob_x: int = (w - knob_d - margin) if self._checked else margin
         painter.setBrush(QBrush(QColor('#FFFFFF')))
         painter.drawEllipse(knob_x, margin, knob_d, knob_d)
+
+
+# ==================== 单双周滑动滑块控件 ====================
+
+class WeekParitySwitch(QWidget):
+    """
+    # WeekParitySwitch — 单双周左-右滑动滑块
+
+    两档滑动开关：左侧「单周」、右侧「双周」。
+    ----------------------------------------
+    交互：
+      - 点击左 / 右半边 → 滑块滑向该侧；
+      - 按住滑块左右拖动 → 松手后按拖到的一侧吸附；
+      - 滑动过程由 QTimer 逐帧缓出动画完成（与 WheelColumn 的吸附动画一致）。
+
+    信号：
+      changed(str) — 单双周变化时发射，取值为 'odd'（单周）/ 'even'（双周）
+    ---
+    """
+
+    # 信号：单双周变化（'odd' / 'even'）
+    changed = Signal(str)
+
+    # 轨道与滑块尺寸
+    TRACK_WIDTH: int = 180
+    TRACK_HEIGHT: int = 38
+    KNOB_MARGIN: int = 4
+
+    def __init__(self, parent: Optional[QWidget] = None,
+                 accent: str = '#4CAF50',
+                 track_color: str = 'rgba(0, 0, 0, 0.07)',
+                 dim_color: str = 'rgba(0, 0, 0, 0.45)') -> None:
+        """
+        初始化单双周滑块。
+
+        参数：
+            parent      （QWidget | None）：父控件
+            accent      （str）：选中侧滑块颜色
+            track_color （str）：轨道背景色
+            dim_color   （str）：未选中档的文字色
+        """
+        super().__init__(parent)
+        self._parity: str = WEEK_PARITY_ODD
+        # 滑块位置：0.0 = 最左（单周），1.0 = 最右（双周）
+        self._pos: float = 0.0
+        self._accent: str = accent
+        self._track_color: str = track_color
+        self._dim_color: str = dim_color
+
+        self._dragging: bool = False
+        self._drag_offset: float = 0.0
+        self._moved: bool = False
+
+        # 吸附动画
+        self._anim_timer: QTimer = QTimer(self)
+        self._anim_timer.setInterval(16)
+        self._anim_timer.timeout.connect(self._animate_step)
+        self._anim_start: float = 0.0
+        self._anim_target: float = 0.0
+        self._anim_frame: int = 0
+        self._anim_total_frames: int = 10
+
+        self.setFixedSize(self.TRACK_WIDTH, self.TRACK_HEIGHT)
+        self.setCursor(Qt.PointingHandCursor)  # type: ignore
+
+    # ================================================================
+    #  公开属性 / 方法
+    # ================================================================
+    def parity(self) -> str:
+        """返回当前单双周标识（WEEK_PARITY_ODD 单周 / WEEK_PARITY_EVEN 双周）。"""
+        return self._parity
+
+    def set_colors(self, accent: Optional[str] = None,
+                   track_color: Optional[str] = None,
+                   dim_color: Optional[str] = None) -> None:
+        """更新配色并重绘（主题切换时调用）。"""
+        if accent is not None:
+            self._accent = accent
+        if track_color is not None:
+            self._track_color = track_color
+        if dim_color is not None:
+            self._dim_color = dim_color
+        self.update()
+
+    def set_parity(self, parity: Any, animate: bool = False) -> None:
+        """
+        设置单双周（不发射 changed 信号）。
+
+        参数：
+            parity  （Any）：'odd' / 'even' / '单周' / '双周'
+            animate （bool）：是否播放滑动动画
+        """
+        target: str = normalize_week_parity(parity)
+        self._parity = target
+        target_pos: float = 1.0 if target == WEEK_PARITY_EVEN else 0.0
+        if animate:
+            self._start_anim(target_pos)
+        else:
+            self._anim_timer.stop()
+            self._pos = target_pos
+            self.update()
+
+    # ================================================================
+    #  几何辅助
+    # ================================================================
+    def _knob_width(self) -> float:
+        """单个档位的宽度（轨道等分为左右两档）。"""
+        return (self.TRACK_WIDTH - self.KNOB_MARGIN * 2) / 2.0
+
+    def _pos_from_x(self, x: float) -> float:
+        """把鼠标 x 坐标换算为 [0, 1] 的滑块位置。"""
+        knob_w: float = self._knob_width()
+        span: float = self.TRACK_WIDTH - self.KNOB_MARGIN * 2 - knob_w
+        if span <= 0:
+            return 0.0
+        return max(0.0, min(1.0, (x - self.KNOB_MARGIN - self._drag_offset) / span))
+
+    # ================================================================
+    #  动画
+    # ================================================================
+    def _start_anim(self, target: float) -> None:
+        """启动缓出吸附动画。"""
+        self._anim_timer.stop()
+        self._anim_start = self._pos
+        self._anim_target = target
+        self._anim_frame = 0
+        self._anim_timer.start()
+
+    def _animate_step(self) -> None:
+        """逐帧缓出推进滑块位置（末帧精确落位）。"""
+        self._anim_frame += 1
+        t: float = min(1.0, self._anim_frame / float(self._anim_total_frames))
+        eased: float = 1.0 - (1.0 - t) ** 3  # ease-out cubic
+        self._pos = self._anim_start + (self._anim_target - self._anim_start) * eased
+        if t >= 1.0:
+            self._pos = self._anim_target
+            self._anim_timer.stop()
+        self.update()
+
+    def _settle(self) -> None:
+        """按当前滑块位置吸附到最近档位，必要时发射 changed。"""
+        target_pos: float = 1.0 if self._pos >= 0.5 else 0.0
+        target_parity: str = (
+            WEEK_PARITY_EVEN if target_pos >= 0.5 else WEEK_PARITY_ODD
+        )
+        self._start_anim(target_pos)
+        if target_parity != self._parity:
+            self._parity = target_parity
+            self.changed.emit(self._parity)
+            logger.info(
+                f"单双周滑块切换为：{self._parity}"
+                f"（{week_parity_label(self._parity)}）"
+            )
+
+    # ================================================================
+    #  鼠标交互
+    # ================================================================
+    def mousePressEvent(self, event) -> None:  # noqa: ANN001
+        """按下：命中滑块则进入拖拽，否则直接滑向点击的一侧。"""
+        if event.button() != Qt.LeftButton:  # type: ignore
+            return
+        self._anim_timer.stop()
+        x: float = float(event.position().x())
+        knob_w: float = self._knob_width()
+        knob_left: float = (
+            self.KNOB_MARGIN + self._pos * (self.TRACK_WIDTH - self.KNOB_MARGIN * 2 - knob_w)
+        )
+        if knob_left <= x <= knob_left + knob_w:
+            self._dragging = True
+            self._moved = False
+            self._drag_offset = x - knob_left
+        else:
+            # 点击轨道：直接滑向点击侧
+            self._pos = 1.0 if x >= self.TRACK_WIDTH / 2.0 else 0.0
+            self._settle()
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: ANN001
+        """拖拽：滑块跟随鼠标移动。"""
+        if not self._dragging:
+            return
+        self._moved = True
+        self._pos = self._pos_from_x(float(event.position().x()))
+        self.update()
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: ANN001
+        """松开：吸附到最近档位（按在滑块上但未拖动则视为点击翻转）。"""
+        if event.button() != Qt.LeftButton:  # type: ignore
+            return
+        if self._dragging and not self._moved:
+            # 点按滑块不拖动 → 翻转到另一档
+            self._pos = 0.0 if self._pos >= 0.5 else 1.0
+        self._dragging = False
+        self._moved = False
+        self._settle()
+
+    # ================================================================
+    #  绘制
+    # ================================================================
+    def paintEvent(self, event) -> None:  # noqa: ANN001
+        """绘制轨道、左右两档文字与滑块。"""
+        painter: QPainter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)  # type: ignore
+
+        w: int = self.TRACK_WIDTH
+        h: int = self.TRACK_HEIGHT
+        radius: float = h / 2.0
+
+        # ---- 轨道 ----
+        # 注意：颜色常量可能是 QSS 风格的 rgba(...)，必须经 _qcolor 转换，
+        # 否则 QColor 解析失败会让 QBrush 退化成纯黑。
+        painter.setPen(Qt.NoPen)  # type: ignore
+        painter.setBrush(QBrush(_qcolor(self._track_color)))
+        painter.drawRoundedRect(0, 0, w, h, radius, radius)
+
+        # ---- 滑块（当前档位高亮）----
+        margin: int = self.KNOB_MARGIN
+        knob_w: float = self._knob_width()
+        knob_x: float = margin + self._pos * (w - margin * 2 - knob_w)
+        painter.setBrush(QBrush(_qcolor(self._accent, '#4CAF50')))
+        painter.drawRoundedRect(
+            int(round(knob_x)), margin, int(round(knob_w)), h - margin * 2,
+            (h - margin * 2) / 2.0, (h - margin * 2) / 2.0,
+        )
+
+        # ---- 左右两档文字 ----
+        font: QFont = QFont("Microsoft YaHei", 10, QFont.Bold)  # type: ignore
+        painter.setFont(font)
+        half: float = w / 2.0
+        # 滑块中心位置决定哪一档处于「选中」态
+        selected: int = 1 if self._pos >= 0.5 else 0
+        for index, text in enumerate(('单周', '双周')):
+            color: QColor = (
+                QColor('#FFFFFF') if index == selected
+                else _qcolor(self._dim_color, '#757575')
+            )
+            painter.setPen(QPen(color))
+            painter.drawText(
+                int(round(index * half)), 0, int(round(half)), h,
+                int(Qt.AlignCenter), text,  # type: ignore
+            )
 
 
 # ==================== 色相圆盘控件 ====================
@@ -725,6 +1011,11 @@ class SettingsWindow(ThemedWidget):
         self._event_card: Optional[QFrame] = None
         self._event_scroll_layout: Optional[QVBoxLayout] = None
         self._event_buttons: List[QPushButton] = []
+
+        # 单双周校准卡片引用（KnotLink 页面「事件系统」卡片下方）
+        self._parity_card: Optional[QFrame] = None
+        self._parity_switch: Optional[WeekParitySwitch] = None
+        self._parity_status: Optional[QLabel] = None
 
         # KnotLink 信号表格引用（事件新建确认后刷新信号列表时使用）
         self._knotlink_signal_table: Optional[QTableWidget] = None
@@ -1496,6 +1787,9 @@ class SettingsWindow(ThemedWidget):
         # ---- 事件系统分区 ----
         inner_layout.addWidget(self._build_event_section_card())
 
+        # ---- 单双周校准分区（紧跟在事件系统卡片下方）----
+        inner_layout.addWidget(self._build_week_parity_section_card())
+
         # ---- 接口（openSocket）分区 ----
         inner_layout.addWidget(self._build_knotlink_section_card(
             "接口（openSocket）", interfaces, is_signal=False,
@@ -1780,6 +2074,160 @@ class SettingsWindow(ThemedWidget):
         self._refresh_event_rules()
 
         return card
+
+    # ================================================================
+    #  单双周校准卡片
+    # ================================================================
+    def _build_week_parity_section_card(self) -> QFrame:
+        """
+        构建"单双周校准"分区卡片（位于事件系统卡片下方）。
+        -------------------------------------------------
+        卡片内部：分区标题 + 简短提示 + 左右滑动滑块（单周 / 双周）+ 状态文字。
+
+        用途：事件规则里的「单周 / 双周」需要一个基准 —— 本卡片告诉程序
+        校准当周是单周还是双周，其余周按相隔周数自动推算（相邻周必然相反）。
+
+        保存：拖动 / 点击滑块即写入主配置文件 Config/schedule_config.ini
+        的 week_parity 与 week_parity_date（本卡片没有确定/取消按钮）。
+        仅当单双周真正改变时才刷新日期锚点，避免反复切换把锚点越推越远。
+        """
+        fc: str = self._theme.font_color
+
+        card: QFrame = QFrame()
+        card.setObjectName('knotlinkCard')
+        card.setStyleSheet(self._get_knotlink_card_style())
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # type: ignore
+        self._parity_card = card
+
+        card_layout: QVBoxLayout = QVBoxLayout(card)
+        card_layout.setContentsMargins(20, 14, 20, 16)
+        card_layout.setSpacing(10)
+
+        # ---- 分区标题 ----
+        section_title: QLabel = QLabel("单双周校准")
+        section_title.setFont(QFont("Microsoft YaHei", 15, QFont.Bold))  # type: ignore
+        section_title.setStyleSheet(f"color: {fc}; background: transparent;")
+        card_layout.addWidget(section_title)
+
+        # ---- 分区提示 ----
+        hint: QLabel = QLabel(
+            "告诉程序本周是单周还是双周，用于推算「单周 / 双周」事件在哪几周触发；"
+            "其余周由相隔周数自动推算（相邻周必然相反）。"
+            "左右拖动或点击滑块切换，改动立即保存到主配置文件。"
+        )
+        hint.setFont(QFont("Microsoft YaHei", 10))
+        hint.setStyleSheet(f"color: {fc}; background: transparent; opacity: 0.55;")
+        hint.setWordWrap(True)
+        card_layout.addWidget(hint)
+
+        # ---- 左右滑动滑块 + 状态文字 ----
+        self._parity_switch = WeekParitySwitch(
+            accent=self._parity_accent(),
+            track_color=self._parity_track_color(),
+            dim_color=self._parity_dim_color(),
+        )
+        self._parity_switch.set_parity(self._saved_week_parity())
+        self._parity_switch.changed.connect(self._on_parity_changed)
+
+        self._parity_status = QLabel("")
+        self._parity_status.setFont(QFont("Microsoft YaHei", 10))
+        self._parity_status.setStyleSheet(
+            f"color: {fc}; background: transparent; opacity: 0.70;"
+        )
+        self._parity_status.setWordWrap(True)
+
+        switch_row: QHBoxLayout = QHBoxLayout()
+        switch_row.setSpacing(16)
+        switch_row.addWidget(self._parity_switch, 0, Qt.AlignVCenter)  # type: ignore
+        switch_row.addWidget(self._parity_status, 1, Qt.AlignVCenter)  # type: ignore
+        card_layout.addLayout(switch_row)
+
+        self._refresh_parity_status()
+        return card
+
+    # ================================================================
+    #  单双周校准 — 配色 / 读写
+    # ================================================================
+    def _parity_accent(self) -> str:
+        """返回单双周滑块的强调色（与设置页主色一致）。"""
+        return '#43A047' if self._theme.theme == 'darkcolor' else '#4CAF50'
+
+    def _parity_track_color(self) -> str:
+        """返回单双周滑块的轨道底色（深色模式用浅色半透明，否则不可见）。"""
+        if self._theme.theme == 'darkcolor':
+            return 'rgba(255, 255, 255, 0.10)'
+        return 'rgba(0, 0, 0, 0.07)'
+
+    def _parity_dim_color(self) -> str:
+        """返回未选中档位的文字色（半透明，弱于选中档的白字）。"""
+        if self._theme.theme == 'darkcolor':
+            return 'rgba(255, 255, 255, 0.60)'
+        return 'rgba(0, 0, 0, 0.55)'
+
+    def _saved_week_parity(self) -> str:
+        """返回主配置文件中已保存的单双周（未校准时为单周）。"""
+        return normalize_week_parity(
+            getattr(self._theme, 'week_parity', WEEK_PARITY_ODD)
+        )
+
+    def _on_parity_changed(self, parity: str) -> None:
+        """
+        滑块切换 → 立即把单双周校准写回主配置文件。
+        ------------------------------------------
+        本卡片没有确定/取消流程（与新建事件等即时生效的操作一致），
+        因此切换即保存；ThemeManager 内部保证单双周未变化时不动锚点。
+        """
+        anchor: date = date.today()
+        save = getattr(self._theme, 'save_week_parity_to_config', None)
+        if save is None:
+            logger.warning("ThemeManager 缺少 save_week_parity_to_config，无法写回")
+            return
+        if save(parity, anchor):
+            logger.info(
+                f"单双周校准已更新为 {week_parity_label(parity)}"
+                f"（校准日期 {anchor:%Y-%m-%d}）"
+            )
+        self._refresh_parity_status()
+
+    def _refresh_parity_status(self) -> None:
+        """刷新单双周校准的状态文字（当前值 / 校准日期 / 本周推算结果）。"""
+        if self._parity_status is None or self._parity_switch is None:
+            return
+        parity: str = self._parity_switch.parity()
+        saved: str = self._saved_week_parity()
+        anchor: str = str(
+            getattr(self._theme, 'week_parity_date', '') or ''
+        ).strip()
+
+        parts: List[str] = [f"当前：{week_parity_label(parity)}"]
+        if parity != saved:
+            parts.append("（尚未保存）")
+        if anchor:
+            parts.append(f"· 校准日期 {anchor}")
+            # 顺带显示今天的推算结果，便于确认校准是否正确
+            week_parity_for = getattr(self._theme, 'week_parity_for', None)
+            if callable(week_parity_for):
+                today_label: str = week_parity_label(week_parity_for(date.today()))
+                parts.append(f"· 本周为 {today_label}")
+        else:
+            parts.append("· 尚未记录校准日期")
+        self._parity_status.setText(" ".join(parts))
+
+    def _refresh_parity_theme(self) -> None:
+        """主题切换时刷新单双周卡片与滑块配色。"""
+        if self._parity_card is not None:
+            self._parity_card.setStyleSheet(self._get_knotlink_card_style())
+        if self._parity_switch is not None:
+            self._parity_switch.set_colors(
+                accent=self._parity_accent(),
+                track_color=self._parity_track_color(),
+                dim_color=self._parity_dim_color(),
+            )
+        if self._parity_status is not None:
+            self._parity_status.setStyleSheet(
+                f"color: {self._theme.font_color}; background: transparent;"
+                f" opacity: 0.70;"
+            )
 
     # ================================================================
     #  KnotLink 规则表格 / 按钮样式
@@ -6253,6 +6701,8 @@ class SettingsWindow(ThemedWidget):
             btn.setStyleSheet(ev_style)
             btn.style().unpolish(btn)  # type: ignore
             btn.style().polish(btn)  # type: ignore
+        # 刷新单双周校准卡片（主题切换时卡片底色与滑块配色都要更新）
+        self._refresh_parity_theme()
 
     # ================================================================
     #  导航按钮样式刷新
@@ -8242,17 +8692,26 @@ def _event_rule_summary(rule: Dict) -> str:
     生成事件规则的可读摘要（用于列表按钮与日志）。
     -------------------------------------------------
     按 type 字段返回：
-      daily   → 每天
-      weekly  → 每周一 … 每周日
-      monthly → 每月1日 … 每月31日
-      yearly  → 每年1月1日 … 每年12月31日
-      date    → 具体日期（YYYY-MM-DD）；旧格式规则（无 type）也按此处理
+      daily     → 每天
+      weekly    → 每周一 … 每周日
+      odd_week  → 单周一 … 单周日（单周内的指定星期）
+      even_week → 双周一 … 双周日（双周内的指定星期）
+      monthly   → 每月1日 … 每月31日
+      yearly    → 每年1月1日 … 每年12月31日
+      date      → 具体日期（YYYY-MM-DD）；旧格式规则（无 type）也按此处理
+
+    说明：单周 / 双周的具体周次由主配置文件 week_parity /
+          week_parity_date（单双周校准）推算。
     """
     rtype: str = str(rule.get('type', '') or '').strip() or 'date'
     if rtype == 'daily':
         return '每天'
     if rtype == 'weekly':
         return f"每周{_WEEKDAY_SUFFIX[_clamp_int(rule.get('weekday'), 0, 6)]}"
+    if rtype == 'odd_week':
+        return f"单周{_WEEKDAY_SUFFIX[_clamp_int(rule.get('weekday'), 0, 6)]}"
+    if rtype == 'even_week':
+        return f"双周{_WEEKDAY_SUFFIX[_clamp_int(rule.get('weekday'), 0, 6)]}"
     if rtype == 'monthly':
         return f"每月{_clamp_int(rule.get('day'), 1, 31)}日"
     if rtype == 'yearly':
@@ -9153,13 +9612,17 @@ class EventRuleDialog(ThemedDialog):
       - 信号变量（第二行，英文；参考 onClassStart / onClassEnd 的
         on + 驼峰 命名规范，由翻译结果简单处理后自动填入，可手动修改）
       - 事件描述（第三行）
-      - 触发日期：每天 / 每周 / 每月 / 每年 / 具体时间点
+      - 触发日期：每天 / 每周 / 单周 / 双周 / 每月 / 每年 / 具体时间点
         （参照显示规则子窗口的规则类型；除「每天」外均使用滚轮控件选择）
       - 时间（时/分滚轮）
       - 编辑模式下提供「删除事件」按钮
 
     确认后（新建模式）除写入事件规则外，还会按 KnotLink 信号规则
     把新信号写入 Config/knotlink/signals.json，并刷新信号列表。
+
+    ★ 「单周 / 双周」具体落在哪几周，由设置页「KnotLink → 单双周校准」
+      卡片统一校准（写入主配置文件 week_parity / week_parity_date），
+      本子窗口不再重复提供校准入口。
     ---
     """
 
@@ -9172,6 +9635,10 @@ class EventRuleDialog(ThemedDialog):
         self._deleted: bool = False
         self._worker: Optional[TranslateWorker] = None
         self._translate_running: bool = False
+        # 卡片容器与底部按钮行（供 _limit_height_to_screen 计算期望高度）
+        self._card_host: Optional[QWidget] = None
+        self._footer_row: Optional[QHBoxLayout] = None
+        self._natural_height: int = 0
 
         self.setWindowTitle('编辑事件' if rule else '新建事件')
         self.setWindowFlags(
@@ -9199,11 +9666,59 @@ class EventRuleDialog(ThemedDialog):
         else:
             return self._theme.back_color, self._theme.font_color
 
+    def _limit_height_to_screen(self) -> None:
+        """
+        按内容自然高度确定子窗口尺寸，并限制在可用屏幕高度内。
+        ------------------------------------------------------
+        卡片区在 QScrollArea 中，其 sizeHint 很小；若直接用 adjustSize()，
+        窗口会缩成一小条（大量内容需要滚动）。因此这里显式按
+        「卡片内容高度 + 按钮行 + 边距」算出期望高度，再收敛到屏幕可用
+        高度；内容超出时由滚动区域承担，保证「确定 / 取消」始终可见
+        （1536×864 等缩放屏幕尤其明显）。
+        """
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            return
+        available: int = int(screen.availableGeometry().height())
+        if available <= 0:
+            return
+
+        # 预留 48px 给窗口标题栏与上下留白
+        cap: int = max(320, available - 48)
+
+        # 先激活布局，否则 sizeHint 可能仍是初始值，算出的高度会偏小
+        own_layout = self.layout()
+        if own_layout is not None:
+            own_layout.activate()
+        if self._card_host is not None and self._card_host.layout() is not None:
+            self._card_host.layout().activate()
+
+        content_h: int = (
+            self._card_host.sizeHint().height()
+            if self._card_host is not None else 0
+        )
+        footer_h: int = (
+            self._footer_row.sizeHint().height()
+            if self._footer_row is not None else 0
+        )
+        natural: int = content_h + footer_h + 20 + 20 + 14  # 边距 + 间距
+        want_w: int = max(self.minimumWidth(), self.sizeHint().width())
+        want_h: int = min(natural, cap)
+
+        self._natural_height: int = natural
+        self.setMaximumHeight(cap)
+        self.resize(want_w, want_h)
+        logger.info(
+            f"EventRuleDialog 尺寸：{want_w}×{want_h}"
+            f"（卡片内容 {content_h}px + 按钮行 {footer_h}px = {natural}px，"
+            f"屏幕可用上限 {cap}px）"
+        )
+
     # ================================================================
     #  UI 构建
     # ================================================================
     def _setup_ui(self) -> None:
-        """构造对话框布局。"""
+        """构造对话框布局（卡片区可滚动，按钮行固定在底部）。"""
         layout: QVBoxLayout = QVBoxLayout(self)
         layout.setSpacing(14)
         layout.setContentsMargins(24, 20, 24, 20)
@@ -9211,8 +9726,49 @@ class EventRuleDialog(ThemedDialog):
         self.setStyleSheet(self._build_qss())
         bg, tc = self._get_wheel_colors()
 
+        # ---- 卡片区：放入滚动区域 ----
+        # 卡片较多（事件信息 / 触发日期 / 时间）且含 150px 滚轮，
+        # 整体高度在 1080P 及系统缩放后的屏幕上会超出可用高度（如 1536×864）。
+        # 因此卡片区用 QScrollArea 承载、按钮行固定在底部，
+        # 保证任何分辨率下「确定 / 取消」都可见（见 _limit_height_to_screen）。
+        scroll: QScrollArea = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)  # type: ignore
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
+        scroll.setStyleSheet(f"""
+            QScrollArea {{
+                background: transparent;
+                border: none;
+            }}
+            QScrollBar:vertical {{
+                width: 6px;
+                background: transparent;
+                margin: 0px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {self._theme.border_color};
+                border-radius: 3px;
+                min-height: 20px;
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                background: transparent;
+            }}
+        """)
+
+        card_host: QWidget = QWidget()
+        card_host.setStyleSheet("background: transparent;")
+        self._card_host: QWidget = card_host
+        cards: QVBoxLayout = QVBoxLayout(card_host)
+        cards.setContentsMargins(0, 0, 6, 0)
+        cards.setSpacing(14)
+        scroll.setWidget(card_host)
+        layout.addWidget(scroll, 1)
+
         # ---- 卡片0：事件信息（名称 / 信号变量 / 描述）----
-        info_card: QVBoxLayout = self._add_card("事件信息", layout)
+        info_card: QVBoxLayout = self._add_card("事件信息", cards)
         fc_info: str = self._theme.font_color
 
         name_label: QLabel = QLabel("事件名称")
@@ -9265,25 +9821,35 @@ class EventRuleDialog(ThemedDialog):
         self._name_edit.editingFinished.connect(self._on_name_finished)
 
         # ---- 卡片1：触发日期 ----
-        date_card: QVBoxLayout = self._add_card("触发日期", layout)
+        date_card: QVBoxLayout = self._add_card("触发日期", cards)
 
         # 触发类型单选（参照显示规则子窗口的规则类型）
+        # 单周 / 双周 = 「每周」的升级版：只在单周或双周内的指定星期触发
         self._daily_radio: QRadioButton = QRadioButton("每天")
         self._weekly_radio: QRadioButton = QRadioButton("每周")
+        self._odd_week_radio: QRadioButton = QRadioButton("单周")
+        self._even_week_radio: QRadioButton = QRadioButton("双周")
         self._monthly_radio: QRadioButton = QRadioButton("每月")
         self._yearly_radio: QRadioButton = QRadioButton("每年")
         self._date_radio: QRadioButton = QRadioButton("具体时间点")
-        for r in (self._daily_radio, self._weekly_radio, self._monthly_radio,
+        for r in (self._daily_radio, self._weekly_radio, self._odd_week_radio,
+                  self._even_week_radio, self._monthly_radio,
                   self._yearly_radio, self._date_radio):
             r.setFont(QFont("Microsoft YaHei", 11))
 
-        radio_row: QHBoxLayout = QHBoxLayout()
-        radio_row.setSpacing(16)
-        for r in (self._daily_radio, self._weekly_radio, self._monthly_radio,
-                  self._yearly_radio, self._date_radio):
-            radio_row.addWidget(r)
-        radio_row.addStretch()
-        date_card.addLayout(radio_row)
+        # 用网格排布（每行 4 项）：7 个选项单行会超出子窗口宽度
+        radio_grid: QGridLayout = QGridLayout()
+        radio_grid.setHorizontalSpacing(16)
+        radio_grid.setVerticalSpacing(8)
+        radio_grid.setContentsMargins(0, 0, 0, 0)
+        for index, r in enumerate((
+            self._daily_radio, self._weekly_radio,
+            self._monthly_radio, self._yearly_radio,
+            self._date_radio, self._odd_week_radio, self._even_week_radio,
+        )):
+            radio_grid.addWidget(r, index // 4, index % 4)
+        radio_grid.setColumnStretch(4, 1)
+        date_card.addLayout(radio_grid)
 
         # 每天：无额外选择，仅提示
         self._daily_hint: QLabel = self._make_hint(
@@ -9291,7 +9857,7 @@ class EventRuleDialog(ThemedDialog):
         )
         date_card.addWidget(self._daily_hint)
 
-        # 每周：星期滚轮（周一～周日）
+        # 每周 / 单周 / 双周：星期滚轮（周一～周日）
         self._weekday_wheel: WheelColumn = WheelColumn(
             list(_WEEKDAY_LABELS), 0, bg_color=bg, text_color=tc,
         )
@@ -9332,7 +9898,7 @@ class EventRuleDialog(ThemedDialog):
         date_card.addWidget(self._date_wheel, 0, Qt.AlignHCenter)  # type: ignore
 
         # ---- 卡片2：时间 ----
-        time_card: QVBoxLayout = self._add_card("时间", layout)
+        time_card: QVBoxLayout = self._add_card("时间", cards)
 
         hour_items: List[str] = [f"{i:02d}" for i in range(24)]
         min_items: List[str] = [f"{i:02d}" for i in range(60)]
@@ -9387,16 +9953,20 @@ class EventRuleDialog(ThemedDialog):
         confirm_btn.clicked.connect(self._on_confirm)
         btn_row.addWidget(confirm_btn)
 
+        self._footer_row: QHBoxLayout = btn_row
         layout.addLayout(btn_row)
         self.setLayout(layout)
 
         # ---- 联动：类型单选切换可见控件 ----
-        for r in (self._daily_radio, self._weekly_radio, self._monthly_radio,
+        for r in (self._daily_radio, self._weekly_radio, self._odd_week_radio,
+                  self._even_week_radio, self._monthly_radio,
                   self._yearly_radio, self._date_radio):
             r.toggled.connect(self._on_type_changed)
 
         self._daily_radio.setChecked(True)
         self._on_type_changed()
+        # 放在类型联动之后再算尺寸：此时可见控件已确定，期望高度才准确
+        self._limit_height_to_screen()
 
     # ================================================================
     #  信号变量自动翻译
@@ -9505,6 +10075,14 @@ class EventRuleDialog(ThemedDialog):
         lbl.setWordWrap(True)
         lbl.setAlignment(Qt.AlignCenter)  # type: ignore
         return lbl
+
+    # ================================================================
+    #  单双周
+    # ================================================================
+    # 说明：单双周校准是独立于事件规则的全局设置，已移到设置页
+    #      「KnotLink → 单双周校准」卡片中（见 _build_week_parity_section_card），
+    #      本子窗口只负责选择「单周 / 双周」这一触发类型。
+
 
     def _build_qss(self) -> str:
         """构建对话框 QSS 样式。"""
@@ -9643,6 +10221,15 @@ class EventRuleDialog(ThemedDialog):
             self._weekday_wheel.set_current_index(
                 _clamp_int(rule.get('weekday'), 0, 6)
             )
+        elif rtype in ('odd_week', 'even_week'):
+            # 单周 / 双周：与「每周」共用星期滚轮
+            if rtype == 'odd_week':
+                self._odd_week_radio.setChecked(True)
+            else:
+                self._even_week_radio.setChecked(True)
+            self._weekday_wheel.set_current_index(
+                _clamp_int(rule.get('weekday'), 0, 6)
+            )
         elif rtype == 'monthly':
             self._monthly_radio.setChecked(True)
             self._month_day_wheel.set_current_index(
@@ -9682,12 +10269,16 @@ class EventRuleDialog(ThemedDialog):
         """按当前选中的触发类型显示对应的日期控件。"""
         daily: bool = self._daily_radio.isChecked()
         weekly: bool = self._weekly_radio.isChecked()
+        odd_week: bool = self._odd_week_radio.isChecked()
+        even_week: bool = self._even_week_radio.isChecked()
         monthly: bool = self._monthly_radio.isChecked()
         yearly: bool = self._yearly_radio.isChecked()
         specific: bool = self._date_radio.isChecked()
+        # 每周 / 单周 / 双周都需要选星期几
+        uses_weekday: bool = weekly or odd_week or even_week
 
         self._daily_hint.setVisible(daily)
-        self._weekday_wheel.setVisible(weekly)
+        self._weekday_wheel.setVisible(uses_weekday)
         self._month_day_wheel.setVisible(monthly)
         self._year_month_wheel.setVisible(yearly)
         self._year_day_wheel.setVisible(yearly)
@@ -9697,6 +10288,10 @@ class EventRuleDialog(ThemedDialog):
         """返回当前选中的触发类型标识。"""
         if self._weekly_radio.isChecked():
             return 'weekly'
+        if self._odd_week_radio.isChecked():
+            return 'odd_week'
+        if self._even_week_radio.isChecked():
+            return 'even_week'
         if self._monthly_radio.isChecked():
             return 'monthly'
         if self._yearly_radio.isChecked():
@@ -9756,6 +10351,9 @@ class EventRuleDialog(ThemedDialog):
             'desc': self._desc_edit.text().strip(),
         }
         if rtype == 'weekly':
+            rule['weekday'] = self._weekday_wheel.current_index
+        elif rtype in ('odd_week', 'even_week'):
+            # 单周 / 双周：与「每周」共用 weekday 字段（0=周一 … 6=周日）
             rule['weekday'] = self._weekday_wheel.current_index
         elif rtype == 'monthly':
             rule['day'] = self._month_day_wheel.current_index + 1

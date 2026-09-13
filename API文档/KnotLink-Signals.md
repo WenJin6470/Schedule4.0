@@ -71,3 +71,24 @@
 ```
 
 ---
+
+## onMusicClass — 音乐课
+
+- **信号变量名**: `onMusicClass`
+- **触发时间**: `08:00`
+- **描述**: 
+
+**载荷字段**:
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `onMusicClass` | string | 音乐课 |
+| `triggerTime` | string | 触发时间（HH:MM） |
+
+**示例**:
+
+```json
+{"event": "onMusicClass", "triggerTime": "08:00"}
+```
+
+---

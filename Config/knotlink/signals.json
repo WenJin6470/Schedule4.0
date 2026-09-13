@@ -55,5 +55,24 @@
             }
         ],
         "example": "{\"event\": \"onEyerobics\", \"triggerTime\": \"10:15\"}"
+    },
+    {
+        "name": "onMusicClass",
+        "title": "音乐课",
+        "intro": "",
+        "trigger": "08:00",
+        "fields": [
+            {
+                "name": "onMusicClass",
+                "type": "string",
+                "desc": "音乐课"
+            },
+            {
+                "name": "triggerTime",
+                "type": "string",
+                "desc": "触发时间（HH:MM）"
+            }
+        ],
+        "example": "{\"event\": \"onMusicClass\", \"triggerTime\": \"08:00\"}"
     }
 ]

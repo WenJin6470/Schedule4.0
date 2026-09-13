@@ -38,6 +38,97 @@ from schedule_countdown import (  # noqa: E402
 logger: logging.Logger = logging.getLogger(__name__)
 
 
+# ==================== 单双周常量 ====================
+
+# 单双周标识（主配置文件 week_parity 的取值）
+WEEK_PARITY_ODD: str = 'odd'    # 单周
+WEEK_PARITY_EVEN: str = 'even'  # 双周
+
+# 单双周标识 → 中文显示名
+WEEK_PARITY_LABELS: Dict[str, str] = {
+    WEEK_PARITY_ODD: '单周',
+    WEEK_PARITY_EVEN: '双周',
+}
+
+
+def normalize_week_parity(value: Any) -> str:
+    """
+    把任意值规范化为合法的单双周标识。
+    ----------------------------------
+    参数：
+        value（Any）：待规范化的值，接受 'odd' / 'even'（大小写不敏感）、
+                      以及中文 '单周' / '双周'
+
+    返回值：
+        str：WEEK_PARITY_ODD（单周）或 WEEK_PARITY_EVEN（双周）；
+             无法识别时返回 WEEK_PARITY_ODD
+    """
+    text: str = str(value or '').strip().lower()
+    if text in ('even', 'double', '双周', '双'):
+        return WEEK_PARITY_EVEN
+    return WEEK_PARITY_ODD
+
+
+def week_parity_label(value: Any) -> str:
+    """把单双周标识转换为中文显示名（单周 / 双周）。"""
+    return WEEK_PARITY_LABELS[normalize_week_parity(value)]
+
+
+def toggle_week_parity(value: Any) -> str:
+    """返回与给定单双周相反的单双周标识。"""
+    if normalize_week_parity(value) == WEEK_PARITY_ODD:
+        return WEEK_PARITY_EVEN
+    return WEEK_PARITY_ODD
+
+
+def week_parity_of_date(anchor_parity: Any, anchor_date: Any,
+                        target: Any = None) -> str:
+    """
+    按「校准周 + 校准日期」推算指定日期所在周的单双周。
+    --------------------------------------------------
+    以周一为一周的开始：先取 target 与 anchor_date 各自所在周的周一，
+    再按两者相隔的周数奇偶决定是否翻转校准值（相邻周必然相反）。
+
+    参数：
+        anchor_parity（Any）：校准当周的单双周（'odd' / 'even' / '单周' / '双周'）
+        anchor_date  （Any）：校准日期（date 或 'YYYY-MM-DD' 字符串）；
+                              为空 / 非法时不做推算，直接返回校准值
+        target       （Any）：待推算的日期（date 或 'YYYY-MM-DD'），
+                              默认为今天
+
+    返回值：
+        str：WEEK_PARITY_ODD（单周）或 WEEK_PARITY_EVEN（双周）
+    """
+    parity: str = normalize_week_parity(anchor_parity)
+
+    def _to_date(value: Any) -> Optional[date]:
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        text: str = str(value or '').strip()
+        if not text:
+            return None
+        try:
+            return date.fromisoformat(text)
+        except (ValueError, TypeError):
+            return None
+
+    anchor: Optional[date] = _to_date(anchor_date)
+    if anchor is None:
+        return parity
+    point: date = _to_date(target) or date.today()
+
+    # 各自所在周的周一（weekday()：周一=0 … 周日=6）
+    anchor_monday: date = anchor - timedelta(days=anchor.weekday())
+    point_monday: date = point - timedelta(days=point.weekday())
+    weeks: int = (point_monday - anchor_monday).days // 7
+    if weeks % 2 == 0:
+        return parity
+    return toggle_week_parity(parity)
+
+
+
 # ==================== 工具函数 ====================
 
 def normalize_hex_color(value: str, fallback: str = '#2196f3') -> str:
@@ -193,6 +284,12 @@ class ThemeManager:
         # ---- 开机自启动（默认开启，启动时注册到注册表 Run 键）----
         self.autostart: bool = True
 
+        # ---- 单双周校准（事件系统「单周 / 双周」触发类型据此推算）----
+        # week_parity      — 校准当周是单周（odd）还是双周（even）
+        # week_parity_date — 校准日期锚点（YYYY-MM-DD，空表示尚未校准）
+        self.week_parity: str = WEEK_PARITY_ODD
+        self.week_parity_date: str = ''
+
         # ---- 加载配置 ----
         self._load_config()
         self._load_subject_config()
@@ -230,6 +327,8 @@ class ThemeManager:
                 self.log_retention_days = 7
                 self.subject_font = 'Arial'
                 self.version = '4.0.0.0'
+                self.week_parity = WEEK_PARITY_ODD
+                self.week_parity_date = ''
                 self._apply_theme()
                 return
 
@@ -338,6 +437,19 @@ class ThemeManager:
             )
             self.autostart = autostart_str.strip().lower() in (
                 'true', '1', 'yes', 'on'
+            )
+
+            # --- week_parity / week_parity_date（单双周校准，默认 单周 / 未校准）---
+            self.week_parity = normalize_week_parity(
+                parser.get('Schedule', 'week_parity', fallback=WEEK_PARITY_ODD)
+            )
+            self.week_parity_date: str = parser.get(
+                'Schedule', 'week_parity_date', fallback=''
+            ).strip()
+            logger.info(
+                f"单双周校准：week_parity={self.week_parity}"
+                f"（{week_parity_label(self.week_parity)}），"
+                f"week_parity_date={self.week_parity_date or '未校准'}"
             )
 
             self._apply_theme()
@@ -462,6 +574,113 @@ class ThemeManager:
             )
         except Exception as e:
             logger.error(f"写回 schedule_config.ini 高考年份失败：{e}")
+
+    # ================================================================
+    #  单双周校准（事件系统「单周 / 双周」触发类型使用）
+    # ================================================================
+    def week_parity_for(self, day: Any = None) -> str:
+        """
+        推算指定日期所在周是单周还是双周。
+        ----------------------------------
+        参数：
+            day（Any）：待推算的日期（date / datetime / 'YYYY-MM-DD'），
+                        默认为今天
+
+        返回值：
+            str：WEEK_PARITY_ODD（单周）或 WEEK_PARITY_EVEN（双周）
+
+        说明：以 week_parity（校准当周的单双周）+ week_parity_date（校准日期）
+              为锚点，按相隔周数的奇偶推算；尚未校准（日期为空）时
+              所有周都返回 week_parity。
+        """
+        return week_parity_of_date(self.week_parity, self.week_parity_date, day)
+
+    def week_parity_text(self, day: Any = None) -> str:
+        """返回指定日期所在周的中文单双周名（单周 / 双周）。"""
+        return week_parity_label(self.week_parity_for(day))
+
+    def save_week_parity_to_config(self, parity: Any,
+                                  anchor_date: Any = None) -> bool:
+        """
+        把单双周校准写回 schedule_config.ini 并同步到内存属性。
+        ------------------------------------------------------
+        参数：
+            parity      （Any）：新的单双周（'odd' / 'even' / '单周' / '双周'）
+            anchor_date （Any）：校准日期锚点（date 或 'YYYY-MM-DD'），
+                                 默认为今天
+
+        返回值：
+            bool：True 表示已保存（或无需保存）
+
+        说明（★ 重要）：
+            仅当单双周真正发生变化、或此前尚未写入锚点时才刷新锚点日期。
+            否则用户每次都点「确定」会把锚点不断往后挪，导致原本正确的
+            单双周推算整体偏移。
+        """
+        new_parity: str = normalize_week_parity(parity)
+        if new_parity == self.week_parity and self.week_parity_date:
+            logger.info(
+                f"单双周校准未变化（{week_parity_label(new_parity)}），跳过写回"
+            )
+            return True
+
+        anchor: date = anchor_date if isinstance(anchor_date, date) else date.today()
+        anchor_str: str = anchor.strftime('%Y-%m-%d')
+
+        script_dir: str = app_root()
+        ini_path: str = os.path.join(script_dir, 'Config', 'schedule_config.ini')
+        if not os.path.exists(ini_path):
+            logger.warning(f"配置文件不存在，无法写回单双周校准：{ini_path}")
+            self.week_parity = new_parity
+            self.week_parity_date = anchor_str
+            return False
+
+        try:
+            with open(ini_path, 'r', encoding='utf-8') as f:
+                lines: List[str] = f.readlines()
+
+            updated: Dict[str, bool] = {
+                'week_parity': False,
+                'week_parity_date': False,
+            }
+            out: List[str] = []
+            for line in lines:
+                stripped: str = line.lstrip()
+                if stripped.startswith(';') or stripped.startswith('#'):
+                    out.append(line)
+                    continue
+                if '=' in line:
+                    key: str = line.split('=', 1)[0].strip()
+                    if key == 'week_parity' and not updated['week_parity']:
+                        out.append(f"week_parity = {new_parity}\n")
+                        updated['week_parity'] = True
+                        continue
+                    if (key == 'week_parity_date'
+                            and not updated['week_parity_date']):
+                        out.append(f"week_parity_date = {anchor_str}\n")
+                        updated['week_parity_date'] = True
+                        continue
+                out.append(line)
+
+            if not updated['week_parity']:
+                out.append(f"week_parity = {new_parity}\n")
+            if not updated['week_parity_date']:
+                out.append(f"week_parity_date = {anchor_str}\n")
+
+            with open(ini_path, 'w', encoding='utf-8') as f:
+                f.writelines(out)
+
+            self.week_parity = new_parity
+            self.week_parity_date = anchor_str
+            logger.info(
+                f"已把单双周校准写回 schedule_config.ini："
+                f"week_parity={new_parity}（{week_parity_label(new_parity)}），"
+                f"week_parity_date={anchor_str}"
+            )
+            return True
+        except Exception as e:
+            logger.error(f"写回 schedule_config.ini 单双周校准失败：{e}")
+            return False
 
     # ================================================================
     #  应用主题颜色
@@ -1477,14 +1696,22 @@ class EventRulesManager:
 
     字段说明：
       type    — 触发类型：daily（每天）/ weekly（每周）/
+                odd_week（单周）/ even_week（双周）/
                 monthly（每月）/ yearly（每年）/ date（具体时间点）
                 （旧格式规则没有 type 字段，视为 date 类型）
       date    — 具体时间点日期（YYYY-MM-DD，仅 type=date 使用）
-      weekday — 星期索引（0=周一 … 6=周日，仅 type=weekly 使用）
+      weekday — 星期索引（0=周一 … 6=周日，
+                type=weekly / odd_week / even_week 使用）
       month   — 月份（1-12，仅 type=yearly 使用）
       day     — 日期（1-31，type=monthly / type=yearly 使用）
       time    — 事件时间（HH:MM，即事件触发时刻）
       name    — 事件名称
+
+    单周 / 双周说明：
+      odd_week / even_week 表示「只在单周或双周内的指定星期触发」。
+      具体某一周属于单周还是双周，由主配置文件 Config/schedule_config.ini
+      的 week_parity（校准当周的单双周）与 week_parity_date（校准日期）
+      推算（见 ThemeManager.week_parity_for）。
 
     对外接口：
       - load_rules()           → 读取所有事件规则
@@ -1564,11 +1791,13 @@ class EventRulesManager:
         参数：
             rule（Dict）：完整事件规则字典，至少包含 type/time/name，
                           以及各类型对应的字段：
-                          type='daily'   → 每天固定时间触发
-                          type='weekly'  → 每周（weekday：0=周一 … 6=周日）
-                          type='monthly' → 每月（day：1-31）
-                          type='yearly'  → 每年（month：1-12，day：1-31）
-                          type='date'    → 具体时间点（date：YYYY-MM-DD）
+                          type='daily'     → 每天固定时间触发
+                          type='weekly'    → 每周（weekday：0=周一 … 6=周日）
+                          type='odd_week'  → 单周（weekday：0=周一 … 6=周日）
+                          type='even_week' → 双周（weekday：0=周一 … 6=周日）
+                          type='monthly'   → 每月（day：1-31）
+                          type='yearly'    → 每年（month：1-12，day：1-31）
+                          type='date'      → 具体时间点（date：YYYY-MM-DD）
 
         返回值：
             int：新规则的索引；保存失败时返回 -1
