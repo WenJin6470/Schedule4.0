@@ -220,8 +220,8 @@ def _install_connect_timeout(timeout: float = _CONNECT_TIMEOUT) -> bool:
                 super().send_data(data)
 
         _TimeoutTcpClient._schedule4_timeout_installed = True  # type: ignore[attr-defined]
-        resp_mod.TcpClient = _TimeoutTcpClient
-        send_mod.TcpClient = _TimeoutTcpClient
+        resp_mod.TcpClient = _TimeoutTcpClient # type: ignore
+        send_mod.TcpClient = _TimeoutTcpClient # pyright: ignore[reportAttributeAccessIssue]
         logger.debug(f"已为 KnotLink TcpClient 安装连接超时：{timeout}s")
         return True
     except Exception as e:  # noqa: BLE001
@@ -465,7 +465,7 @@ class KnotLinkBridge:
             if obj is None:
                 continue
             try:
-                obj.disconnect()
+                obj.disconnect() # type: ignore
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"断开 KnotLink 连接失败（忽略）：{e}")
         cls._responser = None
