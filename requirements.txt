@@ -9,3 +9,10 @@ PySide6>=6.0
 # KnotLink SDK —— 可选依赖（节点网络接入）
 # 未安装时 knotlink_bridge.py 会静默降级，课表功能不受影响
 knotlink @ git+https://github.com/KnotLink-Protocol/KnotLinkSDK.git#subdirectory=knotlink-sdk-python/knotlink
+
+# MSP —— 可选依赖（节点网络接入：既是功能提供方，也是信号发出方）
+# 未安装时 msp_bridge.py 会静默降级，课表功能不受影响。
+# 提供 3 个接口：get-lesson-state / get-today-schedule / swap-course
+# 发布 2 个信号：schedule.class.start / schedule.class.end
+# ⚠️ 仓库为私有，安装需要本机 git 凭据；固定 commit 以保证构建可重现。
+msp-py @ git+https://github.com/hxh230802/MSP.git@2ac2fa29966dddccbecf48fc2bd69252f35b5aa6

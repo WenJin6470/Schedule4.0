@@ -1225,7 +1225,7 @@ def _check_embedded_manifests() -> None:
             path: str = os.path.join(src_dir, fname)
             if not os.path.isfile(path):
                 continue
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, 'r', encoding='utf-8-sig') as f:
                 on_disk: str = f.read()
             if on_disk != embedded:
                 logger.warning(

@@ -816,7 +816,7 @@ class SubjectSelectWindow(ThemedWidget):
         saved_data: Dict = {}
         try:
             if os.path.exists(json_path):
-                with open(json_path, 'r', encoding='utf-8') as f:
+                with open(json_path, 'r', encoding='utf-8-sig') as f:
                     saved_data = json.load(f)
         except (json.JSONDecodeError, OSError) as e:
             logger.warning(f"[SubjectSelectWindow] 无法读取原始课表文件：{e}")

@@ -312,7 +312,7 @@ def find_previous_version(current: str) -> Optional[Tuple[str, Dict]]:
         vtuple: Tuple[int, ...] = parse_version(ver)
         if vtuple < cur:
             try:
-                data = json.loads(manifest_path.read_text(encoding='utf-8'))
+                data = json.loads(manifest_path.read_text(encoding='utf-8-sig'))
                 candidates.append((vtuple, ver, data))
             except Exception:  # noqa: BLE001
                 continue

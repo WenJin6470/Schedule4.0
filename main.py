@@ -43,6 +43,7 @@ from schedule_frontend import ScheduleMainWindow
 from schedule_backend import TimeManager, ScheduleBackend, WindowHelper, LogManager
 from schedule_translate import TranslationMonitor
 from knotlink_bridge import KnotLinkBridge
+from msp_bridge import MSPBridge
 from app_paths import app_root, is_frozen
 from schedule_updater import UpdateWorker, is_newer
 from migration import migrate_install_dir_if_needed
@@ -488,6 +489,31 @@ def main() -> None:
     QTimer.singleShot(0, _init_knotlink)
 
     # ================================================================
+    #  第6.6步：延迟初始化 MSP 桥接（课表节点随程序一起启动）
+    #  ★ 课表在这里同时成为 MSP 网络里的「功能提供方」和「信号发出方」：
+    #      接口 3 个：get-lesson-state / get-today-schedule / swap-course
+    #      信号 2 个：schedule.class.start / schedule.class.end
+    #    上下课信号的触发时间取自程序**当前正在使用的那一份时间表**
+    #    （由 Display_Rules 按日期解析得到），不硬编码。
+    #  ★ MSP SDK 是可选依赖：未安装时 msp_bridge 内部静默降级，
+    #    课表功能完全不受影响。
+    # ================================================================
+    logger.info("MSP 桥接已安排，将在窗口内容显示后初始化...")
+
+    def _init_msp() -> None:
+        """窗口内容显示后初始化 MSP 桥接，避免阻塞启动流程。"""
+        logger.info("正在初始化 MSP 桥接...")
+        MSPBridge.setup(
+            time_manager=time_manager,
+            schedule_data=schedule_data,
+            main_window=main_window,
+            debug_config=debug_config,
+        )
+        logger.info("MSP 桥接初始化完成")
+
+    QTimer.singleShot(0, _init_msp)
+
+    # ================================================================
     #  第7步：延迟启动自动更新检查（5 秒后，后台线程，不阻塞启动）
     # ================================================================
     QTimer.singleShot(5000, lambda: _start_update_check(theme_manager, app))
@@ -509,6 +535,14 @@ def main() -> None:
         KnotLinkBridge.teardown()
     except Exception as e:  # noqa: BLE001
         logger.warning(f"KnotLink 桥接清理失败（忽略）：{e}")
+
+    # ---- 收尾：关闭 MSP 节点（撤销声明文件、断开所有连接）----
+    #  ★ MSP 0.1.0 的节点 stop 后不可再次 start（心跳线程不会复活），
+    #    所以这里是进程退出前的一次性收尾。
+    try:
+        MSPBridge.teardown()
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"MSP 桥接清理失败（忽略）：{e}")
 
     sys.exit(exit_code)
 

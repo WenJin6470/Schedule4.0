@@ -97,7 +97,7 @@ def needs_migration(app_dir: str) -> bool:
         return False
     attempts: int = 0
     try:
-        with open(_attempts_path(actual), 'r', encoding='utf-8') as f:
+        with open(_attempts_path(actual), 'r', encoding='utf-8-sig') as f:
             attempts = int((f.read() or '').strip() or 0)
     except Exception:  # noqa: BLE001
         attempts = 0

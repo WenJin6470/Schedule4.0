@@ -334,7 +334,7 @@ class ThemeManager:
 
             logger.info(f"找到配置文件：{config_path}")
             parser: ConfigParser = ConfigParser()
-            parser.read(config_path, encoding='utf-8')
+            parser.read(config_path, encoding='utf-8-sig')
 
             # --- theme ---
             theme_str: str = parser.get('Schedule', 'theme', fallback=default_theme)
@@ -533,7 +533,7 @@ class ThemeManager:
             logger.warning(f"配置文件不存在，无法写回高考年份：{ini_path}")
             return
         try:
-            with open(ini_path, 'r', encoding='utf-8') as f:
+            with open(ini_path, 'r', encoding='utf-8-sig') as f:
                 lines: List[str] = f.readlines()
 
             updated: Dict[str, bool] = {
@@ -636,7 +636,7 @@ class ThemeManager:
             return False
 
         try:
-            with open(ini_path, 'r', encoding='utf-8') as f:
+            with open(ini_path, 'r', encoding='utf-8-sig') as f:
                 lines: List[str] = f.readlines()
 
             updated: Dict[str, bool] = {
@@ -751,7 +751,7 @@ class ThemeManager:
                 return
 
             logger.info(f"找到科目配置文件：{config_path}")
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(config_path, 'r', encoding='utf-8-sig') as f:
                 self.subject_config = json.load(f)
 
             subject_types = self.subject_config.get("Subject_Types", {})
@@ -870,7 +870,7 @@ class SubjectConfigManager:
             if not os.path.exists(self._file_path):
                 logger.warning(f"科目配置文件不存在：{self._file_path}")
                 return default
-            with open(self._file_path, 'r', encoding='utf-8') as f:
+            with open(self._file_path, 'r', encoding='utf-8-sig') as f:
                 data: Dict = json.load(f)
             if not isinstance(data, dict):
                 logger.warning("科目配置文件格式异常（非对象），返回空结构")
@@ -1069,7 +1069,7 @@ class ScheduleDataManager:
                 return
 
             logger.info(f"找到课表数据文件：{config_path}")
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(config_path, 'r', encoding='utf-8-sig') as f:
                 self.curriculum_data = json.load(f)
 
             days = list(self.curriculum_data.keys())
@@ -1097,7 +1097,7 @@ class ScheduleDataManager:
                 return
 
             logger.info(f"找到课时配置文件：{config_path}")
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(config_path, 'r', encoding='utf-8-sig') as f:
                 self.timetable_data = json.load(f)
 
             lesson_count = len([
@@ -1446,7 +1446,13 @@ class SwapManager:
             if not os.path.exists(self._swap_file_path):
                 logger.info("换课记录文件不存在，返回空列表")
                 return []
-            with open(self._swap_file_path, 'r', encoding='utf-8') as f:
+            # 用 utf-8-sig 读取：它会自动去掉可能存在的 UTF-8 BOM。
+            # 换课记录文件是用户可见、也可能被外部程序写入的，用记事本保存或
+            # PowerShell 的 Set-Content -Encoding UTF8 都会带上 BOM，而普通
+            # 'utf-8' 会让 json.load 直接抛 "Unexpected UTF-8 BOM"，导致
+            # **全部换课记录被静默丢弃**（只留一行 ERROR 日志）。
+            # utf-8-sig 对「有 BOM」和「没 BOM」的文件都能正确读取。
+            with open(self._swap_file_path, 'r', encoding='utf-8-sig') as f:
                 data = json.load(f)
             if isinstance(data, list):
                 logger.debug(f"已加载 {len(data)} 条换课记录")
@@ -1743,7 +1749,7 @@ class EventRulesManager:
             if not os.path.exists(self._file_path):
                 logger.debug("事件规则文件不存在，返回空列表")
                 return []
-            with open(self._file_path, 'r', encoding='utf-8') as f:
+            with open(self._file_path, 'r', encoding='utf-8-sig') as f:
                 data = json.load(f)
             if isinstance(data, list):
                 return [
@@ -2068,7 +2074,7 @@ class KnotLinkCatalogManager:
             return [self._normalize_rule(rule) for rule in defaults]
 
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, 'r', encoding='utf-8-sig') as f:
                 data: Any = json.load(f)
             if not isinstance(data, list):
                 raise ValueError('目录文件内容不是列表')
@@ -2106,7 +2112,7 @@ class KnotLinkCatalogManager:
         path: str = os.path.join(self._script_dir, self.SIGNALS_PATH)
         try:
             if os.path.exists(path):
-                with open(path, 'r', encoding='utf-8') as f:
+                with open(path, 'r', encoding='utf-8-sig') as f:
                     data: Any = json.load(f)
                 if not isinstance(data, list):
                     data = []
@@ -2274,7 +2280,7 @@ class DebugConfig:
 
             logger.info(f"找到调试配置文件：{config_path}")
             parser: ConfigParser = ConfigParser()
-            parser.read(config_path, encoding='utf-8')
+            parser.read(config_path, encoding='utf-8-sig')
 
             # --- enabled ---
             enabled_str: str = parser.get('Debug', 'enabled', fallback='false')
@@ -2584,7 +2590,7 @@ class DisplayRulesManager:
             if not os.path.exists(self._file_path):
                 logger.info("显示规则文件不存在，返回空字典")
                 return {}
-            with open(self._file_path, 'r', encoding='utf-8') as f:
+            with open(self._file_path, 'r', encoding='utf-8-sig') as f:
                 content: str = f.read()
             if not content.strip():
                 logger.info("显示规则文件为空，返回空字典")
@@ -2901,7 +2907,7 @@ class DisplayRulesManager:
             if not os.path.exists(self._ini_path):
                 logger.warning(f"配置文件不存在，无法写回：{self._ini_path}")
                 return False
-            with open(self._ini_path, 'r', encoding='utf-8') as f:
+            with open(self._ini_path, 'r', encoding='utf-8-sig') as f:
                 lines: List[str] = f.readlines()
 
             updated: Dict[str, bool] = {'table': False, 'timetable': False}

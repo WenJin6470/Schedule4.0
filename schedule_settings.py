@@ -29,7 +29,7 @@ import re
 import subprocess
 import sys
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtWidgets import (
     QApplication, QFrame, QHBoxLayout, QLabel, QPushButton,
@@ -3636,7 +3636,7 @@ class SettingsWindow(ThemedWidget):
             logger.warning(f"配置文件不存在，无法写回高考年份：{ini_path}")
             return
         try:
-            with open(ini_path, 'r', encoding='utf-8') as f:
+            with open(ini_path, 'r', encoding='utf-8-sig') as f:
                 lines: List[str] = f.readlines()
 
             updated: Dict[str, bool] = {
@@ -3803,7 +3803,7 @@ class SettingsWindow(ThemedWidget):
             logger.warning(f"配置文件不存在，无法写回路径：{ini_path}")
             return
         try:
-            with open(ini_path, 'r', encoding='utf-8') as f:
+            with open(ini_path, 'r', encoding='utf-8-sig') as f:
                 lines: List[str] = f.readlines()
 
             updated: Dict[str, bool] = {'table': False, 'timetable': False}
@@ -3856,7 +3856,7 @@ class SettingsWindow(ThemedWidget):
             logger.warning(f"配置文件不存在，无法写回字体：{ini_path}")
             return
         try:
-            with open(ini_path, 'r', encoding='utf-8') as f:
+            with open(ini_path, 'r', encoding='utf-8-sig') as f:
                 lines: List[str] = f.readlines()
 
             updated: bool = False
@@ -3897,7 +3897,7 @@ class SettingsWindow(ThemedWidget):
             logger.warning(f"配置文件不存在，无法写回语言：{ini_path}")
             return
         try:
-            with open(ini_path, 'r', encoding='utf-8') as f:
+            with open(ini_path, 'r', encoding='utf-8-sig') as f:
                 lines: List[str] = f.readlines()
 
             updated: bool = False
@@ -3935,7 +3935,7 @@ class SettingsWindow(ThemedWidget):
             logger.warning(f"配置文件不存在，无法写回外观设置：{ini_path}")
             return
         try:
-            with open(ini_path, 'r', encoding='utf-8') as f:
+            with open(ini_path, 'r', encoding='utf-8-sig') as f:
                 lines: List[str] = f.readlines()
 
             updated: Dict[str, bool] = {'theme': False, 'theme_color': False}
@@ -4011,7 +4011,7 @@ class SettingsWindow(ThemedWidget):
             logger.warning(f"配置文件不存在，无法写回开机自启动：{ini_path}")
             return
         try:
-            with open(ini_path, 'r', encoding='utf-8') as f:
+            with open(ini_path, 'r', encoding='utf-8-sig') as f:
                 lines: List[str] = f.readlines()
             autostart_val: str = 'true' if self._theme.autostart else 'false'
             updated: bool = False
@@ -4386,7 +4386,7 @@ class SettingsWindow(ThemedWidget):
         try:
             block: str = self._signal_doc_block(entry)
             if os.path.exists(doc_path):
-                with open(doc_path, 'r', encoding='utf-8') as f:
+                with open(doc_path, 'r', encoding='utf-8-sig') as f:
                     existing: str = f.read()
                 if f"## {name}" in existing:
                     logger.info(f"信号文档已存在条目 {name}，跳过追加")
@@ -4713,7 +4713,7 @@ class SettingsWindow(ThemedWidget):
         for fname in ScheduleDataManager.get_curriculum_files():
             path: str = os.path.join(script_dir, 'Config', 'curriculum', fname)
             try:
-                with open(path, 'r', encoding='utf-8') as f:
+                with open(path, 'r', encoding='utf-8-sig') as f:
                     data: Any = json.load(f)
             except (OSError, json.JSONDecodeError) as e:
                 logger.warning(f"课程表文件读取失败，跳过：{fname}（{e}）")
@@ -5161,7 +5161,7 @@ class SettingsWindow(ThemedWidget):
         # 直接读取文件到编辑副本，不影响共享数据
         try:
             load_path: str = os.path.join(script_dir, rel_path)
-            with open(load_path, 'r', encoding='utf-8') as f:
+            with open(load_path, 'r', encoding='utf-8-sig') as f:
                 self._editing_timetable_data = json.load(f)
             self._editing_timetable_path = rel_path
             self._has_unsaved_changes = True
@@ -5199,7 +5199,7 @@ class SettingsWindow(ThemedWidget):
             # 从已有文件复制
             src_path: str = os.path.join(timetable_dir, copy_from)
             try:
-                with open(src_path, 'r', encoding='utf-8') as f:
+                with open(src_path, 'r', encoding='utf-8-sig') as f:
                     data = json.load(f)
             except Exception as e:
                 logger.error(f"复制时间表模板失败：{e}")
@@ -5220,7 +5220,7 @@ class SettingsWindow(ThemedWidget):
         # 加载新文件到编辑副本
         rel_path: str = f"Config/timetable/{name}"
         try:
-            with open(new_path, 'r', encoding='utf-8') as f:
+            with open(new_path, 'r', encoding='utf-8-sig') as f:
                 self._editing_timetable_data = json.load(f)
             self._editing_timetable_path = rel_path
             self._has_unsaved_changes = True
@@ -5504,16 +5504,100 @@ class SettingsWindow(ThemedWidget):
             return
         items: List[tuple] = list(data.items())
         items[idx], items[new_idx] = items[new_idx], items[idx]
-        self._editing_timetable_data = dict(items)
+
+        # ★ 按「从上到下」的新顺序重新编号（lesson_1..N / dividerline_1..M）。
+        #   不重编号的话，键会跟着行一起跑，界面上就会出现 3、1、2 这种乱序编号，
+        #   程序也就无法靠编号判断「当前上到第几节课」。
+        renumbered, key_mapping = self._renumber_timetable_keys(dict(items))
+        self._editing_timetable_data = renumbered
+
+        # 课时改了名，课程表里对应的科目必须跟着搬，否则科目标签会整体错位
+        if key_mapping and self._editing_curriculum_data:
+            self._editing_curriculum_data = self._remap_curriculum_keys(
+                self._editing_curriculum_data, key_mapping
+            )
 
         self._has_unsaved_changes = True
         self._save_editing_timetable_file()
+        if key_mapping:
+            # 课程表的键也变了，必须一起落盘，否则重启后科目与课时对不上
+            self._save_editing_curriculum_file()
         self._refresh_table()
         self._refresh_status_label()
         self._refresh_apply_button()
 
         # 高亮移动后的行（蓝色突出显示本次操作的行）
         self._highlight_entry_row(new_idx)
+
+    # ================================================================
+    #  时间表 — 课时重新编号
+    # ================================================================
+    @staticmethod
+    def _renumber_timetable_keys(data: Dict) -> Tuple[Dict, Dict[str, str]]:
+        """按当前排列顺序把课时、分隔线重新编号。
+
+        新编号**完全由「从上到下」的排列顺序决定**：
+            lesson_1, lesson_2, ... lesson_N
+            dividerline_1, dividerline_2, ...（保持原有相对位置）
+        识别不出的键原样保留。
+
+        参数：
+            data（Dict）：当前顺序的时间表数据（Python 3.7+ 的 dict 保序）
+
+        返回值：
+            Tuple[Dict, Dict[str, str]]：
+                - 重编号后的新时间表
+                - {旧键: 新键} 映射（只含真正改过名的键），
+                  供调用方同步重映射课程表的课时键
+        """
+        new_data: Dict = {}
+        mapping: Dict[str, str] = {}
+        lesson_no: int = 0
+        divider_no: int = 0
+
+        for key, value in data.items():
+            if key.startswith('lesson_'):
+                lesson_no += 1
+                new_key: str = f'lesson_{lesson_no}'
+            elif key.startswith('dividerline_'):
+                divider_no += 1
+                new_key = f'dividerline_{divider_no}'
+            else:
+                new_key = key
+
+            new_data[new_key] = value
+            if new_key != key:
+                mapping[key] = new_key
+
+        return new_data, mapping
+
+    @staticmethod
+    def _remap_curriculum_keys(curriculum: Dict,
+                               mapping: Dict[str, str]) -> Dict:
+        """按 mapping 重命名课程表里的课时键 —— 科目跟着课时一起走。
+
+        用「先映射、后补漏」两步法：
+          1. 被改名的课时（当前时间表里真实存在的）优先占用目标槽位；
+          2. 课程表里可能残留的陈旧键，只在目标槽位空闲时才保留，
+             避免两者互相覆盖导致科目丢失。
+        """
+        if not mapping:
+            return curriculum
+
+        result: Dict = {}
+        for day, day_data in curriculum.items():
+            src: Dict = day_data or {}
+            new_day: Dict = {}
+            # 1) 被改名的课时：按 mapping 顺序写入（mapping 即新时间表的顺序）
+            for old_key, new_key in mapping.items():
+                if old_key in src:
+                    new_day[new_key] = src[old_key]
+            # 2) 其余键（未被映射，可能是陈旧数据）：槽位空闲才保留
+            for key, value in src.items():
+                if key not in mapping and key not in new_day:
+                    new_day[key] = value
+            result[day] = new_day
+        return result
 
     # ================================================================
     #  课程表 — 提示文本
@@ -5905,7 +5989,7 @@ class SettingsWindow(ThemedWidget):
         )
         try:
             if os.path.exists(config_path):
-                with open(config_path, 'r', encoding='utf-8') as f:
+                with open(config_path, 'r', encoding='utf-8-sig') as f:
                     config_data = json.load(f)
                 subject_types = config_data.get('Subject_Types', {})
                 for cat_name, subjects in subject_types.items():
@@ -6374,7 +6458,7 @@ class SettingsWindow(ThemedWidget):
         # 直接读取文件到课程表编辑副本
         try:
             load_path: str = os.path.join(script_dir, rel_path)
-            with open(load_path, 'r', encoding='utf-8') as f:
+            with open(load_path, 'r', encoding='utf-8-sig') as f:
                 self._editing_curriculum_data = json.load(f)
             self._editing_curriculum_path = rel_path
             self._has_unsaved_changes = True
@@ -6411,7 +6495,7 @@ class SettingsWindow(ThemedWidget):
         if copy_from:
             src_path: str = os.path.join(curriculum_dir, copy_from)
             try:
-                with open(src_path, 'r', encoding='utf-8') as f:
+                with open(src_path, 'r', encoding='utf-8-sig') as f:
                     data = json.load(f)
             except Exception as e:
                 logger.error(f"复制课程表模板失败：{e}")
@@ -6443,7 +6527,7 @@ class SettingsWindow(ThemedWidget):
         rel_path: str = f"Config/curriculum/{name}"
         # 加载到课程表编辑副本
         try:
-            with open(new_path, 'r', encoding='utf-8') as f:
+            with open(new_path, 'r', encoding='utf-8-sig') as f:
                 self._editing_curriculum_data = json.load(f)
             self._editing_curriculum_path = rel_path
             self._has_unsaved_changes = True

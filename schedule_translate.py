@@ -125,7 +125,7 @@ def load_sites() -> List[Dict[str, str]]:
         if not os.path.exists(path):
             logger.warning(f"翻译网站列表不存在：{path}")
             return sites
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, 'r', encoding='utf-8-sig') as f:
             for raw in f:
                 line: str = raw.strip()
                 if not line or line.startswith(';') or line.startswith('#'):
@@ -377,7 +377,7 @@ def pick_test_entry() -> Tuple[str, str]:
     entries: List[Tuple[str, str]] = []
     try:
         if os.path.exists(path):
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, 'r', encoding='utf-8-sig') as f:
                 lines: List[str] = [ln.strip() for ln in f if ln.strip()]
             for line in lines[1:]:  # 跳过表头
                 parts: List[str] = line.split(',', 1)
@@ -430,7 +430,7 @@ def _load_outcome() -> Dict[str, Any]:
     try:
         if not os.path.exists(path):
             return default
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, 'r', encoding='utf-8-sig') as f:
             data: Any = json.load(f)
         if not isinstance(data, dict):
             logger.warning("outcome.json 格式异常（非对象），按空处理")
@@ -530,7 +530,7 @@ def _read_ini_site() -> str:
         if not os.path.exists(path):
             return ''
         parser: ConfigParser = ConfigParser()
-        parser.read(path, encoding='utf-8')
+        parser.read(path, encoding='utf-8-sig')
         return parser.get('Schedule', INI_KEY, fallback='').strip()
     except Exception as e:
         logger.warning(f"读取 INI translation_site 失败：{e}")
@@ -550,7 +550,7 @@ def _write_ini_site(site_id: str) -> bool:
     lines: List[str] = []
     if os.path.exists(path):
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, 'r', encoding='utf-8-sig') as f:
                 lines = f.readlines()
         except OSError as e:
             logger.error(f"读取 INI 失败：{e}")
