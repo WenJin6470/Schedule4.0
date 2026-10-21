@@ -242,6 +242,145 @@ class MSPBridge:
             logger.warning(f"[MSP] 节点停止失败（忽略）：{e}")
 
     # ================================================================
+    #  手动发送信号 —— 设置页「MSP 测试」使用
+    #  ★ 只发布信号，**不触碰** _prev_state 状态机，
+    #    所以手动测试不会干扰真实的上下课判定。
+    # ================================================================
+    @classmethod
+    def is_running(cls) -> bool:
+        """MSP 节点是否已启动。"""
+        return cls._node is not None
+
+    @classmethod
+    def peers(cls) -> List[str]:
+        """当前已连接的对端节点 id 列表。"""
+        node: Any = cls._node
+        if node is None:
+            return []
+        try:
+            return list(node.connections())
+        except Exception:  # noqa: BLE001
+            return []
+
+    @classmethod
+    def endpoint_str(cls) -> str:
+        """当前节点对外端点；未启动时返回空字符串。"""
+        node: Any = cls._node
+        if node is None:
+            return ''
+        ep: Any = getattr(node, 'endpoint', None)
+        if ep is None:
+            return ''
+        # 拼成 tcp://host:port 这种可读形式，避免直接暴露 Endpoint 的 repr
+        addr: Any = getattr(ep, 'address', None)
+        ttype: str = str(getattr(ep, 'transport_type', '') or '')
+        if isinstance(addr, dict):
+            host: Any = addr.get('host', '')
+            port: Any = addr.get('port', '')
+            if host and port:
+                return f'{ttype}://{host}:{port}'
+        return str(ep)
+
+    @classmethod
+    def publish_signal(cls, path: str, payload: Dict[str, Any]) -> Tuple[bool, str]:
+        """手动发布一个信号（测试用，不改变内部状态机）。
+
+        参数：
+            path    （str）：信号路径，如 schedule.class.start
+            payload （dict）：信号负载，必须是 JSON 对象
+
+        返回值：
+            (是否成功, 给人看的说明)
+        """
+        node: Any = cls._node
+        if node is None:
+            return False, 'MSP 节点未启动（SDK 未安装，或桥接尚未初始化完成）'
+        clean_path: str = (path or '').strip()
+        if not clean_path:
+            return False, '信号路径不能为空'
+        if not isinstance(payload, dict):
+            return False, 'payload 必须是 JSON 对象'
+        try:
+            node.publish(clean_path, payload)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[MSP] 手动发布信号失败：{e}")
+            return False, f'发布失败：{e}'
+
+        connected: List[str] = cls.peers()
+        logger.info(
+            f"[MSP] 手动发布 {clean_path}（对端 {len(connected)} 个）：{payload}"
+        )
+        if not connected:
+            return True, (f'已发布 {clean_path}，但当前没有已连接的对端 —— '
+                          f'没有人能收到，信号会丢失')
+        return True, (f'已发布 {clean_path} → {len(connected)} 个对端：'
+                      f'{", ".join(connected)}')
+
+    @classmethod
+    def build_start_payload(cls) -> Tuple[Optional[Dict[str, Any]], str]:
+        """按「当前时间 + 当前课表」构造与真实上课信号同构的 payload。
+
+        优先取当前正在上的那节课；不在课上时退化为下一节；再不行取第一节。
+
+        返回值：
+            (payload 或 None, 说明)
+        """
+        now: Optional[dtime] = cls._now_time()
+        if now is None:
+            return None, '取不到当前时间'
+        periods: List[Tuple[int, str, dtime, dtime]] = cls._ordered_periods()
+        if not periods:
+            return None, '当前时间表里没有可用课时'
+
+        _state, key = cls._detect_period_state(now)
+        target: Optional[Tuple[int, str, dtime, dtime]] = None
+        if key is not None:
+            for item in periods:
+                if item[1] == key:
+                    target = item
+                    break
+        if target is None:
+            target = cls._next_period(now) or periods[0]
+
+        no, lkey, start, end = target
+        return {
+            'event': 'onClassStart',
+            'period': no,
+            'subject': cls._subject_of(lkey),
+            'startTime': cls._fmt_hms(start),
+            'endTime': cls._fmt_hms(end),
+        }, f'取第 {no} 节（{lkey}）'
+
+    @classmethod
+    def build_end_payload(cls) -> Tuple[Optional[Dict[str, Any]], str]:
+        """按「当前时间 + 当前课表」构造与真实下课信号同构的 payload。
+
+        返回值：
+            (payload 或 None, 说明)
+        """
+        now: Optional[dtime] = cls._now_time()
+        if now is None:
+            return None, '取不到当前时间'
+        nxt: Optional[Tuple[int, str, dtime, dtime]] = cls._next_period(now)
+        if nxt is None:
+            return {
+                'event': 'onClassEnd',
+                'nextPeriod': -1,
+                'nextSubject': '',
+                'nextStartTime': '',
+                'leftTime': '00:00:00',
+            }, '今天已无后续课时'
+
+        no, lkey, start, _end = nxt
+        return {
+            'event': 'onClassEnd',
+            'nextPeriod': no,
+            'nextSubject': cls._subject_of(lkey),
+            'nextStartTime': cls._fmt_hms(start),
+            'leftTime': cls._fmt_delta(cls._seconds_between(now, start)),
+        }, f'下一节第 {no} 节（{lkey}）'
+
+    # ================================================================
     #  工具实现 —— 供 _tool_* 模块级函数调用
     # ================================================================
     @classmethod
