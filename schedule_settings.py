@@ -13,11 +13,12 @@
 
 左侧导航栏从上到下：
   - 图标展示（DAILY_SCHEDULE.svg + Schedule4.0 并排）
-  - 基础设置 / 美化 / 课表编辑 / KnotLink / 关于（带 emoji 图标）
+  - 基础设置 / 美化 / 课表编辑 / KnotLink / 软件更新 / 关于 / MSP 测试
+    （带 emoji 图标）
 
 右侧为 QStackedWidget，随左侧导航切换内容页面。
 课表编辑页面已实现时间表编辑器；KnotLink 页面展示 openSocket
-接口规则与 signal 信号规则参考。
+接口规则与 signal 信号规则参考；MSP 测试页面用于手动发送 MSP 信号联调。
 """
 
 import copy
@@ -858,6 +859,7 @@ class SettingsWindow(ThemedWidget):
         ("🔗", "KnotLink", 3),
         ("🔄", "软件更新", 4),
         ("ℹ️", "关于",     5),
+        ("📡", "MSP 测试", 6),
     ]
 
     # 信号：时间表发生变更，通知主窗口重建标签
@@ -1190,8 +1192,8 @@ class SettingsWindow(ThemedWidget):
         """
         构建右侧内容区域。
         ----------------
-        使用 QStackedWidget 管理 5 个页面：
-        基础设置 / 美化 / 课表编辑 / KnotLink / 关于。
+        使用 QStackedWidget 管理 7 个页面：
+        基础设置 / 美化 / 课表编辑 / KnotLink / 软件更新 / 关于 / MSP 测试。
         """
         right_panel: QWidget = QWidget()
         right_panel.setStyleSheet("background: transparent;")
@@ -1214,6 +1216,8 @@ class SettingsWindow(ThemedWidget):
         self._stack.addWidget(self._create_update_page())
         # 页面 5：关于
         self._stack.addWidget(self._create_about_page())
+        # 页面 6：MSP 测试（查看节点状态 + 手动发送信号）
+        self._stack.addWidget(self._create_msp_test_page())
 
         # 默认显示第一页
         self._stack.setCurrentIndex(0)
@@ -1693,6 +1697,292 @@ class SettingsWindow(ThemedWidget):
         layout.addWidget(content, 1)
 
         return page
+
+    # ================================================================
+    #  创建「MSP 测试」页面
+    # ================================================================
+    def _create_msp_test_page(self) -> QWidget:
+        """
+        构建"MSP 测试"页面（手动发送信号）。
+        ------------------------------------
+        页面内容：
+          - 节点状态卡片：是否运行 / node_id / 端点 / 已连接对端
+          - 快捷发送卡片：一键发送「上课」「下课」信号（payload 按当前课表自动构造）
+          - 自定义发送卡片：任意信号路径 + 任意 JSON payload
+
+        说明：只发布信号，不改变 MSPBridge 的上下课状态机，测试完无需重启。
+        """
+        page: QWidget = QWidget()
+        page.setStyleSheet("background: transparent;")
+
+        layout: QVBoxLayout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        scroll: QScrollArea = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)  # type: ignore
+        scroll.setStyleSheet("background: transparent; border: none;")
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
+
+        inner: QWidget = QWidget()
+        inner.setStyleSheet("background: transparent;")
+        inner_layout: QVBoxLayout = QVBoxLayout(inner)
+        inner_layout.setContentsMargins(0, 0, 8, 0)
+        inner_layout.setSpacing(14)
+
+        fc: str = self._theme.font_color
+
+        # ---- 页面标题 ----
+        page_title: QLabel = QLabel("MSP 信号测试")
+        page_title.setFont(QFont("Microsoft YaHei", 22, QFont.Bold))  # type: ignore
+        page_title.setStyleSheet(f"color: {fc}; background: transparent;")
+        page_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore
+        inner_layout.addWidget(page_title)
+
+        hint: QLabel = QLabel(
+            "用于联调：手动向已连接的对端发一条 MSP 信号。"
+            "只发信号，不影响程序自身的上下课判定，测试完不需要重启。"
+        )
+        hint.setFont(QFont("Microsoft YaHei", 10))
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color: {fc}; background: transparent;")
+        inner_layout.addWidget(hint)
+
+        # ---- 卡片 1：节点状态 ----
+        status_card: QFrame = QFrame()
+        status_card.setObjectName('knotlinkCard')
+        status_card.setStyleSheet(self._get_knotlink_card_style())
+        status_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # type: ignore
+        status_layout: QVBoxLayout = QVBoxLayout(status_card)
+        status_layout.setContentsMargins(20, 12, 20, 12)
+        status_layout.setSpacing(8)
+
+        status_title: QLabel = QLabel("节点状态")
+        status_title.setFont(QFont("Microsoft YaHei", 15, QFont.Bold))  # type: ignore
+        status_title.setStyleSheet(f"color: {fc}; background: transparent;")
+        status_layout.addWidget(status_title)
+
+        self._msp_status_label: QLabel = QLabel()
+        self._msp_status_label.setFont(QFont("Microsoft YaHei", 10))
+        self._msp_status_label.setWordWrap(True)
+        self._msp_status_label.setStyleSheet(
+            f"color: {fc}; background: transparent;"
+        )
+        status_layout.addWidget(self._msp_status_label)
+
+        refresh_btn: QPushButton = QPushButton("刷新状态")
+        refresh_btn.setFont(QFont("Microsoft YaHei", 10))
+        refresh_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        refresh_btn.setStyleSheet(self._get_confirm_btn_style())
+        refresh_btn.clicked.connect(self._on_msp_refresh_status)
+        status_layout.addWidget(refresh_btn, 0, Qt.AlignLeft)  # type: ignore
+
+        inner_layout.addWidget(status_card)
+
+        # ---- 卡片 2：快捷发送（按当前课表自动构造 payload）----
+        quick_card: QFrame = QFrame()
+        quick_card.setObjectName('knotlinkCard')
+        quick_card.setStyleSheet(self._get_knotlink_card_style())
+        quick_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # type: ignore
+        quick_layout: QVBoxLayout = QVBoxLayout(quick_card)
+        quick_layout.setContentsMargins(20, 12, 20, 12)
+        quick_layout.setSpacing(8)
+
+        quick_title: QLabel = QLabel("快捷发送")
+        quick_title.setFont(QFont("Microsoft YaHei", 15, QFont.Bold))  # type: ignore
+        quick_title.setStyleSheet(f"color: {fc}; background: transparent;")
+        quick_layout.addWidget(quick_title)
+
+        quick_hint: QLabel = QLabel(
+            "payload 按「当前时间 + 当前时间表」自动构造，与真实信号同构。"
+        )
+        quick_hint.setFont(QFont("Microsoft YaHei", 10))
+        quick_hint.setWordWrap(True)
+        quick_hint.setStyleSheet(f"color: {fc}; background: transparent;")
+        quick_layout.addWidget(quick_hint)
+
+        quick_row: QHBoxLayout = QHBoxLayout()
+        quick_row.setSpacing(10)
+
+        start_btn: QPushButton = QPushButton("发送上课信号")
+        start_btn.setFont(QFont("Microsoft YaHei", 10))
+        start_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        start_btn.setStyleSheet(self._get_confirm_btn_style())
+        start_btn.clicked.connect(self._on_msp_send_start)
+        quick_row.addWidget(start_btn)
+
+        end_btn: QPushButton = QPushButton("发送下课信号")
+        end_btn.setFont(QFont("Microsoft YaHei", 10))
+        end_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        end_btn.setStyleSheet(self._get_confirm_btn_style())
+        end_btn.clicked.connect(self._on_msp_send_end)
+        quick_row.addWidget(end_btn)
+
+        quick_row.addStretch()
+        quick_layout.addLayout(quick_row)
+
+        inner_layout.addWidget(quick_card)
+
+        # ---- 卡片 3：自定义发送 ----
+        custom_card: QFrame = QFrame()
+        custom_card.setObjectName('knotlinkCard')
+        custom_card.setStyleSheet(self._get_knotlink_card_style())
+        custom_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # type: ignore
+        custom_layout: QVBoxLayout = QVBoxLayout(custom_card)
+        custom_layout.setContentsMargins(20, 12, 20, 12)
+        custom_layout.setSpacing(8)
+
+        custom_title: QLabel = QLabel("自定义发送")
+        custom_title.setFont(QFont("Microsoft YaHei", 15, QFont.Bold))  # type: ignore
+        custom_title.setStyleSheet(f"color: {fc}; background: transparent;")
+        custom_layout.addWidget(custom_title)
+
+        path_label: QLabel = QLabel("信号路径")
+        path_label.setFont(QFont("Microsoft YaHei", 10))
+        path_label.setStyleSheet(f"color: {fc}; background: transparent;")
+        custom_layout.addWidget(path_label)
+
+        self._msp_path_combo: QComboBox = QComboBox()
+        self._msp_path_combo.setEditable(True)      # 允许手填任意路径
+        self._msp_path_combo.setFont(QFont("Consolas", 10))
+        self._msp_path_combo.addItems([
+            "schedule.class.start",
+            "schedule.class.end",
+            "schedule.custom.test",
+        ])
+        custom_layout.addWidget(self._msp_path_combo)
+
+        payload_label: QLabel = QLabel("payload（JSON 对象）")
+        payload_label.setFont(QFont("Microsoft YaHei", 10))
+        payload_label.setStyleSheet(f"color: {fc}; background: transparent;")
+        custom_layout.addWidget(payload_label)
+
+        self._msp_payload_edit: QLineEdit = QLineEdit(
+            '{"event": "test", "note": "来自设置页的手动测试"}'
+        )
+        self._msp_payload_edit.setFont(QFont("Consolas", 10))
+        custom_layout.addWidget(self._msp_payload_edit)
+
+        send_btn: QPushButton = QPushButton("发送")
+        send_btn.setFont(QFont("Microsoft YaHei", 10))
+        send_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        send_btn.setStyleSheet(self._get_confirm_btn_style())
+        send_btn.clicked.connect(self._on_msp_send_custom)
+        custom_layout.addWidget(send_btn, 0, Qt.AlignLeft)  # type: ignore
+
+        inner_layout.addWidget(custom_card)
+
+        # ---- 结果提示 ----
+        self._msp_result_label: QLabel = QLabel("")
+        self._msp_result_label.setFont(QFont("Microsoft YaHei", 10))
+        self._msp_result_label.setWordWrap(True)
+        self._msp_result_label.setStyleSheet(
+            f"color: {fc}; background: transparent;"
+        )
+        inner_layout.addWidget(self._msp_result_label)
+
+        inner_layout.addStretch()
+
+        scroll.setWidget(inner)
+        layout.addWidget(scroll)
+
+        # 进页面时先刷一次节点状态（桥接可能还没初始化，也会如实显示）
+        self._refresh_msp_status()
+
+        return page
+
+    # ================================================================
+    #  MSP 测试页面事件处理
+    # ================================================================
+    def _refresh_msp_status(self) -> None:
+        """刷新 MSP 节点状态显示。"""
+        from msp_bridge import MSPBridge  # 延迟导入，避免模块级循环依赖
+
+        try:
+            if not MSPBridge.is_running():
+                text = "状态：未启动\n（MSP SDK 未安装，或桥接尚未初始化完成）"
+            else:
+                peers: List[str] = MSPBridge.peers()
+                peer_text: str = (
+                    f'{len(peers)} 个 —— {", ".join(peers)}' if peers else "0 个"
+                )
+                text = (
+                    f"状态：运行中\n"
+                    f"node_id：{MSPBridge.NODE_ID}\n"
+                    f"端点：{MSPBridge.endpoint_str()}\n"
+                    f"已连接对端：{peer_text}"
+                )
+        except Exception as e:  # noqa: BLE001
+            text = f"读取节点状态失败：{e}"
+
+        if getattr(self, '_msp_status_label', None) is not None:
+            self._msp_status_label.setText(text)
+
+    def _show_msp_result(self, ok: bool, message: str) -> None:
+        """在页面上显示一条发送结果。"""
+        if getattr(self, '_msp_result_label', None) is None:
+            return
+        if self._theme.theme == 'darkcolor':
+            color: str = '#81C784' if ok else '#EF9A9A'
+        else:
+            color = '#2E7D32' if ok else '#C62828'
+        self._msp_result_label.setText(('✅ ' if ok else '❌ ') + message)
+        self._msp_result_label.setStyleSheet(
+            f"color: {color}; background: transparent;"
+        )
+
+    def _on_msp_refresh_status(self) -> None:
+        """「刷新状态」按钮。"""
+        self._refresh_msp_status()
+
+    def _on_msp_send_start(self) -> None:
+        """「发送上课信号」按钮：按当前课表构造 payload 并发布。"""
+        from msp_bridge import MSPBridge
+
+        payload, note = MSPBridge.build_start_payload()
+        if payload is None:
+            self._show_msp_result(False, f"构造上课信号失败：{note}")
+            return
+        ok, message = MSPBridge.publish_signal("schedule.class.start", payload)
+        self._show_msp_result(ok, f"{note} → {message}")
+        self._refresh_msp_status()
+
+    def _on_msp_send_end(self) -> None:
+        """「发送下课信号」按钮：按当前课表构造 payload 并发布。"""
+        from msp_bridge import MSPBridge
+
+        payload, note = MSPBridge.build_end_payload()
+        if payload is None:
+            self._show_msp_result(False, f"构造下课信号失败：{note}")
+            return
+        ok, message = MSPBridge.publish_signal("schedule.class.end", payload)
+        self._show_msp_result(ok, f"{note} → {message}")
+        self._refresh_msp_status()
+
+    def _on_msp_send_custom(self) -> None:
+        """「发送」按钮：按输入的路径与 payload 发布信号。"""
+        from msp_bridge import MSPBridge
+
+        path: str = self._msp_path_combo.currentText().strip()
+        raw: str = self._msp_payload_edit.text().strip()
+        if not raw:
+            payload: Any = {}
+        else:
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError as e:
+                self._show_msp_result(False, f"payload 不是合法 JSON：{e}")
+                return
+        if not isinstance(payload, dict):
+            self._show_msp_result(
+                False, "payload 必须是 JSON 对象（用一对 { } 包起来）"
+            )
+            return
+
+        ok, message = MSPBridge.publish_signal(path, payload)
+        self._show_msp_result(ok, message)
+        self._refresh_msp_status()
 
     # ================================================================
     #  创建 KnotLink 页面
@@ -6848,7 +7138,7 @@ class SettingsWindow(ThemedWidget):
         处理左侧导航按钮点击。
         -------------------
         参数：
-            index（int）：目标页面索引（0-4）
+            index（int）：目标页面索引（0-6）
         """
         # 首次进入课表编辑页面时初始化编辑副本；之后保留编辑状态（修改已直接落盘）
         if index == 2 and self._schedule_data is not None:
